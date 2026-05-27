@@ -7,6 +7,7 @@ results/
 docs/archive/
 .agents/
 .codex/
+.kiro/
 *.log
 website/.docusaurus/
 website/build/
