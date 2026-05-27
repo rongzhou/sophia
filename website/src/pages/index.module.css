@@ -1,0 +1,26 @@
+.hero {
+  padding: 5rem 0 4rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.main {
+  padding: 3rem 0;
+}
+
+.grid {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.grid article {
+  border-left: 4px solid var(--ifm-color-primary);
+  padding-left: 1rem;
+}

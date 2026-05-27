@@ -8,3 +8,6 @@ docs/archive/
 .agents/
 .codex/
 *.log
+website/.docusaurus/
+website/build/
+website/node_modules/
