@@ -1,0 +1,28 @@
+{
+  "id": "build_three_numbers",
+  "title": "Build a three-number list",
+  "category": "L2_list_pure",
+  "scaffold": {
+    "program": "BuildThreeNumbers",
+    "domain": "ListDomain",
+    "action": "BuildThreeNumbers",
+    "capability": "ListPureCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "List<Int>" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that takes no input, builds a list by starting at 2 and appending three even numbers while increasing by 2 each step, and returns the list.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode the full list as a direct return.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "three_even_numbers",
+      "input": {},
+      "expected_result": [2, 4, 6],
+      "expected_effects": []
+    }
+  ]
+}

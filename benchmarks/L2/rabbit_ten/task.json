@@ -1,0 +1,28 @@
+{
+  "id": "rabbit_ten",
+  "title": "Print and return the first ten rabbit numbers",
+  "category": "L2_list_effect",
+  "scaffold": {
+    "program": "PrintFirstTenRabbitNumbers",
+    "domain": "RabbitDomain",
+    "action": "PrintFirstTenRabbitNumbers",
+    "capability": "RabbitConsoleCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "List<Int>" },
+    "effects": ["Console.Write"]
+  },
+  "prompt_goal": "Implement an action that takes no input and computes the first ten rabbit numbers, where R1 = 1, R2 = 1, and each later number is the sum of the previous two. Write each generated number as text and return the list of ten numbers.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode the full list as a direct return.",
+    "Do not use recursion."
+  ],
+  "hidden_cases": [
+    {
+      "name": "first_ten_rabbit_numbers",
+      "input": {},
+      "expected_result": [1, 1, 2, 3, 5, 8, 13, 21, 34, 55],
+      "expected_effects": ["1", "1", "2", "3", "5", "8", "13", "21", "34", "55"]
+    }
+  ]
+}

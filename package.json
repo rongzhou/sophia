@@ -1,0 +1,33 @@
+{
+  "name": "sophia",
+  "version": "0.0.0",
+  "description": "Sophia v0 exploratory LLM-native programming workflow",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "sophia": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "clean": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "dev": "tsx src/cli/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=26.0.0",
+    "npm": ">=11.0.0"
+  },
+  "dependencies": {
+    "commander": "14.0.3",
+    "typescript": "6.0.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.1",
+    "prettier": "3.8.3",
+    "tsx": "4.22.3",
+    "vitest": "4.1.7"
+  }
+}

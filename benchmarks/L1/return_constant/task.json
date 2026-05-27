@@ -1,0 +1,27 @@
+{
+  "id": "return_constant",
+  "title": "Return a fixed integer constant",
+  "category": "L1_basic_pure",
+  "scaffold": {
+    "program": "ReturnConstant",
+    "domain": "ConstantDomain",
+    "action": "ReturnConstant",
+    "capability": "ConstantPureCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "Int" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that takes no input and returns the integer 42.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "returns_42",
+      "input": {},
+      "expected_result": 42,
+      "expected_effects": []
+    }
+  ]
+}

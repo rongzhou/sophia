@@ -1,0 +1,56 @@
+program PrintCountdownFive {
+  purpose {
+    "Compute, print, and return the countdown numbers from five to one."
+  }
+
+  inputs {
+    none
+  }
+
+  outputs {
+    numbers := "list containing exactly five countdown numbers"
+  }
+
+  effects {
+    Console.Write := "print each countdown number on its own line"
+  }
+
+  algorithm {
+    create empty list numbers
+    set current to 5
+
+    repeat 5 times {
+      print current
+      append current to numbers
+      set current to current - 1
+    }
+
+    return numbers
+  }
+
+  constraints {
+    "The returned list must contain exactly five numbers."
+    "The sequence must be 5, 4, 3, 2, 1."
+    "Do not hardcode the full list."
+    "Do not use recursion."
+    "Do not use while or for."
+  }
+
+  forbidden {
+    "Do not use storage."
+    "Do not use time."
+    "Do not use network."
+    "Do not use randomness."
+  }
+
+  expected {
+    stdout := "5\n4\n3\n2\n1\n"
+    result := "[5, 4, 3, 2, 1]"
+  }
+
+  implementation_hints {
+    domain := "CountdownDomain"
+    capability := "CountdownConsoleCapability"
+    action := "PrintCountdownFive"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "countdown_five",
+  "title": "Print and return a five-number countdown",
+  "category": "L2_list_effect",
+  "scaffold": {
+    "program": "PrintCountdownFive",
+    "domain": "CountdownDomain",
+    "action": "PrintCountdownFive",
+    "capability": "CountdownConsoleCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "List<Int>" },
+    "effects": ["Console.Write"]
+  },
+  "prompt_goal": "Implement an action that takes no input, starts at 5, repeats five times, writes each current number as text, appends each current number to a list, decrements the current number, and returns the list.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode the full list as a direct return.",
+    "Do not use recursion."
+  ],
+  "hidden_cases": [
+    {
+      "name": "countdown_five_to_one",
+      "input": {},
+      "expected_result": [5, 4, 3, 2, 1],
+      "expected_effects": ["5", "4", "3", "2", "1"]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+program HelloWorld {
+  purpose {
+    "Print a fixed greeting and return unit."
+  }
+
+  inputs {
+    none
+  }
+
+  outputs {
+    result := "unit after printing"
+  }
+
+  effects {
+    Console.Write := "write greeting to stdout"
+  }
+
+  algorithm {
+    print "Hello, Sophia!"
+    return unit
+  }
+
+  constraints {
+    "The printed text must be exactly Hello, Sophia!"
+  }
+
+  forbidden {
+    "Do not use storage."
+    "Do not use time."
+    "Do not use network."
+    "Do not use randomness."
+  }
+
+  expected {
+    stdout := "Hello, Sophia!\n"
+    result := "unit"
+  }
+
+  implementation_hints {
+    domain := "HelloDomain"
+    capability := "HelloConsoleCapability"
+    action := "HelloWorld"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "id": "zero_or_positive_label",
+  "title": "Return zero or positive classification",
+  "category": "L3_branch_pure",
+  "scaffold": {
+    "program": "ZeroOrPositiveLabel",
+    "domain": "LabelDomain",
+    "action": "ZeroOrPositiveLabel",
+    "capability": "LabelPureCapability",
+    "inputs": [{ "name": "count", "type": "Int" }],
+    "output": { "name": "result", "type": "Text" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts an integer input named count. The count is guaranteed to be zero or positive. Return the literal text label zero when count equals zero; otherwise return the literal text label positive.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "zero",
+      "input": { "count": 0 },
+      "expected_result": "zero",
+      "expected_effects": []
+    },
+    {
+      "name": "positive_one",
+      "input": { "count": 1 },
+      "expected_result": "positive",
+      "expected_effects": []
+    },
+    {
+      "name": "positive_many",
+      "input": { "count": 12 },
+      "expected_result": "positive",
+      "expected_effects": []
+    }
+  ]
+}

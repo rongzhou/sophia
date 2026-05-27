@@ -1,0 +1,40 @@
+{
+  "id": "double_input",
+  "title": "Double an integer input",
+  "category": "L1_basic_pure",
+  "scaffold": {
+    "program": "DoubleInput",
+    "domain": "InputDomain",
+    "action": "DoubleInput",
+    "capability": "InputPureCapability",
+    "inputs": [{ "name": "count", "type": "Int" }],
+    "output": { "name": "result", "type": "Int" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts an integer input named count and returns count multiplied by two.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "positive_value",
+      "input": { "count": 4 },
+      "expected_result": 8,
+      "expected_effects": []
+    },
+    {
+      "name": "zero_value",
+      "input": { "count": 0 },
+      "expected_result": 0,
+      "expected_effects": []
+    },
+    {
+      "name": "negative_value",
+      "input": { "count": -3 },
+      "expected_result": -6,
+      "expected_effects": []
+    }
+  ]
+}

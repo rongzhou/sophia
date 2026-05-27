@@ -1,0 +1,79 @@
+import type { CheckResult } from "../lang/diagnostics.js";
+import { checkPseudocode } from "../pseudo/check.js";
+import type { GraphNode } from "./nodes.js";
+import type { GraphStore } from "./store.js";
+
+export async function createPseudocodeCheckNode(options: {
+  store: GraphStore;
+  pseudoNode: GraphNode;
+  pseudocode: string;
+  tags?: string[];
+  summary?: string;
+}): Promise<{ node: GraphNode; result: CheckResult }> {
+  if (options.pseudoNode.type !== "PseudocodeNode") {
+    throw new Error(`Expected PseudocodeNode, got ${options.pseudoNode.type}.`);
+  }
+  const result = checkPseudocode(options.pseudocode);
+  const node = await options.store.createNode({
+    type: "PseudocodeCheckNode",
+    status: result.ok ? "active" : "failed",
+    createdFrom: options.pseudoNode.id,
+    action_used: "pseudo_check",
+    ...(options.pseudoNode.goal ? { goal: options.pseudoNode.goal } : {}),
+    summary:
+      options.summary ??
+      (result.ok
+        ? "Pseudocode check passed."
+        : `Pseudocode check failed with ${result.diagnostics.length} diagnostic(s).`),
+    artifacts: ["result.json"],
+    tags: options.tags ?? ["pseudo", "check"],
+  });
+  await options.store.writeArtifact(node, "result.json", `${JSON.stringify(result, null, 2)}\n`);
+  await options.store.appendEdge({ from: options.pseudoNode.id, to: node.id, type: "checks" });
+  return { node, result };
+}
+
+export async function assertPseudocodeNodeCanImplement(
+  store: GraphStore,
+  pseudoNode: GraphNode,
+): Promise<{ node: GraphNode; result: CheckResult }> {
+  if (pseudoNode.type !== "PseudocodeNode") {
+    throw new Error(`Expected PseudocodeNode, got ${pseudoNode.type}.`);
+  }
+  const latestCheck = await latestPseudocodeCheckNode(store, pseudoNode);
+  if (!latestCheck) {
+    throw new Error(
+      `PseudocodeNode ${pseudoNode.id} has no PseudocodeCheckNode; run graph pseudo-check ${pseudoNode.id} first.`,
+    );
+  }
+  const result = await store.readArtifactJson<CheckResult>(latestCheck, "result.json");
+  if (!result.ok) {
+    const errorCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.severity === "error",
+    ).length;
+    const warningCount = result.diagnostics.filter(
+      (diagnostic) => diagnostic.severity === "warning",
+    ).length;
+    throw new Error(
+      `PseudocodeNode ${pseudoNode.id} cannot implement because latest pseudocode check failed: ${latestCheck.id} (${errorCount} error(s), ${warningCount} warning(s)); run graph revise-design ${latestCheck.id} or update the pseudocode and re-run graph pseudo-check ${pseudoNode.id}.`,
+    );
+  }
+  return { node: latestCheck, result };
+}
+
+async function latestPseudocodeCheckNode(
+  store: GraphStore,
+  pseudoNode: GraphNode,
+): Promise<GraphNode | null> {
+  const edges = await store.listEdges();
+  const checks = await Promise.all(
+    edges
+      .filter((edge) => edge.from === pseudoNode.id && edge.type === "checks")
+      .map(async (edge) => store.readNode(edge.to)),
+  );
+  return (
+    checks
+      .filter((node) => node.type === "PseudocodeCheckNode")
+      .sort((left, right) => right.id.localeCompare(left.id))[0] ?? null
+  );
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+domains/
+sophia-runs/
+results/
+docs/archive/
+.agents/
+.codex/
+*.log

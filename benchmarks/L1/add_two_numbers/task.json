@@ -1,0 +1,43 @@
+{
+  "id": "add_two_numbers",
+  "title": "Add two integer inputs",
+  "category": "L1_basic_pure",
+  "scaffold": {
+    "program": "AddTwoNumbers",
+    "domain": "ArithmeticDomain",
+    "action": "AddTwoNumbers",
+    "capability": "ArithmeticPureCapability",
+    "inputs": [
+      { "name": "left", "type": "Int" },
+      { "name": "right", "type": "Int" }
+    ],
+    "output": { "name": "result", "type": "Int" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts integer inputs named left and right and returns their sum.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "positive_pair",
+      "input": { "left": 3, "right": 9 },
+      "expected_result": 12,
+      "expected_effects": []
+    },
+    {
+      "name": "mixed_sign_pair",
+      "input": { "left": -4, "right": 11 },
+      "expected_result": 7,
+      "expected_effects": []
+    },
+    {
+      "name": "zero_pair",
+      "input": { "left": 0, "right": 0 },
+      "expected_result": 0,
+      "expected_effects": []
+    }
+  ]
+}

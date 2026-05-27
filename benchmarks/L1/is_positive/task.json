@@ -1,0 +1,40 @@
+{
+  "id": "is_positive",
+  "title": "Classify positive integers",
+  "category": "L1_basic_pure",
+  "scaffold": {
+    "program": "IsPositive",
+    "domain": "PredicateDomain",
+    "action": "IsPositive",
+    "capability": "PredicatePureCapability",
+    "inputs": [{ "name": "count", "type": "Int" }],
+    "output": { "name": "result", "type": "Bool" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts an integer input named count and returns true when count is greater than zero, otherwise false.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "positive",
+      "input": { "count": 5 },
+      "expected_result": true,
+      "expected_effects": []
+    },
+    {
+      "name": "zero",
+      "input": { "count": 0 },
+      "expected_result": false,
+      "expected_effects": []
+    },
+    {
+      "name": "negative",
+      "input": { "count": -2 },
+      "expected_result": false,
+      "expected_effects": []
+    }
+  ]
+}

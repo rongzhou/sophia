@@ -1,0 +1,48 @@
+{
+  "id": "item_delta_pipeline",
+  "title": "Item validation and delta update pipeline",
+  "category": "category_a_cross_action",
+  "scaffold": {
+    "program": "ValidateAndApplyDelta",
+    "domain": "ItemOperations",
+    "action": "ValidateAndApplyDelta",
+    "capability": "RecordValidation",
+    "inputs": [
+      { "name": "item", "type": "Item" },
+      { "name": "delta", "type": "Int" }
+    ],
+    "output": { "name": "result", "type": "Item" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure item update pipeline. The input has an item with value Int and is_active Bool, and a delta Int. Return the resulting item. The update is allowed only when the item is active and the delta is positive. An allowed update adds delta to item.value and preserves item.is_active. A rejected update returns the original item. The implementation must use separate validation, update, and orchestration actions, and the orchestration action must call the validation action before deciding whether to call the update action.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values."
+  ],
+  "hidden_cases": [
+    {
+      "name": "active_positive_delta",
+      "input": { "item": { "value": 10, "is_active": true }, "delta": 7 },
+      "expected_result": { "value": 17, "is_active": true },
+      "expected_effects": []
+    },
+    {
+      "name": "inactive_positive_delta",
+      "input": { "item": { "value": 10, "is_active": false }, "delta": 7 },
+      "expected_result": { "value": 10, "is_active": false },
+      "expected_effects": []
+    },
+    {
+      "name": "active_zero_delta",
+      "input": { "item": { "value": 10, "is_active": true }, "delta": 0 },
+      "expected_result": { "value": 10, "is_active": true },
+      "expected_effects": []
+    },
+    {
+      "name": "active_negative_delta",
+      "input": { "item": { "value": 10, "is_active": true }, "delta": -4 },
+      "expected_result": { "value": 10, "is_active": true },
+      "expected_effects": []
+    }
+  ]
+}

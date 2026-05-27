@@ -1,0 +1,28 @@
+{
+  "id": "sum_first_five",
+  "title": "Sum the first five positive integers",
+  "category": "L2_loop_pure",
+  "scaffold": {
+    "program": "SumFirstFive",
+    "domain": "SumDomain",
+    "action": "SumFirstFive",
+    "capability": "SumPureCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "Int" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that takes no input and computes the sum of the first five positive integers by accumulating 1 through 5. Return the integer total.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode the result as a direct return.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "first_five_total",
+      "input": {},
+      "expected_result": 15,
+      "expected_effects": []
+    }
+  ]
+}

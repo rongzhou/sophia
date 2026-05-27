@@ -1,0 +1,39 @@
+program StaticLabel {
+  purpose {
+    "Return a fixed text label without observable side effects."
+  }
+
+  inputs {
+    none
+  }
+
+  outputs {
+    label := "the fixed text label ready"
+  }
+
+  effects {
+    none
+  }
+
+  algorithm {
+    return "ready"
+  }
+
+  forbidden {
+    "Do not use storage."
+    "Do not use time."
+    "Do not use network."
+    "Do not use randomness."
+    "Do not print."
+  }
+
+  expected {
+    result := "ready"
+  }
+
+  implementation_hints {
+    domain := "TextDomain"
+    capability := "TextPureCapability"
+    action := "StaticLabel"
+  }
+}

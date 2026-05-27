@@ -1,0 +1,39 @@
+{
+  "id": "zero_or_positive",
+  "title": "Print zero or positive classification",
+  "category": "L3_branch_effect",
+  "scaffold": {
+    "program": "PrintZeroOrPositive",
+    "domain": "BranchingDomain",
+    "action": "PrintZeroOrPositive",
+    "capability": "BranchingConsoleCapability",
+    "inputs": [{ "name": "count", "type": "Int" }],
+    "output": { "name": "result", "type": "Unit" },
+    "effects": ["Console.Write"]
+  },
+  "prompt_goal": "Implement an action that accepts an integer input named count. The count is guaranteed to be zero or positive. If count equals zero, write exactly zero and return unit. Otherwise, write exactly positive and return unit.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values."
+  ],
+  "hidden_cases": [
+    {
+      "name": "zero",
+      "input": { "count": 0 },
+      "expected_result": null,
+      "expected_effects": ["zero"]
+    },
+    {
+      "name": "positive_one",
+      "input": { "count": 1 },
+      "expected_result": null,
+      "expected_effects": ["positive"]
+    },
+    {
+      "name": "positive_many",
+      "input": { "count": 9 },
+      "expected_result": null,
+      "expected_effects": ["positive"]
+    }
+  ]
+}

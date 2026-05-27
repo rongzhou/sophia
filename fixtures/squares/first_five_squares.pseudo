@@ -1,0 +1,61 @@
+program PrintFirstFiveSquares {
+  purpose {
+    "Compute, print, and return the first five square numbers."
+  }
+
+  definitions {
+    square_numbers := "For each integer n from 1 through 5, the square number is n * n."
+  }
+
+  inputs {
+    none
+  }
+
+  outputs {
+    numbers := "list containing exactly five square numbers"
+  }
+
+  effects {
+    Console.Write := "print each generated square on its own line"
+  }
+
+  algorithm {
+    create empty list numbers
+    set current to 1
+
+    repeat 5 times {
+      set square to current * current
+      print square
+      append square to numbers
+      set current to current + 1
+    }
+
+    return numbers
+  }
+
+  constraints {
+    "The returned list must contain exactly five numbers."
+    "The sequence must be 1, 4, 9, 16, 25."
+    "Do not hardcode the full list."
+    "Do not use recursion."
+    "Do not use while or for."
+  }
+
+  forbidden {
+    "Do not use storage."
+    "Do not use time."
+    "Do not use network."
+    "Do not use randomness."
+  }
+
+  expected {
+    stdout := "1\n4\n9\n16\n25\n"
+    result := "[1, 4, 9, 16, 25]"
+  }
+
+  implementation_hints {
+    domain := "SquaresDomain"
+    capability := "SquaresConsoleCapability"
+    action := "PrintFirstFiveSquares"
+  }
+}

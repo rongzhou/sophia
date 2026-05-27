@@ -1,0 +1,40 @@
+{
+  "id": "state_status_label",
+  "title": "Match declared task status state",
+  "category": "L3_match_state",
+  "scaffold": {
+    "program": "StateStatusLabel",
+    "domain": "StateMatchDomain",
+    "action": "StateStatusLabel",
+    "capability": "StatePureCapability",
+    "states": [
+      { "name": "TaskStatus", "values": ["Pending", "Done"] }
+    ],
+    "inputs": [
+      { "name": "status", "type": "TaskStatus" }
+    ],
+    "output": { "name": "result", "type": "Text" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action with a declared state named TaskStatus containing values Pending and Done. The action accepts an input named status of type TaskStatus. Use an explicit exhaustive match over status. Return the literal text pending for TaskStatus.Pending and the literal text done for TaskStatus.Done.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects.",
+    "Do not use a catch-all match case; Sophia match cases must be explicit."
+  ],
+  "hidden_cases": [
+    {
+      "name": "pending_status",
+      "input": { "status": "Pending" },
+      "expected_result": "pending",
+      "expected_effects": []
+    },
+    {
+      "name": "done_status",
+      "input": { "status": "Done" },
+      "expected_result": "done",
+      "expected_effects": []
+    }
+  ]
+}

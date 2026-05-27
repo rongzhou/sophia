@@ -1,0 +1,20 @@
+program PrintRabbitNumbers {
+  purpose {
+    "Compute rabbit numbers."
+  }
+
+  inputs {
+    none
+  }
+
+  outputs {
+    numbers := "list of values"
+  }
+
+  algorithm {
+    repeat several times {
+      do the calculation
+    }
+    return numbers
+  }
+}

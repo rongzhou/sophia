@@ -1,0 +1,28 @@
+{
+  "id": "first_five_squares",
+  "title": "Print and return the first five squares",
+  "category": "L2_list_effect",
+  "scaffold": {
+    "program": "PrintFirstFiveSquares",
+    "domain": "SquaresDomain",
+    "action": "PrintFirstFiveSquares",
+    "capability": "SquaresConsoleCapability",
+    "inputs": [],
+    "output": { "name": "result", "type": "List<Int>" },
+    "effects": ["Console.Write"]
+  },
+  "prompt_goal": "Implement an action that takes no input, computes the square numbers for integers 1 through 5, writes each square as text, appends each square to a list, and returns the list.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode the full list as a direct return.",
+    "Do not use recursion."
+  ],
+  "hidden_cases": [
+    {
+      "name": "first_five_squares",
+      "input": {},
+      "expected_result": [1, 4, 9, 16, 25],
+      "expected_effects": ["1", "4", "9", "16", "25"]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+program DoubleInput {
+  purpose {
+    "Return twice the provided integer input."
+  }
+
+  inputs {
+    count := "an integer value"
+  }
+
+  outputs {
+    result := "the input multiplied by two"
+  }
+
+  effects {
+    none
+  }
+
+  algorithm {
+    set doubled to count * 2
+    return doubled
+  }
+
+  forbidden {
+    "Do not use storage."
+    "Do not use time."
+    "Do not use network."
+    "Do not use randomness."
+    "Do not hardcode the result as a direct return."
+  }
+
+  expected {
+    result_when_count_is_4 := "8"
+  }
+
+  implementation_hints {
+    domain := "InputDomain"
+    capability := "InputPureCapability"
+    action := "DoubleInput"
+  }
+}

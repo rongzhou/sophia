@@ -1,0 +1,79 @@
+{
+  "design_solution": {
+    "preconditions": ["Current node is a goal without accepted pseudocode."],
+    "executor": "explicit command",
+    "executor_command": "graph design <goal-node> --model <model>",
+    "produces": "PseudocodeNode plus PseudocodeCheckNode.",
+    "llm_must_not": ["Do not write pseudocode in this decision response."]
+  },
+  "decompose": {
+    "preconditions": ["Goal has clearly separable independent subgoals."],
+    "executor": "explicit command",
+    "executor_command": "not implemented in graph apply; requires explicit decomposition workflow",
+    "produces": "Subgoal nodes.",
+    "llm_must_not": ["Do not create subgoals in this decision response."]
+  },
+  "pseudo_check": {
+    "preconditions": ["Current node is a PseudocodeNode without a recorded pseudo-check."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "PseudocodeCheckNode.",
+    "llm_must_not": ["Do not rewrite pseudocode while selecting this action."]
+  },
+  "revise_design": {
+    "preconditions": ["Pseudocode diagnostics indicate unclear or unsupported execution logic."],
+    "executor": "explicit command",
+    "executor_command": "graph revise-design <pseudo-check-node> --model <model>",
+    "produces": "Revised PseudocodeNode plus PseudocodeCheckNode.",
+    "llm_must_not": ["Do not include the revised pseudocode in this decision response."]
+  },
+  "implement_design": {
+    "preconditions": ["Pseudocode has a passing pseudo-check."],
+    "executor": "explicit command",
+    "executor_command": "graph implement-loop <pseudo-node> --model <model>",
+    "produces": "CodeNode with check/audit loop artifacts.",
+    "llm_must_not": ["Do not write Sophia code in this decision response."]
+  },
+  "check_code": {
+    "preconditions": ["Current CodeNode has no deterministic check result."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "CheckResultNode.",
+    "llm_must_not": ["Do not inspect hidden tests or expected outputs."]
+  },
+  "audit_code": {
+    "preconditions": ["Code passed deterministic check and still needs constraint audit."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "AuditNode.",
+    "llm_must_not": ["Do not approve code directly; select audit only."]
+  },
+  "repair_code": {
+    "preconditions": ["Code check failed and repair budget remains."],
+    "executor": "explicit command",
+    "executor_command": "graph repair <check-node> --model <model>",
+    "produces": "Repaired CodeNode plus diff/check/audit artifacts.",
+    "llm_must_not": ["Do not include repair code in this decision response."]
+  },
+  "select": {
+    "preconditions": ["Code passed deterministic check and audit."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "SelectionNode.",
+    "llm_must_not": ["Do not materialize directly while selecting this action."]
+  },
+  "materialize_code": {
+    "preconditions": ["A SelectionNode exists for checked and audited code."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "MaterializeNode and files in the runnable workspace.",
+    "llm_must_not": ["Do not write files directly in this decision response."]
+  },
+  "complete": {
+    "preconditions": ["The current workflow branch is already materialized or finished."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "No new node.",
+    "llm_must_not": ["Do not invent extra work."]
+  }
+}

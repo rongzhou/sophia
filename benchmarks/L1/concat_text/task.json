@@ -1,0 +1,43 @@
+{
+  "id": "concat_text",
+  "title": "Concatenate two text inputs",
+  "category": "L1_basic_pure",
+  "scaffold": {
+    "program": "ConcatText",
+    "domain": "TextDomain",
+    "action": "ConcatText",
+    "capability": "TextPureCapability",
+    "inputs": [
+      { "name": "left", "type": "Text" },
+      { "name": "right", "type": "Text" }
+    ],
+    "output": { "name": "result", "type": "Text" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts text inputs named left and right and returns left followed immediately by right.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "two_words",
+      "input": { "left": "hello", "right": "world" },
+      "expected_result": "helloworld",
+      "expected_effects": []
+    },
+    {
+      "name": "empty_left",
+      "input": { "left": "", "right": "ready" },
+      "expected_result": "ready",
+      "expected_effects": []
+    },
+    {
+      "name": "empty_right",
+      "input": { "left": "done", "right": "" },
+      "expected_result": "done",
+      "expected_effects": []
+    }
+  ]
+}

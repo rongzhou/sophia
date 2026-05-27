@@ -1,0 +1,43 @@
+{
+  "id": "optional_label_default",
+  "title": "Match optional text with default label",
+  "category": "L3_match_optional",
+  "scaffold": {
+    "program": "OptionalLabelDefault",
+    "domain": "OptionalMatchDomain",
+    "action": "OptionalLabelDefault",
+    "capability": "OptionalPureCapability",
+    "inputs": [
+      { "name": "label", "type": "Optional<Text>" }
+    ],
+    "output": { "name": "result", "type": "Text" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure action that accepts an optional text input named label of type Optional<Text>. Use an explicit exhaustive match over label. Return the contained text when label is Some(value), and return the literal text missing when label is None.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects.",
+    "Do not use a catch-all match case; Sophia match cases must be explicit."
+  ],
+  "hidden_cases": [
+    {
+      "name": "present_label",
+      "input": { "label": "ready" },
+      "expected_result": "ready",
+      "expected_effects": []
+    },
+    {
+      "name": "missing_label",
+      "input": { "label": null },
+      "expected_result": "missing",
+      "expected_effects": []
+    },
+    {
+      "name": "empty_label",
+      "input": { "label": "" },
+      "expected_result": "",
+      "expected_effects": []
+    }
+  ]
+}

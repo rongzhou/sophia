@@ -1,0 +1,7 @@
+dist/
+node_modules/
+sophia-runs/
+benchmarks/**/task.json
+package-lock.json
+fixtures/**/*.pseudo
+domains/**/*.sophia

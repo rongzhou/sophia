@@ -1,0 +1,23 @@
+[project]
+name = "sophia"
+version = "0.1.0"
+sophia_version = "0.1"
+
+[source]
+domain_root = "domains"
+generated_dir = "sophia-runs/generated"
+
+[layout]
+strategy = "domain_first"
+one_top_level_node_per_file = true
+forbid_global_kind_dirs = true
+
+[build]
+target = "typescript"
+out_dir = "sophia-runs/build"
+
+[check]
+require_strip_assist_equivalence = true
+forbid_implicit_imports = true
+forbid_shadowing = true
+require_explicit_cross_domain_boundary = true

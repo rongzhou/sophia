@@ -1,0 +1,48 @@
+{
+  "id": "account_pipeline",
+  "title": "Account deposit validation and update pipeline",
+  "category": "category_a_cross_action",
+  "scaffold": {
+    "program": "ProcessDepositPipeline",
+    "domain": "ActionPipelineDomain",
+    "action": "ProcessDepositPipeline",
+    "capability": "ActionPipelinePureCapability",
+    "inputs": [
+      { "name": "account", "type": "Account" },
+      { "name": "amount", "type": "Int" }
+    ],
+    "output": { "name": "result", "type": "Account" },
+    "effects": []
+  },
+  "prompt_goal": "Implement a pure account deposit pipeline. The input has an account with balance Int and is_locked Bool, and an amount Int. Return the resulting account. A deposit is allowed only when the account is not locked and the amount is positive. An allowed deposit adds the amount to the balance and preserves the lock flag. A rejected deposit returns the original account. The implementation must use separate validation, update, and orchestration actions, and the orchestration action must call the validation action before deciding whether to call the update action.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values."
+  ],
+  "hidden_cases": [
+    {
+      "name": "unlocked_positive_amount",
+      "input": { "account": { "balance": 10, "is_locked": false }, "amount": 7 },
+      "expected_result": { "balance": 17, "is_locked": false },
+      "expected_effects": []
+    },
+    {
+      "name": "locked_positive_amount",
+      "input": { "account": { "balance": 10, "is_locked": true }, "amount": 7 },
+      "expected_result": { "balance": 10, "is_locked": true },
+      "expected_effects": []
+    },
+    {
+      "name": "unlocked_zero_amount",
+      "input": { "account": { "balance": 10, "is_locked": false }, "amount": 0 },
+      "expected_result": { "balance": 10, "is_locked": false },
+      "expected_effects": []
+    },
+    {
+      "name": "unlocked_negative_amount",
+      "input": { "account": { "balance": 10, "is_locked": false }, "amount": -3 },
+      "expected_result": { "balance": 10, "is_locked": false },
+      "expected_effects": []
+    }
+  ]
+}
