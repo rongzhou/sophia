@@ -5,11 +5,11 @@ const docsSidebar = [
   },
   {
     type: "doc",
-    id: "technical-report-v0-2",
+    id: "heuristic-workflow",
   },
   {
     type: "doc",
-    id: "heuristic-workflow",
+    id: "technical-report-v0-2",
   },
 ];
 

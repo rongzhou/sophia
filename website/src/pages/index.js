@@ -24,14 +24,14 @@ function HomepageHeader() {
               Language Design
             </Translate>
           </Link>
-          <Link className="button button--outline button--secondary button--lg" to="/docs/technical-report-v0-2">
-            <Translate id="homepage.technicalReport" description="Homepage technical report button">
-              Technical Report v0.2
-            </Translate>
-          </Link>
           <Link className="button button--outline button--secondary button--lg" to="/docs/heuristic-workflow">
             <Translate id="homepage.heuristicWorkflow" description="Homepage heuristic workflow button">
               Heuristic Workflow
+            </Translate>
+          </Link>
+          <Link className="button button--outline button--secondary button--lg" to="/docs/technical-report-v0-2">
+            <Translate id="homepage.technicalReport" description="Homepage technical report button">
+              Technical Report v0.2
             </Translate>
           </Link>
         </div>

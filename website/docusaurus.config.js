@@ -74,8 +74,8 @@ const config = {
           title: "Documents",
           items: [
             { label: "Language Design", to: "/docs/language-design" },
-            { label: "Technical Report v0.2", to: "/docs/technical-report-v0-2" },
             { label: "Heuristic Workflow", to: "/docs/heuristic-workflow" },
+            { label: "Technical Report v0.2", to: "/docs/technical-report-v0-2" },
           ],
         },
         {
