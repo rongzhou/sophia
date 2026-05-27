@@ -1,0 +1,30 @@
+{
+  "link.title.Documents": {
+    "message": "文档",
+    "description": "The title of the footer links column with title=Documents in the footer"
+  },
+  "link.item.label.Language Design": {
+    "message": "语言设计",
+    "description": "The label of footer link with label=Language Design linking to /docs/language-design"
+  },
+  "link.item.label.Technical Report v0.2": {
+    "message": "技术报告 v0.2",
+    "description": "The label of footer link with label=Technical Report v0.2 linking to /docs/technical-report-v0-2"
+  },
+  "link.item.label.Heuristic Workflow": {
+    "message": "启发式工作流",
+    "description": "The label of footer link with label=Heuristic Workflow linking to /docs/heuristic-workflow"
+  },
+  "link.title.Project": {
+    "message": "项目",
+    "description": "The title of the footer links column with title=Project in the footer"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/rongzhou/sophia"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 Sophia.",
+    "description": "The footer copyright"
+  }
+}

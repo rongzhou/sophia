@@ -1,3 +1,9 @@
+---
+title: Heuristic Workflow
+sidebar_label: Heuristic Workflow
+slug: /heuristic-workflow
+---
+
 # Sophia Heuristic Workflow
 
 ![Sophia heuristic workflow overview](assets/heuristic_workflow.png)

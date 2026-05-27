@@ -1,3 +1,9 @@
+---
+title: 启发式工作流
+sidebar_label: 启发式工作流
+slug: /heuristic-workflow
+---
+
 # Sophia 启发式工作流
 
 ![Sophia 启发式工作流概览](assets/heuristic_workflow.png)

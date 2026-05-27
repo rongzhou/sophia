@@ -10,6 +10,8 @@ slug: /technical-report-v0-2
 **日期：2026-05-26**  
 **状态：early technical report / working prototype report**
 
+![Sophia 技术报告概览](assets/technical_report.png)
+
 ---
 
 ## 摘要

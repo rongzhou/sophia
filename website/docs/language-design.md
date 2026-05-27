@@ -6,6 +6,8 @@ slug: /language-design
 
 # Sophia Language Design
 
+![Sophia language design overview](assets/language_design.png)
+
 Sophia is an LLM-native deterministic semantic programming language for unattended LLM automatic programming.
 
 The core question is: if an LLM has strong natural-language semantic understanding but weak code pretraining, can a language, checker, and workflow designed for LLMs let it make stable programming progress without human review as the correctness fallback?

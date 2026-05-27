@@ -1,0 +1,34 @@
+{
+  "homepage.subtitle": {
+    "message": "一条代码预训练之外的 LLM-native 图编程路径。",
+    "description": "Homepage subtitle"
+  },
+  "homepage.languageDesign": {
+    "message": "语言设计",
+    "description": "Homepage language design button"
+  },
+  "homepage.technicalReport": {
+    "message": "技术报告 v0.2",
+    "description": "Homepage technical report button"
+  },
+  "homepage.heuristicWorkflow": {
+    "message": "启发式工作流",
+    "description": "Homepage heuristic workflow button"
+  },
+  "homepage.beyondCodePretraining.title": {
+    "message": "代码预训练之外",
+    "description": "Homepage code pretraining feature title"
+  },
+  "homepage.beyondCodePretraining.description": {
+    "message": "Sophia 探索的是：编程能力能否由语义模型与外部语言、检查器和图工作流共同承担。",
+    "description": "Homepage code pretraining feature description"
+  },
+  "homepage.graphProgramming.title": {
+    "message": "面向 LLM 的图编程",
+    "description": "Homepage graph programming feature title"
+  },
+  "homepage.graphProgramming.description": {
+    "message": "程序被组织为 ASG 节点和 append-only development graph，而不是主要面向人类线性阅读的源码文件。",
+    "description": "Homepage graph programming feature description"
+  }
+}

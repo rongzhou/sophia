@@ -4,6 +4,8 @@
 **Date: 2026-05-26**  
 **Status: early technical report / working prototype report**
 
+![Sophia technical report overview](assets/technical_report.png)
+
 ---
 
 ## Abstract
