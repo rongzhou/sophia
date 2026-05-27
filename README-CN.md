@@ -1,5 +1,7 @@
 # Sophia
 
+[项目网站](https://rongzhou.github.io/sophia/zh-Hans/) · [English README](README.md)
+
 Sophia 是一门面向无人监管 LLM 自动编程的 LLM-native 编程语言和工作流。
 
 它探索一个设计前提：LLM 和人类有不同的优势与弱点，因此为 LLM 编程设计的语言不应简单复用人类优先的语言惯例。Sophia 把编程纪律外部化为带类型的语义产物、确定性检查、capability/effect 边界、intent type、action-rooted context 和版本化修复门禁。

@@ -1,5 +1,7 @@
 # Sophia
 
+[Website](https://rongzhou.github.io/sophia/) · [中文 README](README-CN.md)
+
 Sophia is an LLM-native programming language and workflow for unattended LLM software development.
 
 The project explores a premise: large-scale code pretraining is a powerful and efficient shortcut for teaching AI systems how to program, but it is not necessarily the only path or the long-term best substrate. Sophia asks whether part of programming competence can instead be externalized into a language, deterministic checks, graph-shaped context, and heuristic node workflows designed specifically for LLMs.
