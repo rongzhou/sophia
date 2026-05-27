@@ -1,47 +1,46 @@
 # Sophia
 
-Sophia 是一门面向无人监管 LLM 自动编程的 LLM-native 编程语言和工作流。
+Sophia is an LLM-native programming language and workflow for unattended LLM software development.
 
-它探索一个设计前提：LLM 和人类有不同的优势与弱点，因此为 LLM 编程设计的语言不应简单复用人类优先的语言惯例。Sophia 把编程纪律外部化为带类型的语义产物、确定性检查、capability/effect 边界、intent type、action-rooted context 和版本化修复门禁。
+The project explores a premise: large-scale code pretraining is a powerful and efficient shortcut for teaching AI systems how to program, but it is not necessarily the only path or the long-term best substrate. Sophia asks whether part of programming competence can instead be externalized into a language, deterministic checks, graph-shaped context, and heuristic node workflows designed specifically for LLMs.
 
-当前工作流：
+Current workflow:
 
 ```text
 goal -> LLM decision -> .pseudo -> LLM implementation -> deterministic gates -> LLM repair/decision -> materialize -> build -> run
 ```
 
-当前实现是 v0.2 TypeScript CLI 原型。端到端实验中不伪造成功路径。
+The current implementation is a v0.2 TypeScript CLI prototype. End-to-end experiments do not fake success paths: LLMs generate structured pseudocode, checkable Sophia candidates, and graph decisions; scaffold, diagnostics, and gates constrain and verify the work without replacing those LLM responsibilities.
 
-LLM 在工作流中负责生成结构化伪代码、生成可检查的 Sophia 候选源码、以及做探索图的启发式节点选择。scaffold、diagnostics 和 gates 只提供约束、上下文和验证，不能替代这些 LLM 能力。
+## Documents
 
-## 文档
+- [Status](docs/en/status.md): implemented capabilities, validation status, and known limits.
+- [Language Design](docs/en/sophia_language_design.md): Sophia-Core semantics and the v0.2 boundary.
+- [Heuristic Workflow](docs/en/heuristic_workflow.md): `.pseudo`, development graph, LLM decisions, repair, and materialize gates.
+- [Roadmap](docs/en/roadmap.md): current effective roadmap and research direction.
+- [Diagnostic Codes](docs/en/diagnostic_codes.md): parser / checker / build / run diagnostic code reference.
+- [Benchmark Commands](docs/en/benchmark_runs.md): reproducible benchmark command examples.
+- [Technical Report v0.2](docs/en/sophia_arxiv_technical_report_v0_2.md): current English technical report.
 
-- [当前状态](docs/status.md)：当前已实现能力、验证状态和已知限制。
-- [语言设计](docs/sophia_language_design.md)：Sophia-Core 语义和 v0.2 边界。
-- [启发式工作流](docs/heuristic_workflow.md)：`.pseudo`、探索图、LLM decision、repair 和 materialize gate 的工作流规范。
-- [路线图](docs/roadmap.md)：唯一有效的当前路线图和研究方向。
-- [诊断码](docs/diagnostic_codes.md)：parser / checker / build / run 诊断码参考。
-- [Benchmark 命令](docs/benchmark_runs.md)：可复现 benchmark 命令示例。
+Chinese documents are under [docs/cn](docs/cn). Historical implementation notes, old roadmaps, experiment logs, and obsolete paper drafts are archived under `docs/archive/` and are not tracked by Git.
 
-历史实施计划、旧路线图、实验日志和论文草稿已归档到 `docs/archive/`。
+## Environment
 
-## 环境
-
-本地验证过的工具链：
+Locally validated toolchain:
 
 ```text
 Node.js >= 26
 npm >= 11
-本地安装 Ollama
+Ollama installed locally
 ```
 
-安装依赖：
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-## 核心命令
+## Core Commands
 
 ```bash
 npm run typecheck
@@ -49,31 +48,31 @@ npm test
 npm run build
 ```
 
-从源码运行 CLI：
+Run the CLI from source:
 
 ```bash
 npm run dev -- --help
 ```
 
-运行已构建 CLI：
+Run the built CLI:
 
 ```bash
 node dist/cli/main.js --help
 ```
 
-初始化 workspace：
+Initialize a workspace:
 
 ```bash
 node dist/cli/main.js init
 ```
 
-## 常用 CLI 流程
+## Common CLI Flow
 
-初始化并使用探索图：
+Initialize and use the development graph:
 
 ```bash
 node dist/cli/main.js graph init
-node dist/cli/main.js graph start "计算、打印并返回前十个兔子数。"
+node dist/cli/main.js graph start "Compute, print, and return the first ten rabbit numbers."
 node dist/cli/main.js graph design N0001 --model qwen3.6:latest
 node dist/cli/main.js graph implement-loop N0002 --model qwen3.6:latest --max-repairs 2
 node dist/cli/main.js graph check N0005
@@ -84,7 +83,7 @@ node dist/cli/main.js graph select N0005
 node dist/cli/main.js graph materialize N0005
 ```
 
-检查、索引、生成上下文、构建并运行已 materialize 的 Sophia 源码：
+Check, index, generate context, build, and run materialized Sophia source:
 
 ```bash
 node dist/cli/main.js check
@@ -96,7 +95,7 @@ node dist/cli/main.js run SumFirstFive
 node dist/cli/main.js run DoubleInput --input '{"count":7}'
 ```
 
-检查 pseudo 与 repair 产物：
+Inspect pseudocode and repair artifacts:
 
 ```bash
 node dist/cli/main.js graph pseudo-check fixtures/rabbit/rabbit.pseudo
@@ -106,11 +105,11 @@ node dist/cli/main.js repair-context N0006
 node dist/cli/main.js graph report
 ```
 
-如果 Ollama 未运行，依赖 LLM 的命令会显式失败，并创建失败的 RawLlmNode 产物，而不是伪造成功的 CodeNode。
+If Ollama is not running, LLM-dependent commands fail explicitly and create failed RawLlmNode artifacts instead of pretending a CodeNode succeeded.
 
-## 基准测试
+## Benchmarks
 
-运行一个防泄漏 benchmark verifier：
+Run a leakage-resistant benchmark verifier:
 
 ```bash
 node dist/cli/main.js experiment list --suite benchmarks/category_a
@@ -118,4 +117,4 @@ node dist/cli/main.js experiment verify --task benchmarks/category_a/account_pip
 node dist/cli/main.js experiment run --task benchmarks/category_a/account_pipeline/task.json --model qwen3.6:latest --mode full --max-design-revisions 2 --max-repairs 2 --ollama-timeout-ms 900000 --out sophia-runs/results/account-pipeline-full.jsonl
 ```
 
-`experiment run` 有意只接受一个 `--task`；hidden verifier cases 保存在 `task.json` 中，不进入模型 prompt。串行 suite 运行见 [docs/benchmark_runs.md](docs/benchmark_runs.md)。
+`experiment run` intentionally accepts one `--task`. Hidden verifier cases live in `task.json` and are not shown to the model prompt. See [docs/en/benchmark_runs.md](docs/en/benchmark_runs.md) for serial suite commands.

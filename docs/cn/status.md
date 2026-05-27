@@ -2,7 +2,7 @@
 
 当前边界：v0.2 原型。
 
-本文档是当前实现状态的简短事实快照。语言语义见 `docs/sophia_language_design.md`，工作流规范见 `docs/heuristic_workflow.md`，后续方向见 `docs/roadmap.md`。
+本文档是当前实现状态的简短事实快照。语言语义见 `sophia_language_design.md`，工作流规范见 `heuristic_workflow.md`，后续方向见 `roadmap.md`。
 
 ## 当前论点
 

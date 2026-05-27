@@ -984,4 +984,4 @@ ERROR CHECK-TYPE-001
 
 ## 13. 状态与路线图
 
-本文档定义 Sophia 语言语义和 v0.2 语言边界。当前实现状态见 `docs/status.md`；未来工作和研究里程碑见 `docs/roadmap.md`。
+本文档定义 Sophia 语言语义和 v0.2 语言边界。当前实现状态见 `status.md`；未来工作和研究里程碑见 `roadmap.md`。

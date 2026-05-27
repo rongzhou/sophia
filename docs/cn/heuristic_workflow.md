@@ -290,9 +290,9 @@ node dist/cli/main.js run ActionName
 
 ## 11. 与其他文档的关系
 
-- 当前实现状态见 `docs/status.md`。
-- Sophia-Core 语言语义见 `docs/sophia_language_design.md`。
-- 后续路线图见 `docs/roadmap.md`。
-- 诊断码约定见 `docs/diagnostic_codes.md`。
+- 当前实现状态见 `status.md`。
+- Sophia-Core 语言语义见 `sophia_language_design.md`。
+- 后续路线图见 `roadmap.md`。
+- 诊断码约定见 `diagnostic_codes.md`。
 
 本文档是当前有效工作流规范。旧实验日志和旧实现计划保留在 `docs/archive/`，不作为事实源。
