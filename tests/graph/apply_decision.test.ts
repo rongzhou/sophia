@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createTempDir } from "../helpers/sophia_workspace.js";
-import type { CheckResult } from "../../src/lang/diagnostics.js";
-import { applyDecisionNode } from "../../src/graph/apply_decision.js";
-import type { DecisionAction, GraphDecision } from "../../src/graph/decision_types.js";
-import type { GraphNode } from "../../src/graph/nodes.js";
-import { GraphStore } from "../../src/graph/store.js";
+import { createTempDir, samplePseudocodeJson } from "../helpers/sophia_workspace.js";
+import type { CheckResult } from "../../src/lang/ast/diagnostics.js";
+import { applyDecisionNode } from "../../src/graph/decision/apply.js";
+import type { DecisionAction, GraphDecisionPayload } from "../../src/graph/decision/types.js";
+import type { GraphNode } from "../../src/graph/core/nodes.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 describe("applyDecisionNode", () => {
   it("applies pseudo_check without generating pseudocode", async () => {
@@ -12,22 +12,14 @@ describe("applyDecisionNode", () => {
     const pseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: null,
-      action_used: "add_pseudo",
+      actionUsed: "add_pseudo",
       summary: "Pseudo",
       artifacts: ["content.pseudo"],
     });
     await store.writeArtifact(
       pseudo,
       "content.pseudo",
-      `program Demo {
-  purpose { "Return a label." }
-  inputs { none }
-  outputs { result := "label" }
-  algorithm {
-    return ready
-  }
-}
-`,
+      samplePseudocodeJson(),
     );
     const decision = await decisionNode(store, pseudo, "pseudo_check");
 
@@ -74,7 +66,7 @@ describe("applyDecisionNode", () => {
     const pseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: null,
-      action_used: "add_pseudo",
+      actionUsed: "add_pseudo",
       summary: "Pseudo",
     });
     const decision = await decisionNode(store, pseudo, "implement_design");
@@ -93,7 +85,7 @@ async function codeNode(store: GraphStore): Promise<GraphNode> {
   const code = await store.createNode({
     type: "CodeNode",
     createdFrom: null,
-    action_used: "implement_design",
+    actionUsed: "implement_design",
     summary: "Code",
     artifacts: [
       "files/domains/Demo/capabilities/PureCapability.sophia",
@@ -129,7 +121,7 @@ async function decisionNode(
   currentNode: GraphNode,
   selectedAction: DecisionAction,
 ): Promise<GraphNode> {
-  const decision: GraphDecision = {
+  const decision: GraphDecisionPayload = {
     current_node: currentNode.id,
     state_assessment: {
       goal_size: "tiny",
@@ -148,11 +140,11 @@ async function decisionNode(
   const node = await store.createNode({
     type: "DecisionNode",
     createdFrom: currentNode.id,
-    action_used: "decide",
+    actionUsed: "llm_decide",
     summary: `Decision for ${currentNode.id}`,
     artifacts: ["result.json"],
   });
-  await store.writeArtifact(node, "result.json", `${JSON.stringify(decision, null, 2)}\n`);
+  await store.writeArtifactJson(node, "result.json", decision);
   await store.appendEdge({ from: currentNode.id, to: node.id, type: "decides" });
   return node;
 }
@@ -168,11 +160,11 @@ async function resultNode(
     type,
     status: result.ok ? "active" : "failed",
     createdFrom: source.id,
-    action_used: edge,
+    actionUsed: edge === "checks" ? "check_code" : "constraint_audit",
     summary: result.ok ? "passed" : "failed",
     artifacts: ["result.json"],
   });
-  await store.writeArtifact(node, "result.json", `${JSON.stringify(result, null, 2)}\n`);
+  await store.writeArtifactJson(node, "result.json", result);
   await store.appendEdge({ from: source.id, to: node.id, type: edge });
   return node;
 }

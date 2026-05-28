@@ -1,11 +1,8 @@
-import type { CheckResult, Diagnostic } from "../lang/diagnostics.js";
+import type { CheckResult, Diagnostic, DiagnosticSummaryItem } from "../lang/ast/diagnostics.js";
+import { summarizeDiagnostics } from "../lang/ast/diagnostics.js";
 
 export interface RepairContext {
-  diagnostic_summary: Array<{
-    code: string;
-    count: number;
-    severity: Diagnostic["severity"];
-  }>;
+  diagnostic_summary: DiagnosticSummaryItem[];
   affected_files: Array<{
     path: string;
     diagnostics: Diagnostic[];
@@ -21,32 +18,15 @@ export function buildRepairContext(options: {
   checkResult: CheckResult;
 }): RepairContext {
   const diagnosticsByFile = new Map<string, Diagnostic[]>();
-  const summary = new Map<
-    string,
-    { code: string; count: number; severity: Diagnostic["severity"] }
-  >();
 
   for (const diagnostic of options.checkResult.diagnostics) {
-    const existing = summary.get(diagnostic.code);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      summary.set(diagnostic.code, {
-        code: diagnostic.code,
-        count: 1,
-        severity: diagnostic.severity,
-      });
-    }
-
     const path = diagnostic.location ? parseLocation(diagnostic.location).path : null;
     if (!path || !(path in options.files)) continue;
     diagnosticsByFile.set(path, [...(diagnosticsByFile.get(path) ?? []), diagnostic]);
   }
 
   return {
-    diagnostic_summary: [...summary.values()].sort((left, right) =>
-      left.code.localeCompare(right.code),
-    ),
+    diagnostic_summary: summarizeDiagnostics(options.checkResult.diagnostics),
     affected_files: [...diagnosticsByFile.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([filePath, diagnostics]) => ({

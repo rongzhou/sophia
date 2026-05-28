@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { buildJsonOnlyRetryPrompt, extractJsonObject } from "./json_extract.js";
 import { generateWithOllama } from "./ollama.js";
 import { LlmCallExecutionError, LlmCallParseError } from "./errors.js";
-import { renderPromptTemplate } from "./prompt_templates.js";
+import { PROMPT_PATHS, renderPromptTemplate } from "./prompt_templates.js";
 
 export interface GenerateOllamaJsonOptions<T> {
   model: string;
@@ -159,7 +159,7 @@ function buildValidationRetryPrompt(options: {
   validationError: string;
   operation: string;
 }): string {
-  return renderPromptTemplate("llm/validation_retry.md", {
+  return renderPromptTemplate(PROMPT_PATHS.client.validationRetry, {
     operation: options.operation,
     validation_error: options.validationError,
     original_prompt: options.originalPrompt,

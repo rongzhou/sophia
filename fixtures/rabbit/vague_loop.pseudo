@@ -1,20 +1,16 @@
-program PrintRabbitNumbers {
-  purpose {
-    "Compute rabbit numbers."
-  }
-
-  inputs {
-    none
-  }
-
-  outputs {
-    numbers := "list of values"
-  }
-
-  algorithm {
-    repeat several times {
-      do the calculation
+{
+  "program_name": "PrintRabbitNumbers",
+  "purpose": "Compute rabbit numbers.",
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "numbers",
+      "meaning": "list of values"
     }
-    return numbers
-  }
+  ],
+  "algorithm": [
+    "Repeat several times.",
+    "Do the calculation.",
+    "Return numbers."
+  ]
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createTempDir } from "../helpers/sophia_workspace.js";
-import { createDesignedPseudocodeNode } from "../../src/graph/llm_node_workflow.js";
-import { GraphStore } from "../../src/graph/store.js";
+import { createTempDir, samplePseudocodeJson } from "../helpers/sophia_workspace.js";
+import { createDesignedPseudocodeNode } from "../../src/graph/workflow/llm_node.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 import {
   buildDesignSolutionPrompt,
   validateDesignSolutionOutput,
@@ -62,7 +62,7 @@ action DoubleInput {
           concrete_algorithm_steps: true,
         },
       }),
-    ).toThrow("program-like top-level code");
+    ).toThrow("pseudocode must be a JSON object");
   });
 
   it("accepts structured JSON algorithm pseudocode", () => {
@@ -95,15 +95,13 @@ action DoubleInput {
     expect(() =>
       validateDesignSolutionOutput({
         status: "designed",
-        pseudocode: `
-program FlowDemo {
-  purpose { "Coordinate reusable steps." }
-  inputs { value: Int }
-  outputs { result := "integer result" }
-  effects { Console.Write }
-  algorithm { return value }
-}
-`,
+        pseudocode: JSON.stringify({
+          purpose: "Coordinate reusable steps.",
+          inputs: [{ name: "value", meaning: "Int" }],
+          outputs: [{ name: "result", meaning: "integer result" }],
+          effects: ["Console.Write"],
+          algorithm: ["return value"],
+        }),
         notes: [],
         questions: [],
         self_check: {
@@ -113,7 +111,7 @@ program FlowDemo {
           concrete_algorithm_steps: true,
         },
       }),
-    ).toThrow("program-like top-level code");
+    ).toThrow("formal Sophia syntax");
   });
 
   it("records real LLM pseudocode artifacts under the goal node", async () => {
@@ -122,7 +120,7 @@ program FlowDemo {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Return unit without effects.",
       summary: "Return unit without effects.",
     });
@@ -190,8 +188,7 @@ describe("design revision output", () => {
     expect(() =>
       validateReviseDesignOutput({
         status: "revised",
-        pseudocode:
-          'program Demo { purpose { "x" } inputs { value: Int } outputs { result := "integer" } algorithm { return value } }',
+        pseudocode: "{not json",
         notes: [],
         questions: [],
       }),
@@ -201,17 +198,13 @@ describe("design revision output", () => {
   it("keeps design and revision prompts free of formal syntax examples", () => {
     const designPrompt = buildDesignSolutionPrompt("Return a text label for an optional input.");
     const revisePrompt = buildReviseDesignPrompt(
-      `
-program Demo {
-  purpose { "Return a semantic label." }
-  inputs { value := "optional text input" }
-  outputs { result := "text label" }
-  implementation_hints {
-    domain: DemoDomain
-  }
-  algorithm { return label }
-}
-`,
+      samplePseudocodeJson({
+        purpose: "Return a semantic label.",
+        inputs: [{ name: "value", meaning: "optional text input" }],
+        outputs: [{ name: "result", meaning: "text label" }],
+        implementation_hints: { domain: "DemoDomain" },
+        algorithm: ["return label"],
+      }),
       {
         ok: false,
         diagnostics: [],

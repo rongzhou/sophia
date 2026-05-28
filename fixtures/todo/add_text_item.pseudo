@@ -1,47 +1,45 @@
-program AddTextItem {
-  purpose {
-    "Return a new todo text list with one provided item appended."
-  }
-
-  inputs {
-    items := "existing todo text list"
-    text := "new todo item text"
-  }
-
-  outputs {
-    updated_items := "list containing all existing todo text items followed by text"
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    set updated_items to items
-    append text to updated_items
-    return updated_items
-  }
-
-  constraints {
-    "Preserve the existing item order."
+{
+  "program_name": "AddTextItem",
+  "purpose": "Return a new todo text list with one provided item appended.",
+  "inputs": [
+    {
+      "name": "items",
+      "meaning": "existing todo text list"
+    },
+    {
+      "name": "text",
+      "meaning": "new todo item text"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "updated_items",
+      "meaning": "list containing all existing todo text items followed by text"
+    }
+  ],
+  "effects": [],
+  "algorithm": [
+    "Set updated_items to items.",
+    "Append text to updated_items.",
+    "Return updated_items."
+  ],
+  "constraints": [
+    "Preserve the existing item order.",
     "Append the new text item exactly once."
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
-    "Do not use randomness."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
+    "Do not use randomness.",
     "Do not implement a full Todo application."
-  }
-
-  expected {
-    result_when_items_empty_and_text_buy_milk := "[buy milk]"
-  }
-
-  implementation_hints {
-    domain := "TodoListDomain"
-    capability := "TodoListPureCapability"
-    action := "AddTextItem"
+  ],
+  "expected": {
+    "result_when_items_empty_and_text_buy_milk": "[buy milk]"
+  },
+  "implementation_hints": {
+    "domain": "TodoListDomain",
+    "capability": "TodoListPureCapability",
+    "action": "AddTextItem"
   }
 }

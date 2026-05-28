@@ -2,20 +2,15 @@ import { describe, expect, it } from "vitest";
 import { checkPseudocode } from "../../src/pseudo/check.js";
 import { buildPseudoRepairContext } from "../../src/pseudo/repair_context.js";
 import { buildReviseDesignPrompt } from "../../src/llm/tasks/revise_design.js";
+import { samplePseudocodeJson } from "../helpers/sophia_workspace.js";
 
 describe("buildPseudoRepairContext", () => {
   it("summarizes pseudocode diagnostics without inventing implementation", () => {
-    const pseudocode = `
-program Demo {
-  purpose { "Build values." }
-  outputs { values := "list" }
-  algorithm {
-    repeat several times {
-      do the calculation
-    }
-  }
-}
-`;
+    const pseudocode = JSON.stringify({
+      purpose: "Build values.",
+      outputs: [{ name: "values", meaning: "list" }],
+      algorithm: ["repeat several times", "do the calculation"],
+    });
     const checkResult = checkPseudocode(pseudocode);
     const context = buildPseudoRepairContext({ pseudocode, checkResult });
 
@@ -31,13 +26,11 @@ program Demo {
   });
 
   it("builds a revision prompt that asks for pseudo only", () => {
-    const pseudocode = `
-program Demo {
-  purpose { "Build values." }
-  outputs { values := "list" }
-  algorithm { repeat several times { do the calculation } }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      purpose: "Build values.",
+      outputs: [{ name: "values", meaning: "list" }],
+      algorithm: ["repeat several times", "do the calculation"],
+    });
     const prompt = buildReviseDesignPrompt(pseudocode, checkPseudocode(pseudocode));
 
     expect(prompt).toContain("revising algorithm pseudocode");

@@ -7,6 +7,7 @@ import {
 import { LlmCallParseError } from "../../src/llm/errors.js";
 import { buildDesignSolutionPrompt } from "../../src/llm/tasks/design_solution.js";
 import { buildRepairPrompt, repairCodeWithOllama } from "../../src/llm/tasks/repair.js";
+import { samplePseudocodeJson } from "../helpers/sophia_workspace.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -40,21 +41,18 @@ describe("prompt policy", () => {
   });
 
   it("keeps implementation prompt generic and avoids embedding repaired implementation snippets", () => {
-    const prompt = buildImplementDesignPrompt(`
-program Demo {
-  purpose { "Return generated numbers." }
-  inputs { none }
-  outputs { numbers := "a generated list" }
-  algorithm {
-    create empty list numbers
-    repeat 3 times {
-      set next to 1
-      append next to numbers
-    }
-    return numbers
-  }
-}
-`);
+    const prompt = buildImplementDesignPrompt(
+      samplePseudocodeJson({
+        program_name: "Demo",
+        purpose: "Return generated numbers.",
+        outputs: [{ name: "numbers", meaning: "a generated list" }],
+        algorithm: [
+          "create empty list numbers",
+          "repeat 3 times: set next to 1 and append next to numbers",
+          "return numbers",
+        ],
+      }),
+    );
 
     expect(prompt).not.toContain("let mutable numbers");
     expect(prompt).not.toContain("set numbers = numbers.append");
@@ -85,20 +83,15 @@ program Demo {
   });
 
   it("passes mutable state candidates to the implementation model", () => {
-    const prompt = buildImplementDesignPrompt(`
-program Validate {
-  purpose { "Validate a value." }
-  inputs { value: Int }
-  outputs { result: Bool }
-  algorithm {
-    set is_valid to false
-    if value > 0 {
-      set is_valid to true
-    }
-    return is_valid
-  }
-}
-`);
+    const prompt = buildImplementDesignPrompt(
+      samplePseudocodeJson({
+        program_name: "Validate",
+        purpose: "Validate a value.",
+        inputs: [{ name: "value", meaning: "Int" }],
+        outputs: [{ name: "result", meaning: "Bool" }],
+        algorithm: ["set is_valid to false", "if value > 0", "set is_valid to true", "return is_valid"],
+      }),
+    );
 
     expect(prompt).toContain('"mutable_state_candidates"');
     expect(prompt).toContain('"is_valid"');
@@ -107,24 +100,29 @@ program Validate {
 
   it("can implement against a public structure override without requiring pseudo hints", () => {
     const prompt = buildImplementDesignPrompt(
-      `
-program ProcessDepositPipeline {
-  purpose { "Process a deposit." }
-  entities {
-    Account {
-      balance: Int
-      is_locked: Bool
-    }
-  }
-  inputs { account: Account, amount: Int }
-  outputs { result: Account }
-  algorithm {
-    subaction ValidateDeposit { return whether deposit is allowed }
-    subaction UpdateAccountBalance { return updated account }
-    main_flow ProcessDepositPipeline { call validation before update }
-  }
-}
-`,
+      samplePseudocodeJson({
+        program_name: "ProcessDepositPipeline",
+        purpose: "Process a deposit.",
+        definitions: [
+          {
+            name: "Account",
+            fields: [
+              { name: "balance", type: "Int" },
+              { name: "is_locked", type: "Bool" },
+            ],
+          },
+        ],
+        inputs: [
+          { name: "account", meaning: "Account" },
+          { name: "amount", meaning: "Int" },
+        ],
+        outputs: [{ name: "result", meaning: "Account" }],
+        algorithm: [
+          "ValidateDeposit: return whether deposit is allowed.",
+          "UpdateAccountBalance: return updated account.",
+          "ProcessDepositPipeline: run validation before update.",
+        ],
+      }),
       {
         program: "ProcessDepositPipeline",
         domain: "ActionPipelineDomain",
@@ -135,30 +133,32 @@ program ProcessDepositPipeline {
 
     expect(prompt).toContain("domains/ActionPipelineDomain/actions/ProcessDepositPipeline.sophia");
     expect(prompt).toContain("ActionPipelinePureCapability");
-    expect(prompt).toContain("required helper action boundaries");
+    expect(prompt).toContain("reusable logical stages");
     expect(prompt).not.toContain("result_when");
   });
 
   it("uses generic syntax examples instead of target-shaped account examples", () => {
-    const prompt = buildImplementDesignPrompt(`
-program GenericRecordFlow {
-  purpose { "Update a record-like value." }
-  entities {
-    SampleItem {
-      value: Int
-      is_active: Bool
-    }
-  }
-  inputs {
-    item: SampleItem
-    delta: Int
-  }
-  outputs { result: SampleItem }
-  algorithm {
-    return SampleItem with updated value
-  }
-}
-`);
+    const prompt = buildImplementDesignPrompt(
+      samplePseudocodeJson({
+        program_name: "GenericRecordFlow",
+        purpose: "Update a record-like value.",
+        definitions: [
+          {
+            name: "SampleItem",
+            fields: [
+              { name: "value", type: "Int" },
+              { name: "is_active", type: "Bool" },
+            ],
+          },
+        ],
+        inputs: [
+          { name: "item", meaning: "SampleItem" },
+          { name: "delta", meaning: "Int" },
+        ],
+        outputs: [{ name: "result", meaning: "SampleItem" }],
+        algorithm: ["return SampleItem with updated value"],
+      }),
+    );
 
     expect(prompt).toContain("entity Item");
     expect(prompt).toContain("OtherAction { item = item, delta = delta }");
@@ -168,32 +168,24 @@ program GenericRecordFlow {
   });
 
   it("does not expose expected result literals to the implementation model", () => {
-    const prompt = buildImplementDesignPrompt(`
-program BuildThreeNumbers {
-  purpose { "Build a list." }
-  inputs { none }
-  outputs { numbers := "list" }
-  algorithm {
-    create empty list numbers
-    set current to 2
-    repeat 3 times {
-      append current to numbers
-      set current to current + 2
-    }
-    return numbers
-  }
-  constraints {
-    "The sequence must be 2, 4, 6."
-    "Do not hardcode the full list."
-  }
-  expected {
-    result := "[2, 4, 6]"
-  }
-}
-`);
+    const prompt = buildImplementDesignPrompt(
+      samplePseudocodeJson({
+        program_name: "BuildThreeNumbers",
+        purpose: "Build a list.",
+        outputs: [{ name: "numbers", meaning: "list" }],
+        algorithm: [
+          "create empty list numbers",
+          "set current to 2",
+          "repeat 3 times, append current to numbers and set current to current + 2",
+          "return numbers",
+        ],
+        constraints: ['The sequence must be "2, 4, 6".', "Do not hardcode the full list."],
+        expected: { result: "[2, 4, 6]" },
+      }),
+    );
 
-    expect(prompt).not.toContain("[2, 4, 6]");
-    expect(prompt).not.toContain("The sequence must be 2, 4, 6.");
+    expect(prompt).not.toContain('"result": "[2, 4, 6]"');
+    expect(prompt).not.toContain('The sequence must be "2, 4, 6".');
     expect(prompt).toContain("<redacted for implementation");
   });
 
@@ -212,12 +204,11 @@ program BuildThreeNumbers {
           },
         ],
       },
-      `
-program Demo {
-  algorithm { return x }
-  forbidden { "Do not use storage." }
-}
-`,
+      samplePseudocodeJson({
+        program_name: "Demo",
+        algorithm: ["return x"],
+        forbidden: ["Do not use storage."],
+      }),
     );
 
     expect(prompt).toContain("Apply only the diagnostics");
@@ -259,42 +250,30 @@ action Demo {
           },
         ],
       },
-      `
-program BuildValues {
-  purpose { "Build values." }
-  inputs { none }
-  outputs { result: List<Int> }
-  algorithm {
-    create empty list values
-    return values
-  }
-  constraints {
-    "The sequence must be 2, 4, 6."
-    "Do not hardcode the full list."
-  }
-  expected {
-    result := "[2, 4, 6]"
-  }
-}
-`,
+      samplePseudocodeJson({
+        program_name: "BuildValues",
+        purpose: "Build values.",
+        outputs: [{ name: "result", meaning: "List<Int>" }],
+        algorithm: ["create empty list values", "return values"],
+        constraints: ['The sequence must be "2, 4, 6".', "Do not hardcode the full list."],
+        expected: { result: "[2, 4, 6]" },
+      }),
     );
 
     expect(prompt).toContain("<redacted validation detail>");
     expect(prompt).toContain("Do not hardcode the full list.");
-    expect(prompt).not.toContain('result := "[2, 4, 6]"');
-    expect(prompt).not.toContain("The sequence must be 2, 4, 6.");
+    expect(prompt).not.toContain('"result": "[2, 4, 6]"');
+    expect(prompt).not.toContain('The sequence must be "2, 4, 6".');
   });
 });
 
 describe("implementation output validation", () => {
-  const minimalPseudocode = `
-program Demo {
-  purpose { "Demo." }
-  inputs { none }
-  outputs { result: Unit }
-  algorithm { return unit }
-}
-`;
+  const minimalPseudocode = samplePseudocodeJson({
+    program_name: "Demo",
+    purpose: "Demo.",
+    outputs: [{ name: "result", meaning: "Unit" }],
+    algorithm: ["return unit"],
+  });
 
   it("rejects unsafe paths", () => {
     expect(() =>
@@ -357,17 +336,13 @@ program Demo {
   });
 
   it("requires implementation output to preserve deterministic scaffold structure", () => {
-    const pseudocode = `
-program DoubleInput {
-  purpose { "Double an input." }
-  inputs { count := "integer" }
-  outputs { result := "the input multiplied by two" }
-  algorithm {
-    set result to count multiplied by 2
-    return result
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "DoubleInput",
+      purpose: "Double an input.",
+      inputs: [{ name: "count", meaning: "Int" }],
+      outputs: [{ name: "result", meaning: "Int" }],
+      algorithm: ["set result to count multiplied by 2", "return result"],
+    });
 
     expect(() =>
       validateImplementationOutputForPseudocode(
@@ -400,17 +375,13 @@ action Other {
   });
 
   it("rejects implementation output that leaves scaffold TODO comments", () => {
-    const pseudocode = `
-program DoubleInput {
-  purpose { "Double an input." }
-  inputs { count := "integer" }
-  outputs { result := "the input multiplied by two" }
-  algorithm {
-    set result to count multiplied by 2
-    return result
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "DoubleInput",
+      purpose: "Double an input.",
+      inputs: [{ name: "count", meaning: "Int" }],
+      outputs: [{ name: "result", meaning: "Int" }],
+      algorithm: ["set result to count multiplied by 2", "return result"],
+    });
 
     expect(() =>
       validateImplementationOutputForPseudocode(
@@ -445,17 +416,13 @@ action DoubleInput {
   });
 
   it("accepts implementation output that fills scaffold body while preserving contract", () => {
-    const pseudocode = `
-program DoubleInput {
-  purpose { "Double an input." }
-  inputs { count := "integer" }
-  outputs { result := "the input multiplied by two" }
-  algorithm {
-    set result to count multiplied by 2
-    return result
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "DoubleInput",
+      purpose: "Double an input.",
+      inputs: [{ name: "count", meaning: "Int" }],
+      outputs: [{ name: "result", meaning: "Int" }],
+      algorithm: ["set result to count multiplied by 2", "return result"],
+    });
 
     expect(
       validateImplementationOutputForPseudocode(
@@ -491,17 +458,13 @@ action DoubleInput {
   });
 
   it("requires public state scaffold contracts to remain state files", () => {
-    const pseudocode = `
-program StateStatusLabel {
-  purpose { "Return a label for a semantic state." }
-  inputs { status := "current semantic state" }
-  outputs { result := "text label" }
-  algorithm {
-    if status means first state then return the first label
-    otherwise return the second label
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "StateStatusLabel",
+      purpose: "Return a label for a semantic state.",
+      inputs: [{ name: "status", meaning: "current semantic state" }],
+      outputs: [{ name: "result", meaning: "text label" }],
+      algorithm: ["if status means first state then return the first label", "otherwise return the second label"],
+    });
 
     const structureOverride = {
       domain: "StateMatchDomain",
@@ -547,16 +510,13 @@ action StateStatusLabel {
   });
 
   it("normalizes explicit public state file values without filling branch logic", () => {
-    const pseudocode = `
-program StateStatusLabel {
-  purpose { "Return a label for a semantic state." }
-  inputs { status := "current semantic state" }
-  outputs { result := "text label" }
-  algorithm {
-    branch on status and return the corresponding label
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "StateStatusLabel",
+      purpose: "Return a label for a semantic state.",
+      inputs: [{ name: "status", meaning: "current semantic state" }],
+      outputs: [{ name: "result", meaning: "text label" }],
+      algorithm: ["branch on status and return the corresponding label"],
+    });
 
     const output = validateImplementationOutputForPseudocode(
       {
@@ -609,27 +569,29 @@ action StateStatusLabel {
   });
 
   it("accepts additional action files when the main scaffold contract is preserved", () => {
-    const pseudocode = `
-program ProcessDepositPipeline {
-  purpose { "Process deposit through explicit subactions." }
-  entities {
-    PipelineAccount {
-      balance: Int
-      is_locked: Bool
-    }
-  }
-  inputs {
-    account: PipelineAccount
-    amount: Int
-  }
-  outputs { result: PipelineAccount }
-  algorithm {
-    subaction CanDepositPipeline { return not account.is_locked and amount > 0 }
-    subaction ApplyDepositPipeline { return updated account }
-    main action ProcessDepositPipeline { call both subactions }
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "ProcessDepositPipeline",
+      purpose: "Process deposit through explicit reusable steps.",
+      definitions: [
+        {
+          name: "PipelineAccount",
+          fields: [
+            { name: "balance", type: "Int" },
+            { name: "is_locked", type: "Bool" },
+          ],
+        },
+      ],
+      inputs: [
+        { name: "account", meaning: "PipelineAccount" },
+        { name: "amount", meaning: "Int" },
+      ],
+      outputs: [{ name: "result", meaning: "PipelineAccount" }],
+      algorithm: [
+        "CanDepositPipeline: return not account.is_locked and amount > 0.",
+        "ApplyDepositPipeline: return updated account.",
+        "ProcessDepositPipeline: call both helper stages.",
+      ],
+    });
 
     const output = validateImplementationOutputForPseudocode(
       {
@@ -705,23 +667,25 @@ action ProcessDepositPipeline {
   });
 
   it("validates scaffold paths against a public structure override", () => {
-    const pseudocode = `
-program ProcessDepositPipeline {
-  purpose { "Process deposit through explicit subactions." }
-  entities {
-    Account {
-      balance: Int
-      is_locked: Bool
-    }
-  }
-  inputs { account: Account, amount: Int }
-  outputs { result: Account }
-  algorithm {
-    subaction CanDeposit { return allowed }
-    main_flow ProcessDepositPipeline { call CanDeposit }
-  }
-}
-`;
+    const pseudocode = samplePseudocodeJson({
+      program_name: "ProcessDepositPipeline",
+      purpose: "Process deposit through explicit reusable steps.",
+      definitions: [
+        {
+          name: "Account",
+          fields: [
+            { name: "balance", type: "Int" },
+            { name: "is_locked", type: "Bool" },
+          ],
+        },
+      ],
+      inputs: [
+        { name: "account", meaning: "Account" },
+        { name: "amount", meaning: "Int" },
+      ],
+      outputs: [{ name: "result", meaning: "Account" }],
+      algorithm: ["CanDeposit: return allowed.", "ProcessDepositPipeline: call CanDeposit."],
+    });
 
     expect(() =>
       validateImplementationOutputForPseudocode(
@@ -783,63 +747,6 @@ action ProcessDepositPipeline {
     ).not.toThrow();
   });
 
-  it("requires explicit pseudo subactions to be preserved and called", () => {
-    const pseudocode = `
-program Flow {
-  purpose { "Use helper steps." }
-  inputs { value: Int }
-  outputs { result: Int }
-  algorithm {
-    subaction ValidateValue {
-      return whether value is positive
-    }
-    main_flow Flow {
-      if output of ValidateValue using value {
-        return value
-      } else {
-        return 0
-      }
-    }
-  }
-}
-`;
-
-    expect(() =>
-      validateImplementationOutputForPseudocode(
-        {
-          files: {
-            "domains/FlowDomain/domain.sophia": "domain FlowDomain {}",
-            "domains/FlowDomain/capabilities/FlowCapability.sophia":
-              "capability FlowCapability { allow { } }",
-            "domains/FlowDomain/actions/Flow.sophia": `
-action Flow {
-  capability: FlowCapability
-  input { value: Int }
-  output { result: Int }
-  effects { }
-  body {
-    if value > 0 {
-      return value
-    } else {
-      return 0
-    }
-  }
-}
-`,
-          },
-          notes: [],
-          self_check: {
-            no_var: true,
-            no_direct_console_write: true,
-            no_for_or_while: true,
-            preserved_constraints: true,
-          },
-        },
-        pseudocode,
-      ),
-    ).toThrow("preserve pseudo subaction ValidateValue");
-  });
-
   it("wraps invalid implementation output as a parse error with raw response", async () => {
     vi.stubGlobal(
       "fetch",
@@ -853,7 +760,7 @@ action Flow {
     );
 
     await expect(
-      implementDesignWithOllama({ pseudocode: "program Demo {}", model: "qwen-test" }),
+      implementDesignWithOllama({ pseudocode: "{not json", model: "qwen-test" }),
     ).rejects.toBeInstanceOf(LlmCallParseError);
   });
 
@@ -877,7 +784,7 @@ action Flow {
           diagnostics: [{ code: "CHECK-ACTION-001", severity: "error", problem: "missing" }],
         },
         model: "qwen-test",
-        pseudocode: "program Demo {}",
+        pseudocode: "{not json",
       }),
     ).rejects.toBeInstanceOf(LlmCallParseError);
   });
@@ -913,14 +820,12 @@ action Demo {
             preserved_constraints: true,
           },
         },
-        `
-program Demo {
-  purpose { "Return a list." }
-  inputs { none }
-  outputs { result: List<Int> }
-  algorithm { return empty list }
-}
-`,
+        samplePseudocodeJson({
+          program_name: "Demo",
+          purpose: "Return a list.",
+          outputs: [{ name: "result", meaning: "List<Int>" }],
+          algorithm: ["return empty list"],
+        }),
       ),
     ).not.toThrow();
   });

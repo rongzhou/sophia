@@ -1,52 +1,37 @@
-program BuildThreeNumbers {
-  purpose {
-    "Build and return a list containing three integers."
-  }
-
-  inputs {
-    none
-  }
-
-  outputs {
-    numbers := "list containing exactly 2, 4, and 6"
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    create empty list numbers
-    set current to 2
-
-    repeat 3 times {
-      append current to numbers
-      set current to current + 2
+{
+  "program_name": "BuildThreeNumbers",
+  "purpose": "Build and return a list containing three integers.",
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "numbers",
+      "meaning": "list containing exactly 2, 4, and 6"
     }
-
-    return numbers
-  }
-
-  constraints {
-    "The returned list must contain exactly three numbers."
-    "The sequence must be 2, 4, 6."
+  ],
+  "effects": [],
+  "algorithm": [
+    "Create empty list numbers.",
+    "Set current to 2.",
+    "Repeat 3 times: append current to numbers and set current to current + 2.",
+    "Return numbers."
+  ],
+  "constraints": [
+    "The returned list must contain exactly three numbers.",
+    "The sequence must be 2, 4, 6.",
     "Do not hardcode the full list."
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
     "Do not use randomness."
-  }
-
-  expected {
-    result := "[2, 4, 6]"
-  }
-
-  implementation_hints {
-    domain := "ListDomain"
-    capability := "ListPureCapability"
-    action := "BuildThreeNumbers"
+  ],
+  "expected": {
+    "result": "[2, 4, 6]"
+  },
+  "implementation_hints": {
+    "domain": "ListDomain",
+    "capability": "ListPureCapability",
+    "action": "BuildThreeNumbers"
   }
 }

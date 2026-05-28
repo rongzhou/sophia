@@ -221,5 +221,5 @@ Implementation discipline:
 
 - Build declarations first, then bodies, then check each body against the declared inputs and outputs.
 - For every action expression, verify the invoked action exists and all input names/types match.
-- If the .pseudo explicitly asks for subactions or decomposition, preserve that structure with separate action files and direct action expressions.
+- If the .pseudo explicitly asks for reusable logical stages or decomposition, preserve that structure with separate action files and direct action expressions when the boundary carries real semantics.
 - If the .pseudo does not ask for decomposition, do not invent extra actions unless it reduces real repeated logic without changing behavior.

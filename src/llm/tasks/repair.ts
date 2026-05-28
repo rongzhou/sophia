@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CheckResult } from "../../lang/diagnostics.js";
+import type { CheckResult } from "../../lang/ast/diagnostics.js";
 import { buildRepairContext } from "../../analysis/repair_context.js";
 import { buildSophiaScaffold } from "../../pseudo/scaffold.js";
 import {
@@ -8,15 +8,16 @@ import {
   pseudocodeForImplementationPrompt,
 } from "../../pseudo/structure_plan.js";
 import { buildActionContext } from "../../analysis/context.js";
-import { extractNamedSection } from "../../lang/braces.js";
+import { readPseudoSection } from "../../pseudo/document.js";
 import { generateOllamaJson } from "../client.js";
-import { renderPromptTemplate } from "../prompt_templates.js";
 import {
   ANTI_CHEAT_RULES,
   JSON_FILESET_CONTRACT,
+  PROMPT_PATHS,
   REPAIR_DIAGNOSTIC_GUIDE,
   SOPHIA_V0_SYNTAX_GUIDE,
-} from "./prompts.js";
+  renderPromptTemplate,
+} from "../prompt_templates.js";
 import {
   ImplementationOutputSchema,
   validateImplementationOutputForPseudocode,
@@ -69,7 +70,7 @@ export function buildRepairPrompt(
   const scaffold = buildSophiaScaffold(pseudocode, structureOverride);
   const structurePlan = buildImplementationStructurePlan(pseudocode, structureOverride);
   const actionContext = buildActionContext(files, structurePlan.symbols.action);
-  return renderPromptTemplate("tasks/repair.md", {
+  return renderPromptTemplate(PROMPT_PATHS.task.repair, {
     sophia_v0_syntax_guide: SOPHIA_V0_SYNTAX_GUIDE,
     anti_cheat_rules: ANTI_CHEAT_RULES,
     repair_diagnostic_guide: REPAIR_DIAGNOSTIC_GUIDE,
@@ -101,7 +102,7 @@ function summarizePseudocodeForRepair(pseudocode: string): Record<string, string
 }
 
 function compactSection(pseudocode: string, sectionName: string): string {
-  return (extractNamedSection(pseudocode, sectionName) ?? "")
+  return readPseudoSection(pseudocode, sectionName)
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)

@@ -1,3 +1,8 @@
+import {
+  SOPHIA_OLLAMA_TIMEOUT_MS_ENV,
+  readOllamaRuntimeConfig,
+} from "./ollama_config.js";
+
 export interface OllamaGenerateOptions {
   model: string;
   prompt: string;
@@ -17,9 +22,10 @@ export interface OllamaGenerateResult {
 export async function generateWithOllama(
   options: OllamaGenerateOptions,
 ): Promise<OllamaGenerateResult> {
-  const host = options.host ?? process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
-  const timeoutMs = options.timeoutMs ?? ollamaTimeoutMs();
-  const numPredict = options.numPredict ?? ollamaNumPredict();
+  const runtime = readOllamaRuntimeConfig();
+  const host = options.host ?? runtime.host;
+  const timeoutMs = options.timeoutMs ?? runtime.timeoutMs;
+  const numPredict = options.numPredict ?? runtime.numPredict;
   const modelOptions: Record<string, number> = {
     temperature: options.temperature ?? 0.2,
     top_p: options.topP ?? 0.9,
@@ -41,7 +47,7 @@ export async function generateWithOllama(
   }).catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Could not complete Ollama generate at ${host} within ${timeoutMs}ms. Start Ollama, verify the model with "ollama list", or increase SOPHIA_OLLAMA_TIMEOUT_MS. Cause: ${detail}`,
+      `Could not complete Ollama generate at ${host} within ${timeoutMs}ms. Start Ollama, verify the model with "ollama list", or increase ${SOPHIA_OLLAMA_TIMEOUT_MS_ENV}. Cause: ${detail}`,
     );
   });
 
@@ -58,18 +64,4 @@ export async function generateWithOllama(
     model: payload.model ?? options.model,
     response: payload.response,
   };
-}
-
-function ollamaTimeoutMs(): number {
-  const raw = process.env.SOPHIA_OLLAMA_TIMEOUT_MS;
-  if (!raw) return 900_000;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 900_000;
-}
-
-function ollamaNumPredict(): number | null {
-  const raw = process.env.SOPHIA_OLLAMA_NUM_PREDICT;
-  if (!raw) return null;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }

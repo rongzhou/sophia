@@ -1,16 +1,16 @@
-import { parseSophiaBody, type SophiaBodyStatement } from "../lang/body_ast.js";
-import { inferEmptyListTypeForVariable } from "../lang/body_empty_list.js";
+import { parseSophiaBody, type SophiaBodyStatement } from "../lang/body/ast.js";
+import { inferEmptyListTypeForVariable } from "../lang/body/empty_list.js";
 import {
   inferSophiaExpressionType,
   parseEntityAssignments,
   type SophiaActionSignature,
-} from "../lang/expression.js";
+} from "../lang/ast/expression.js";
 import {
   sophiaTypeToTypeScript,
   parseSophiaOptionalType,
   type SophiaEntityTypes,
   type SophiaStateTypes,
-} from "../lang/types.js";
+} from "../lang/ast/types.js";
 import { indent } from "../util/strings.js";
 
 export function emitBody(options: {
@@ -33,6 +33,10 @@ export function emitBody(options: {
     options.stateTypes,
     options.actionTypes,
   );
+}
+
+function matchTempVar(line: number): string {
+  return `__match_${line}`;
 }
 
 function emitStatements(
@@ -167,7 +171,7 @@ function emitMatchStatement(
   actionTypes: Map<string, SophiaActionSignature>,
 ): string {
   const output: string[] = [];
-  const temporary = `__match${statement.line}`;
+  const temporary = matchTempVar(statement.line);
   const matchedType = inferSophiaExpressionType(
     statement.expression,
     types,

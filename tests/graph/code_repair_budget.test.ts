@@ -3,9 +3,9 @@ import { createTempDir } from "../helpers/sophia_workspace.js";
 import {
   assertCodeRepairBudgetAvailable,
   countCodeRepairAttemptsForCodeNode,
-} from "../../src/graph/llm_node_workflow.js";
-import type { GraphNode } from "../../src/graph/nodes.js";
-import { GraphStore } from "../../src/graph/store.js";
+} from "../../src/graph/workflow/llm_node.js";
+import type { GraphNode } from "../../src/graph/core/nodes.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 describe("code repair budget", () => {
   it("counts repair CodeNodes derived from checks of the same CodeNode", async () => {
@@ -50,7 +50,7 @@ async function codeNode(store: GraphStore): Promise<GraphNode> {
   return store.createNode({
     type: "CodeNode",
     createdFrom: null,
-    action_used: "implement_design",
+    actionUsed: "implement_design",
     summary: "Code",
   });
 }
@@ -60,7 +60,7 @@ async function checkNode(store: GraphStore, code: GraphNode): Promise<GraphNode>
     type: "CheckResultNode",
     status: "failed",
     createdFrom: code.id,
-    action_used: "check_code",
+    actionUsed: "check_code",
     summary: "failed",
     artifacts: ["result.json"],
   });
@@ -77,7 +77,7 @@ async function repairNode(store: GraphStore, check: GraphNode): Promise<GraphNod
   const node = await store.createNode({
     type: "CodeNode",
     createdFrom: check.id,
-    action_used: "repair_code",
+    actionUsed: "repair_code",
     summary: "repaired",
   });
   await store.appendEdge({ from: check.id, to: node.id, type: "repairs" });

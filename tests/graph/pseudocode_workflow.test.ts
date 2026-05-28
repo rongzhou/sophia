@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createTempDir } from "../helpers/sophia_workspace.js";
+import { createTempDir, samplePseudocodeJson } from "../helpers/sophia_workspace.js";
 import {
   assertPseudocodeNodeCanImplement,
   createPseudocodeCheckNode,
-} from "../../src/graph/pseudocode_workflow.js";
-import { GraphStore } from "../../src/graph/store.js";
+} from "../../src/graph/workflow/pseudocode.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 describe("pseudocode implementation gate", () => {
   it("requires a recorded PseudocodeCheckNode before implementation", async () => {
@@ -22,17 +22,11 @@ describe("pseudocode implementation gate", () => {
     await createPseudocodeCheckNode({
       store,
       pseudoNode: pseudo,
-      pseudocode: `program Demo {
-  purpose { "too vague" }
-  inputs { none }
-  outputs { result := "numbers" }
-  algorithm {
-    repeat several times {
-      do the calculation
-    }
-  }
-}
-`,
+      pseudocode: samplePseudocodeJson({
+        purpose: "too vague",
+        outputs: [{ name: "result", meaning: "numbers" }],
+        algorithm: ["repeat several times", "do the calculation"],
+      }),
     });
 
     await expect(assertPseudocodeNodeCanImplement(store, pseudo)).rejects.toThrow(
@@ -64,7 +58,7 @@ async function pseudoNode(store: GraphStore) {
   const node = await store.createNode({
     type: "PseudocodeNode",
     createdFrom: null,
-    action_used: "add_pseudo",
+    actionUsed: "add_pseudo",
     summary: "Pseudo",
     artifacts: ["content.pseudo"],
   });
@@ -72,12 +66,4 @@ async function pseudoNode(store: GraphStore) {
   return node;
 }
 
-const passingPseudocode = `program Demo {
-  purpose { "Return a fixed label." }
-  inputs { none }
-  outputs { result := "text label" }
-  algorithm {
-    return ready
-  }
-}
-`;
+const passingPseudocode = samplePseudocodeJson();

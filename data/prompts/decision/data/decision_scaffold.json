@@ -1,0 +1,204 @@
+{
+  "design_solution": {
+    "preconditions": ["Current node is a goal without accepted pseudocode."],
+    "executor": "explicit command",
+    "executor_command": "graph design <goal-node> --model <model>",
+    "produces": "PseudocodeNode plus PseudocodeCheckNode.",
+    "llm_must_not": ["Do not write pseudocode in this decision response."]
+  },
+  "decompose": {
+    "preconditions": ["Goal has clearly separable independent subgoals."],
+    "executor": "explicit command",
+    "executor_command": "not implemented in graph apply; requires explicit decomposition workflow",
+    "produces": "Subgoal nodes.",
+    "llm_must_not": ["Do not create subgoals in this decision response."]
+  },
+  "decompose_objective": {
+    "preconditions": [
+      "Current ObjectiveNode is authoritative or derived and needs child objectives."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph objective decompose <objective-node>",
+    "produces": "AI-derived proposed ObjectiveNode and optional MilestoneNode children.",
+    "llm_must_not": ["Do not write child objectives in this decision response."]
+  },
+  "accept_objective_decomposition": {
+    "preconditions": [
+      "Current ObjectiveNode belongs to a proposed AI decomposition that should become active."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph objective accept-decomposition <objective-node-or-parent> <decomposition-id>",
+    "produces": "Derived ObjectiveNode/MilestoneNode payloads eligible for active context.",
+    "llm_must_not": ["Do not alter objective text while selecting this action."]
+  },
+  "invalidate_decomposition": {
+    "preconditions": ["Current decomposition is wrong or no longer belongs in active context."],
+    "executor": "explicit command",
+    "executor_command": "graph objective invalidate-decomposition <parent-objective> <decomposition-id>",
+    "produces": "Invalidated decomposition metadata while preserving old nodes.",
+    "llm_must_not": ["Do not delete old nodes or rewrite history."]
+  },
+  "redecompose_objective": {
+    "preconditions": [
+      "A prior decomposition is invalidated or repeated failures indicate the split is wrong."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph objective redecompose <objective-node>",
+    "produces": "A new proposed decomposition version.",
+    "llm_must_not": ["Do not include the new decomposition content in this decision response."]
+  },
+  "create_milestone": {
+    "preconditions": [
+      "Current objective is accepted/derived but has no usable milestone boundary."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph milestone create <objective-node>",
+    "produces": "A proposed MilestoneNode.",
+    "llm_must_not": ["Do not define milestone scope in this decision response."]
+  },
+  "accept_milestone": {
+    "preconditions": [
+      "Current MilestoneNode is proposed and should become an accepted stage boundary."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph milestone accept <milestone-node>",
+    "produces": "Accepted/derived MilestoneNode payload.",
+    "llm_must_not": ["Do not change milestone scope while selecting this action."]
+  },
+  "activate_milestone": {
+    "preconditions": [
+      "Current MilestoneNode is accepted or derived and can become the active stage."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph milestone activate <milestone-node>",
+    "produces": "Active milestone in goal context.",
+    "llm_must_not": ["Do not implement milestone content in this decision response."]
+  },
+  "record_change_request": {
+    "preconditions": [
+      "Human input introduces a new requirement, correction, preference, rejection, or constraint change."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph change record",
+    "produces": "ChangeRequestNode.",
+    "llm_must_not": ["Do not invent human requests."]
+  },
+  "analyze_change_impact": {
+    "preconditions": ["Current ChangeRequestNode has not yet been analyzed."],
+    "executor": "explicit command",
+    "executor_command": "graph change analyze <change-request-node>",
+    "produces": "ImpactAnalysisNode.",
+    "llm_must_not": ["Do not apply the change while selecting this action."]
+  },
+  "accept_change_request": {
+    "preconditions": [
+      "Current change request has a matching accepted impact analysis and should enter goal context."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph change accept <change-request-node> <impact-analysis-node>",
+    "produces": "Accepted ChangeRequestNode and ImpactAnalysisNode payloads.",
+    "llm_must_not": ["Do not implement the accepted change directly."]
+  },
+  "record_acceptance": {
+    "preconditions": ["Human acceptance or rejection must be recorded for a target node."],
+    "executor": "explicit command",
+    "executor_command": "graph acceptance record <target-node>",
+    "produces": "AcceptanceNode.",
+    "llm_must_not": ["Do not invent acceptance."]
+  },
+  "pseudo_check": {
+    "preconditions": ["Current node is a PseudocodeNode without a recorded pseudo-check."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "PseudocodeCheckNode.",
+    "llm_must_not": ["Do not rewrite pseudocode while selecting this action."]
+  },
+  "revise_design": {
+    "preconditions": ["Pseudocode diagnostics indicate unclear or unsupported execution logic."],
+    "executor": "explicit command",
+    "executor_command": "graph revise-design <pseudo-check-node> --model <model>",
+    "produces": "Revised PseudocodeNode plus PseudocodeCheckNode.",
+    "llm_must_not": ["Do not include the revised pseudocode in this decision response."]
+  },
+  "implement_design": {
+    "preconditions": ["Pseudocode has a passing pseudo-check."],
+    "executor": "explicit command",
+    "executor_command": "graph implement-loop <pseudo-node> --model <model>",
+    "produces": "CodeNode with check/audit loop artifacts.",
+    "llm_must_not": ["Do not write Sophia code in this decision response."]
+  },
+  "check_code": {
+    "preconditions": ["Current CodeNode has no deterministic check result."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "CheckResultNode.",
+    "llm_must_not": ["Do not inspect hidden tests or expected outputs."]
+  },
+  "audit_code": {
+    "preconditions": ["Code passed deterministic check and still needs constraint audit."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "AuditNode.",
+    "llm_must_not": ["Do not approve code directly; select audit only."]
+  },
+  "repair_code": {
+    "preconditions": ["Code check failed and repair budget remains."],
+    "executor": "explicit command",
+    "executor_command": "graph repair <check-node> --model <model>",
+    "produces": "Repaired CodeNode plus diff/check/audit artifacts.",
+    "llm_must_not": ["Do not include repair code in this decision response."]
+  },
+  "select": {
+    "preconditions": ["Code passed deterministic check and audit."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "SelectionNode.",
+    "llm_must_not": ["Do not materialize directly while selecting this action."]
+  },
+  "materialize_code": {
+    "preconditions": ["A SelectionNode exists for checked and audited code."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "MaterializeNode and files in the runnable workspace.",
+    "llm_must_not": ["Do not write files directly in this decision response."]
+  },
+  "complete": {
+    "preconditions": ["The current workflow branch is already materialized or finished."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "No new node.",
+    "llm_must_not": ["Do not invent extra work."]
+  },
+  "no_valid_action": {
+    "preconditions": ["No allowed transition exists for the visible graph state."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "No new node; reports a blocked decision state.",
+    "llm_must_not": ["Do not invent an action outside the allowed list."]
+  },
+  "requires_redecomposition": {
+    "preconditions": [
+      "Repeated failures or invalidated decomposition require a new objective split."
+    ],
+    "executor": "explicit command",
+    "executor_command": "graph objective redecompose <objective-node>",
+    "produces": "No node from apply; requires explicit redecomposition.",
+    "llm_must_not": ["Do not write the replacement decomposition."]
+  },
+  "requires_human_scope_confirmation": {
+    "preconditions": [
+      "The next step depends on human authorization of scope, milestone, or change request."
+    ],
+    "executor": "explicit command",
+    "executor_command": "requires human goal/scope confirmation",
+    "produces": "No node until human input is recorded.",
+    "llm_must_not": ["Do not fabricate human confirmation."]
+  },
+  "budget_exhausted": {
+    "preconditions": ["The relevant action budget is exhausted."],
+    "executor": "graph apply",
+    "executor_command": "graph apply <decision-node>",
+    "produces": "No new node; reports a budget-exhausted state.",
+    "llm_must_not": ["Do not keep retrying the exhausted action."]
+  }
+}

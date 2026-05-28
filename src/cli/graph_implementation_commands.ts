@@ -1,22 +1,22 @@
 import type { Command } from "commander";
-import { parseNonNegativeIntegerOption, setFailedExitIf } from "./cli_utils.js";
-import { checkSophiaFiles } from "../lang/checker.js";
+import { parseNonNegativeIntegerOption, printJson, setFailedExitIf } from "./cli_utils.js";
+import { checkSophiaFiles } from "../lang/checker/index.js";
 import {
   createArtifactDiffNode,
   findAncestorPseudocodeNode,
   readCodeNodeFiles,
-} from "../graph/code_workflow.js";
-import { runCheckRepairLoop } from "../graph/check_repair_loop.js";
-import { captureRawLlmFailure } from "../graph/llm_failure_capture.js";
+} from "../graph/workflow/code.js";
+import { runCheckRepairLoop } from "../graph/workflow/check_repair_loop.js";
+import { captureRawLlmFailure } from "../graph/workflow/llm_failure.js";
 import {
   DEFAULT_CODE_REPAIR_ATTEMPT_LIMIT,
   assertCodeRepairBudgetAvailable,
   createImplementedCodeNode,
   createRepairedCodeNode,
-} from "../graph/llm_node_workflow.js";
-import type { GraphNode } from "../graph/nodes.js";
-import { assertPseudocodeNodeCanImplement } from "../graph/pseudocode_workflow.js";
-import { GraphStore } from "../graph/store.js";
+} from "../graph/workflow/llm_node.js";
+import { assertNodeType, assertNodeTypeIn, type GraphNode } from "../graph/core/nodes.js";
+import { assertPseudocodeNodeCanImplement } from "../graph/workflow/pseudocode.js";
+import { GraphStore } from "../graph/core/store.js";
 import { implementDesignWithOllama } from "../llm/tasks/implement_design.js";
 import { repairCodeWithOllama } from "../llm/tasks/repair.js";
 
@@ -29,16 +29,14 @@ export function registerGraphImplementationCommands(graph: Command): void {
     .action(async (pseudoNodeId: string, options: { model: string }) => {
       const store = new GraphStore(process.cwd());
       const pseudoNode = await store.readNode(pseudoNodeId);
-      if (pseudoNode.type !== "PseudocodeNode") {
-        throw new Error(`Expected PseudocodeNode, got ${pseudoNode.type}.`);
-      }
+      assertNodeType(pseudoNode, "PseudocodeNode");
       await assertPseudocodeNodeCanImplement(store, pseudoNode);
       const pseudocode = await store.readArtifact(pseudoNode, "content.pseudo");
 
       const result = await captureRawLlmFailure({
         store,
         createdFrom: pseudoNode,
-        action_used: "implement_design",
+        actionUsed: "implement_design",
         edgeType: "implements_design",
         tags: ["llm", "failed"],
         model: options.model,
@@ -50,7 +48,7 @@ export function registerGraphImplementationCommands(graph: Command): void {
         result,
         model: options.model,
       });
-      console.log(JSON.stringify(codeNode, null, 2));
+      printJson(codeNode);
     });
 
   graph
@@ -66,9 +64,7 @@ export function registerGraphImplementationCommands(graph: Command): void {
     .action(async (pseudoNodeId: string, options: { model: string; maxRepairs: string }) => {
       const store = new GraphStore(process.cwd());
       const pseudoNode = await store.readNode(pseudoNodeId);
-      if (pseudoNode.type !== "PseudocodeNode") {
-        throw new Error(`Expected PseudocodeNode, got ${pseudoNode.type}.`);
-      }
+      assertNodeType(pseudoNode, "PseudocodeNode");
       await assertPseudocodeNodeCanImplement(store, pseudoNode);
       const maxRepairs = parseNonNegativeIntegerOption(options.maxRepairs, "--max-repairs");
       const pseudocode = await store.readArtifact(pseudoNode, "content.pseudo");
@@ -78,7 +74,7 @@ export function registerGraphImplementationCommands(graph: Command): void {
       const implementation = await captureRawLlmFailure({
         store,
         createdFrom: pseudoNode,
-        action_used: "implement_design",
+        actionUsed: "implement_design",
         edgeType: "implements_design",
         tags: ["llm", "failed", "implement_loop"],
         model: options.model,
@@ -103,38 +99,26 @@ export function registerGraphImplementationCommands(graph: Command): void {
       summary.push(...loop.steps);
 
       if (loop.kind === "budget_exhausted") {
-        console.log(
-          JSON.stringify(
-            {
-              ok: false,
-              reason: loop.reason,
-              final_code_node: loop.codeNode.id,
-              repairs_used: loop.repairsUsed,
-              diff_ok: loop.diffOk,
-              steps: summary,
-            },
-            null,
-            2,
-          ),
-        );
+        printJson({
+          ok: false,
+          reason: loop.reason,
+          final_code_node: loop.codeNode.id,
+          repairs_used: loop.repairsUsed,
+          diff_ok: loop.diffOk,
+          steps: summary,
+        });
         setFailedExitIf(true);
         return;
       }
 
       const ok = loop.diffOk;
-      console.log(
-        JSON.stringify(
-          {
-            ok,
-            final_code_node: loop.codeNode.id,
-            repairs_used: loop.repairsUsed,
-            diff_ok: loop.diffOk,
-            steps: summary,
-          },
-          null,
-          2,
-        ),
-      );
+      printJson({
+        ok,
+        final_code_node: loop.codeNode.id,
+        repairs_used: loop.repairsUsed,
+        diff_ok: loop.diffOk,
+        steps: summary,
+      });
       setFailedExitIf(!ok);
       return;
     });
@@ -152,16 +136,12 @@ export function registerGraphImplementationCommands(graph: Command): void {
     .action(async (checkNodeId: string, options: { model: string; maxRepairs: string }) => {
       const store = new GraphStore(process.cwd());
       const checkNode = await store.readNode(checkNodeId);
-      if (checkNode.type !== "CheckResultNode" && checkNode.type !== "AuditNode") {
-        throw new Error(`Expected CheckResultNode or AuditNode, got ${checkNode.type}.`);
-      }
+      assertNodeTypeIn(checkNode, ["CheckResultNode", "AuditNode"]);
       if (!checkNode.created_from) {
         throw new Error(`CheckResultNode ${checkNode.id} does not reference a CodeNode.`);
       }
       const codeNode = await store.readNode(checkNode.created_from);
-      if (codeNode.type !== "CodeNode") {
-        throw new Error(`Expected checked node to be CodeNode, got ${codeNode.type}.`);
-      }
+      assertNodeType(codeNode, "CodeNode");
       const checkResult = await store.readArtifactJson<ReturnType<typeof checkSophiaFiles>>(
         checkNode,
         "result.json",
@@ -179,11 +159,11 @@ export function registerGraphImplementationCommands(graph: Command): void {
       const result = await captureRawLlmFailure({
         store,
         createdFrom: checkNode,
-        action_used: "repair_code",
+        actionUsed: "repair_code",
         edgeType: "repairs",
         tags: ["llm", "repair", "failed"],
         model: options.model,
-        ...(codeNode.goal ? { goal: codeNode.goal } : {}),
+        goal: codeNode.goal,
         call: () =>
           repairCodeWithOllama({
             files,
@@ -206,6 +186,6 @@ export function registerGraphImplementationCommands(graph: Command): void {
         beforeFiles: files,
         afterFiles: result.output.files,
       });
-      console.log(JSON.stringify(repairedNode, null, 2));
+      printJson(repairedNode);
     });
 }

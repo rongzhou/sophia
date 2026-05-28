@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSophiaFiles } from "../../src/lang/checker.js";
+import { checkSophiaFiles } from "../../src/lang/checker/index.js";
 
 describe("v0.2 regression boundaries", () => {
   it("accepts explicit intent conversion, safe console output, storage write metadata, and error propagation", () => {

@@ -1,49 +1,41 @@
-program ZeroOrPositiveLabel {
-  purpose {
-    "Return a text label for whether a provided integer is zero or positive."
-  }
-
-  inputs {
-    count := "an integer that is guaranteed to be zero or positive"
-  }
-
-  outputs {
-    label := "zero when count equals 0, otherwise positive"
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    if count == 0 {
-      return "zero"
-    } else {
-      return "positive"
+{
+  "program_name": "ZeroOrPositiveLabel",
+  "purpose": "Return a text label for whether a provided integer is zero or positive.",
+  "inputs": [
+    {
+      "name": "count",
+      "meaning": "an integer that is guaranteed to be zero or positive"
     }
-  }
-
-  constraints {
-    "Return exactly zero when count equals 0."
+  ],
+  "outputs": [
+    {
+      "name": "label",
+      "meaning": "zero when count equals 0, otherwise positive"
+    }
+  ],
+  "effects": [],
+  "algorithm": [
+    "If count == 0, return \"zero\".",
+    "Otherwise return \"positive\"."
+  ],
+  "constraints": [
+    "Return exactly zero when count equals 0.",
     "Return exactly positive when count is greater than 0."
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
-    "Do not use randomness."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
+    "Do not use randomness.",
     "Do not print."
-  }
-
-  expected {
-    result_when_count_is_0 := "zero"
-    result_when_count_is_positive := "positive"
-  }
-
-  implementation_hints {
-    domain := "LabelDomain"
-    capability := "LabelPureCapability"
-    action := "ZeroOrPositiveLabel"
+  ],
+  "expected": {
+    "result_when_count_is_0": "zero",
+    "result_when_count_is_positive": "positive"
+  },
+  "implementation_hints": {
+    "domain": "LabelDomain",
+    "capability": "LabelPureCapability",
+    "action": "ZeroOrPositiveLabel"
   }
 }

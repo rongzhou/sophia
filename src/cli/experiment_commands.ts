@@ -4,13 +4,24 @@ import type { Command } from "commander";
 import {
   parseNonNegativeIntegerOption,
   parsePositiveIntegerOption,
+  printJson,
+  printJsonLine,
   readSophiaFilesFromDomains,
   setFailedExitIf,
 } from "./cli_utils.js";
 import { runDirectTsExperiment } from "../experiment/direct_ts_runner.js";
 import { runFullExperiment } from "../experiment/full_runner.js";
+import { runGoalGraphExperiment } from "../experiment/goal_graph_runner.js";
+import { applyOllamaRuntimeOverrides } from "../llm/ollama_config.js";
+import {
+  loadGoalGraphScenario,
+  loadGoalGraphScenarioSuite,
+  type GoalGraphScenario,
+} from "../graph/goal/scenarios.js";
 import { loadBenchmarkSuite, loadBenchmarkTask } from "../experiment/task.js";
+import type { BenchmarkTask } from "../experiment/task.js";
 import { verifySophiaFilesAgainstTask } from "../experiment/verify.js";
+import type { ExperimentResult } from "../experiment/result.js";
 
 export function registerExperimentCommands(program: Command): void {
   const experiment = program
@@ -23,18 +34,14 @@ export function registerExperimentCommands(program: Command): void {
     .description("List benchmark tasks")
     .action(async (options: { suite: string }) => {
       const tasks = await loadBenchmarkSuite(options.suite);
-      console.log(
-        JSON.stringify(
-          tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            category: task.category,
-            action: task.scaffold.action,
-            hidden_cases: task.hidden_cases.length,
-          })),
-          null,
-          2,
-        ),
+      printJson(
+        tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          category: task.category,
+          action: task.scaffold.action,
+          hidden_cases: task.hidden_cases.length,
+        })),
       );
     });
 
@@ -46,7 +53,7 @@ export function registerExperimentCommands(program: Command): void {
       const task = await loadBenchmarkTask(options.task);
       const files = await readSophiaFilesFromDomains(process.cwd());
       const result = await verifySophiaFilesAgainstTask(files, task);
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -54,7 +61,7 @@ export function registerExperimentCommands(program: Command): void {
     .command("run")
     .requiredOption("--task <path>", "Single benchmark task.json")
     .requiredOption("--model <model>", "Ollama model name")
-    .option("--mode <mode>", "Experiment mode: full or direct-ts", "full")
+    .option("--mode <mode>", "Experiment mode: full, direct-ts, or goal-graph", "full")
     .option("--max-design-revisions <count>", "Design revision budget", "2")
     .option("--max-repairs <count>", "Code repair budget", "2")
     .option("--ollama-timeout-ms <count>", "Timeout for each Ollama generate call")
@@ -76,8 +83,8 @@ export function registerExperimentCommands(program: Command): void {
         out?: string;
         append?: boolean;
       }) => {
-        if (options.mode !== "full" && options.mode !== "direct-ts") {
-          throw new Error("--mode must be full or direct-ts.");
+        if (!isExperimentMode(options.mode)) {
+          throw new Error("--mode must be full, direct-ts, or goal-graph.");
         }
         const maxDesignRevisions = parseNonNegativeIntegerOption(
           options.maxDesignRevisions,
@@ -85,7 +92,10 @@ export function registerExperimentCommands(program: Command): void {
         );
         const maxRepairs = parseNonNegativeIntegerOption(options.maxRepairs, "--max-repairs");
         applyOllamaOptions(options);
-        const task = await loadBenchmarkTask(options.task);
+        const subject =
+          options.mode === "goal-graph"
+            ? await loadGoalGraphScenario(options.task)
+            : await loadBenchmarkTask(options.task);
         const runs = parsePositiveIntegerOption(options.runs, "--runs");
         if (options.out && !options.append) {
           await mkdir(path.dirname(options.out), { recursive: true });
@@ -94,7 +104,7 @@ export function registerExperimentCommands(program: Command): void {
         let anyFailed = false;
         for (let runIndex = 0; runIndex < runs; runIndex += 1) {
           const record = await runBenchmarkRecord({
-            task,
+            subject,
             model: options.model,
             mode: options.mode,
             maxDesignRevisions,
@@ -102,7 +112,11 @@ export function registerExperimentCommands(program: Command): void {
             runIndex,
             runsTotal: runs,
           });
-          console.log(runs === 1 ? JSON.stringify(record, null, 2) : JSON.stringify(record));
+          if (runs === 1) {
+            printJson(record);
+          } else {
+            printJsonLine(record);
+          }
           if (options.out) {
             await mkdir(path.dirname(options.out), { recursive: true });
             await appendFile(options.out, `${JSON.stringify(record)}\n`, "utf8");
@@ -117,7 +131,7 @@ export function registerExperimentCommands(program: Command): void {
     .command("run-suite")
     .option("--suite <path>", "Benchmark suite directory or task.json", "benchmarks")
     .requiredOption("--model <model>", "Ollama model name")
-    .option("--mode <mode>", "Experiment mode: full or direct-ts", "full")
+    .option("--mode <mode>", "Experiment mode: full, direct-ts, or goal-graph", "full")
     .option("--max-design-revisions <count>", "Design revision budget", "2")
     .option("--max-repairs <count>", "Code repair budget", "2")
     .option("--ollama-timeout-ms <count>", "Timeout for each Ollama generate call")
@@ -139,8 +153,8 @@ export function registerExperimentCommands(program: Command): void {
         outDir?: string;
         append?: boolean;
       }) => {
-        if (options.mode !== "full" && options.mode !== "direct-ts") {
-          throw new Error("--mode must be full or direct-ts.");
+        if (!isExperimentMode(options.mode)) {
+          throw new Error("--mode must be full, direct-ts, or goal-graph.");
         }
         const maxDesignRevisions = parseNonNegativeIntegerOption(
           options.maxDesignRevisions,
@@ -150,7 +164,10 @@ export function registerExperimentCommands(program: Command): void {
         const runs = parsePositiveIntegerOption(options.runs, "--runs");
         applyOllamaOptions(options);
 
-        const tasks = await loadBenchmarkSuite(options.suite);
+        const subjects =
+          options.mode === "goal-graph"
+            ? await loadGoalGraphScenarioSuite(options.suite)
+            : await loadBenchmarkSuite(options.suite);
         const outDir =
           options.outDir ??
           path.join(
@@ -167,10 +184,10 @@ export function registerExperimentCommands(program: Command): void {
         const records: ExperimentRecord[] = [];
         let anyFailed = false;
 
-        for (const task of tasks) {
+        for (const subject of subjects) {
           for (let runIndex = 0; runIndex < runs; runIndex += 1) {
             const record = await runBenchmarkRecord({
-              task,
+              subject,
               model: options.model,
               mode: options.mode,
               maxDesignRevisions,
@@ -181,25 +198,21 @@ export function registerExperimentCommands(program: Command): void {
             records.push(record);
             await appendFile(resultsPath, `${JSON.stringify(record)}\n`, "utf8");
             const status = record.ok === true ? "ok" : "fail";
-            console.log(
-              JSON.stringify({
-                status,
-                task: task.id,
-                mode: options.mode,
-                run_index: runIndex,
-                runs_total: runs,
-                results: resultsPath,
-              }),
-            );
+            printJsonLine({
+              status,
+              task: subject.id,
+              mode: options.mode,
+              run_index: runIndex,
+              runs_total: runs,
+              results: resultsPath,
+            });
             if (!record.ok) anyFailed = true;
           }
         }
 
         const summary = summarizeExperimentRecords(records);
         await writeFile(summaryPath, `${summary}\n`, "utf8");
-        console.log(
-          JSON.stringify({ ok: !anyFailed, tasks: tasks.length, resultsPath, summaryPath }),
-        );
+        printJson({ ok: !anyFailed, tasks: subjects.length, resultsPath, summaryPath });
         setFailedExitIf(anyFailed);
       },
     );
@@ -215,21 +228,22 @@ export function registerExperimentCommands(program: Command): void {
     });
 }
 
-interface ExperimentRecord {
-  ok?: unknown;
-  task_id?: unknown;
-  mode?: unknown;
-  repairs_used?: unknown;
-  design_revisions_used?: unknown;
+type ExperimentRecord = Partial<ExperimentResult> & {
   wall_time_ms?: unknown;
   run_index?: unknown;
   runs_total?: unknown;
-}
+  action_path?: unknown;
+  invalidated_branches?: unknown;
+  accepted_changes?: unknown;
+};
+
+type ExperimentMode = "full" | "direct-ts" | "goal-graph";
+type BenchmarkSubject = BenchmarkTask | GoalGraphScenario;
 
 interface RunBenchmarkRecordOptions {
-  task: Awaited<ReturnType<typeof loadBenchmarkTask>>;
+  subject: BenchmarkSubject;
   model: string;
-  mode: string;
+  mode: ExperimentMode;
   maxDesignRevisions: number;
   maxRepairs: number;
   runIndex: number;
@@ -238,18 +252,7 @@ interface RunBenchmarkRecordOptions {
 
 async function runBenchmarkRecord(options: RunBenchmarkRecordOptions): Promise<ExperimentRecord> {
   const startedAt = Date.now();
-  const result =
-    options.mode === "full"
-      ? await runFullExperiment({
-          task: options.task,
-          model: options.model,
-          maxDesignRevisions: options.maxDesignRevisions,
-          maxRepairs: options.maxRepairs,
-        })
-      : await runDirectTsExperiment({
-          task: options.task,
-          model: options.model,
-        });
+  const result = await runExperimentForMode(options);
   return {
     ...result,
     run_index: options.runIndex,
@@ -258,17 +261,43 @@ async function runBenchmarkRecord(options: RunBenchmarkRecordOptions): Promise<E
   };
 }
 
+async function runExperimentForMode(options: RunBenchmarkRecordOptions): Promise<ExperimentRecord> {
+  switch (options.mode) {
+    case "full":
+      return runFullExperiment({
+        task: options.subject as BenchmarkTask,
+        model: options.model,
+        maxDesignRevisions: options.maxDesignRevisions,
+        maxRepairs: options.maxRepairs,
+      });
+    case "direct-ts":
+      return runDirectTsExperiment({
+        task: options.subject as BenchmarkTask,
+        model: options.model,
+      });
+    case "goal-graph":
+      return runGoalGraphExperiment({
+        scenario: options.subject as GoalGraphScenario,
+        model: options.model,
+      });
+  }
+}
+
+function isExperimentMode(value: string): value is ExperimentMode {
+  return value === "full" || value === "direct-ts" || value === "goal-graph";
+}
+
 function applyOllamaOptions(options: {
   ollamaTimeoutMs?: string;
   ollamaNumPredict?: string;
 }): void {
   if (options.ollamaTimeoutMs) {
     const timeoutMs = parsePositiveIntegerOption(options.ollamaTimeoutMs, "--ollama-timeout-ms");
-    process.env.SOPHIA_OLLAMA_TIMEOUT_MS = String(timeoutMs);
+    applyOllamaRuntimeOverrides({ timeoutMs });
   }
   if (options.ollamaNumPredict) {
     const numPredict = parsePositiveIntegerOption(options.ollamaNumPredict, "--ollama-num-predict");
-    process.env.SOPHIA_OLLAMA_NUM_PREDICT = String(numPredict);
+    applyOllamaRuntimeOverrides({ numPredict });
   }
 }
 
@@ -303,13 +332,16 @@ function summarizeExperimentRecords(records: ExperimentRecord[]): string {
         formatRate(successes, items.length),
         formatAverage(items.map((item) => item.repairs_used)),
         formatAverage(items.map((item) => item.design_revisions_used)),
+        formatAverage(items.map((item) => arrayLength(item.action_path))),
+        formatAverage(items.map((item) => arrayLength(item.invalidated_branches))),
+        formatAverage(items.map((item) => arrayLength(item.accepted_changes))),
         formatAverage(items.map((item) => item.wall_time_ms)),
       ];
     });
 
   return [
-    "| task | mode | runs | ok | success_rate | avg_repairs | avg_design_revisions | avg_wall_time_ms |",
-    "|---|---|---:|---:|---:|---:|---:|---:|",
+    "| task | mode | runs | ok | success_rate | avg_repairs | avg_design_revisions | avg_actions | avg_invalidated_branches | avg_accepted_changes | avg_wall_time_ms |",
+    "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ...rows.map((row) => `| ${row.join(" | ")} |`),
   ].join("\n");
 }
@@ -323,4 +355,8 @@ function formatAverage(values: unknown[]): string {
   const numbers = values.filter((value): value is number => typeof value === "number");
   if (numbers.length === 0) return "n/a";
   return (numbers.reduce((sum, value) => sum + value, 0) / numbers.length).toFixed(1);
+}
+
+function arrayLength(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
 }

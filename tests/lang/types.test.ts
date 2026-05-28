@@ -7,7 +7,7 @@ import {
   parseSophiaOptionalType,
   sampleSophiaRuntimeValue,
   sophiaTypeToTypeScript,
-} from "../../src/lang/types.js";
+} from "../../src/lang/ast/types.js";
 
 describe("Sophia v0 types", () => {
   it("defines the shared v0 type whitelist", () => {

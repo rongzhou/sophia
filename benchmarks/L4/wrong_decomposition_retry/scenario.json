@@ -1,0 +1,91 @@
+{
+  "id": "wrong_decomposition_retry",
+  "title": "Wrong decomposition retry workflow",
+  "purpose": "Demonstrate that an incorrect split is preserved in the graph but excluded from active context after invalidation and redecomposition.",
+  "root_objective": {
+    "title": "Build a focused export workflow",
+    "description": "Create a small export workflow without replacing unrelated storage or user interface systems.",
+    "constraints": ["Do not expand scope into persistence or account management."],
+    "acceptance": ["Exported rows keep their title and status fields."]
+  },
+  "steps": [
+    {
+      "type": "decompose",
+      "decomposition_id": "D_BAD_001",
+      "objectives": [
+        {
+          "ref": "bad_platform_rewrite",
+          "status": "open",
+          "title": "Rewrite storage and account platform",
+          "description": "Incorrectly expands a small export workflow into a platform rewrite.",
+          "constraints": ["Too broad for the requested workflow."],
+          "acceptance": ["All storage and accounts are replaced."]
+        }
+      ]
+    },
+    { "type": "accept_decomposition", "decomposition_id": "D_BAD_001" },
+    {
+      "type": "invalidate_decomposition",
+      "decomposition_id": "D_BAD_001",
+      "reason": "The split is product-scale and violates the requested workflow boundary."
+    },
+    {
+      "type": "redecompose",
+      "previous_decomposition_id": "D_BAD_001",
+      "decomposition_id": "D_GOOD_001",
+      "reason": "Replace the platform rewrite with small export-specific objectives.",
+      "objectives": [
+        {
+          "ref": "select_export_rows",
+          "status": "open",
+          "title": "Select export rows",
+          "description": "Choose the existing rows that belong in the export.",
+          "constraints": ["Do not mutate stored rows."],
+          "acceptance": ["Only selected rows enter the export payload."]
+        },
+        {
+          "ref": "format_export_rows",
+          "status": "open",
+          "title": "Format export rows",
+          "description": "Format selected rows with title and status fields.",
+          "constraints": ["Do not introduce account or persistence changes."],
+          "acceptance": ["Each exported row has title and status."]
+        }
+      ],
+      "milestones": [
+        {
+          "ref": "export_slice",
+          "status": "planned",
+          "name": "Export vertical slice",
+          "scope": ["Select rows", "Format rows"],
+          "out_of_scope": ["Storage migration", "Account management", "UI redesign"],
+          "acceptance": ["A selected row exports with title and status."]
+        }
+      ]
+    },
+    { "type": "accept_decomposition", "decomposition_id": "D_GOOD_001" },
+    { "type": "activate_milestone", "milestone_ref": "export_slice" }
+  ],
+  "records": {
+    "prompt": "Manual graph run prompt: reject a broad decomposition, preserve it as invalidated history, then redecompose into a narrow export slice.",
+    "llm_response": {
+      "selected_path": [
+        "decompose_objective",
+        "accept_objective_decomposition",
+        "invalidate_decomposition",
+        "redecompose_objective",
+        "accept_objective_decomposition",
+        "activate_milestone"
+      ],
+      "notes": ["The old split remains in graph JSON but must be absent from active context."]
+    },
+    "final_verification": {
+      "check_ok": true,
+      "audit_ok": true,
+      "verify_ok": true,
+      "notes": [
+        "Graph-level verification confirms the invalidated branch is excluded and replacement objectives are active."
+      ]
+    }
+  }
+}

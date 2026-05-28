@@ -1,6 +1,35 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { sophiaTomlTemplate } from "../../src/workspace/workspace.js";
+
+export interface SamplePseudocodeJson {
+  purpose?: string;
+  inputs?: Array<{ name: string; meaning: string }>;
+  outputs?: Array<{ name: string; meaning: string }>;
+  definitions?: Array<Record<string, unknown>>;
+  algorithm?: string[];
+  effects?: string[];
+  constraints?: string[];
+  forbidden?: string[];
+  expected?: Record<string, unknown> | string[];
+  implementation_hints?: Record<string, unknown>;
+  program_name?: string;
+}
+
+export function samplePseudocodeJson(overrides: SamplePseudocodeJson = {}): string {
+  return JSON.stringify(
+    {
+      purpose: "Return a fixed label.",
+      inputs: [],
+      outputs: [{ name: "result", meaning: "text label" }],
+      algorithm: ['return "ok"'],
+      ...overrides,
+    },
+    null,
+    2,
+  );
+}
 
 export async function createTempDir(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -37,6 +66,14 @@ export async function writeSophiaToml(
     buildOutDir?: string;
   } = {},
 ): Promise<void> {
+  if (
+    options.domainRoot === undefined &&
+    options.generatedDir === undefined &&
+    options.buildOutDir === undefined
+  ) {
+    await writeProjectFile(root, "sophia.toml", `${sophiaTomlTemplate("test-workspace")}\n`);
+    return;
+  }
   const domainRoot = options.domainRoot ?? "domains";
   const generatedDir = options.generatedDir ?? "sophia-runs/generated";
   const buildOutDir = options.buildOutDir ?? "sophia-runs/build";
@@ -44,6 +81,11 @@ export async function writeSophiaToml(
     root,
     "sophia.toml",
     [
+      "[project]",
+      'name = "test-workspace"',
+      'version = "0.1.0"',
+      'sophia_version = "0.1"',
+      "",
       "[source]",
       `domain_root = "${domainRoot}"`,
       `generated_dir = "${generatedDir}"`,

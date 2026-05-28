@@ -1,4 +1,4 @@
-import { tsBuildDiagnostic, type TypeScriptBuildDiagnostic } from "./ts_codegen.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
 import {
   findGeneratedActionMetadata,
   loadGeneratedTypeScriptModule,
@@ -16,7 +16,7 @@ export interface TypeScriptRunResult {
   input: unknown;
   result: unknown;
   effects: string[];
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export interface TypeScriptSmokeActionResult {
@@ -26,7 +26,7 @@ export interface TypeScriptSmokeActionResult {
   reason: string | null;
   result: unknown;
   effects: string[];
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export interface TypeScriptSmokeResult {
@@ -34,7 +34,7 @@ export interface TypeScriptSmokeResult {
   actions_run: number;
   actions_skipped: number;
   actions: TypeScriptSmokeActionResult[];
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export interface TypeScriptSmokeOptions {
@@ -155,7 +155,7 @@ export async function smokeTypeScriptActions(
         result: null,
         effects: [],
         diagnostics: [
-          tsBuildDiagnostic(
+          errorDiagnostic(
             "RUN-ACTION-001",
             loaded.sourcePath,
             `Generated build does not export action ${action.name}.`,
@@ -286,6 +286,6 @@ function failedRun(
     input,
     result: null,
     effects,
-    diagnostics: [tsBuildDiagnostic(code, diagnosticLocation, problem)],
+    diagnostics: [errorDiagnostic(code, diagnosticLocation, problem)],
   };
 }

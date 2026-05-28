@@ -1,4 +1,3 @@
-import { extractNamedSection } from "../lang/braces.js";
 import { pseudocodeAlgorithmLines } from "./document.js";
 
 export interface PseudoOutline {
@@ -9,12 +8,7 @@ export interface PseudoOutline {
 }
 
 export function outlinePseudocode(content: string): PseudoOutline {
-  const lines =
-    pseudocodeAlgorithmLines(content) ??
-    (extractNamedSection(content, "algorithm") ?? "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
+  const lines = pseudocodeAlgorithmLines(content) ?? [];
   return {
     algorithm_steps: lines,
     repeats: lines.filter((line) => line.startsWith("repeat ")),

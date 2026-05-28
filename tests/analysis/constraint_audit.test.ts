@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { auditConstraints } from "../../src/analysis/constraint_audit.js";
+import { samplePseudocodeJson } from "../helpers/sophia_workspace.js";
 
 describe("auditConstraints", () => {
   it("rejects hardcoded expected lists when forbidden", () => {
     const result = auditConstraints({
-      pseudocode: `
-constraints { "Do not hardcode the full list." }
-expected { result := "[4, 8, 15, 16, 23, 42]" }
-`,
+      pseudocode: samplePseudocodeJson({
+        constraints: ["Do not hardcode the full list."],
+        expected: { result: "[4, 8, 15, 16, 23, 42]" },
+      }),
       files: {
         "domains/demo/actions/demo.sophia": `body { return [4,8,15,16,23,42] }`,
       },
@@ -19,16 +20,16 @@ expected { result := "[4, 8, 15, 16, 23, 42]" }
 
   it("accepts the repaired rabbit loop shape", () => {
     const result = auditConstraints({
-      pseudocode: `
-algorithm { repeat 8 times { set next to previous + current } }
-forbidden {
-  "Do not use storage."
-  "Do not use time."
-  "Do not use network."
-  "Do not use randomness."
-}
-constraints { "Do not hardcode the full list." }
-`,
+      pseudocode: samplePseudocodeJson({
+        algorithm: ["repeat 8 times: set next to previous + current"],
+        forbidden: [
+          "Do not use storage.",
+          "Do not use time.",
+          "Do not use network.",
+          "Do not use randomness.",
+        ],
+        constraints: ["Do not hardcode the full list."],
+      }),
       files: {
         "domains/rabbit/actions/rabbit.sophia": `
 body {
@@ -46,7 +47,7 @@ body {
 
   it("warns when a bounded repeat count is not preserved", () => {
     const result = auditConstraints({
-      pseudocode: `algorithm { repeat 5 times { print current } }`,
+      pseudocode: samplePseudocodeJson({ algorithm: ["repeat 5 times: print current"] }),
       files: {
         "domains/demo/actions/demo.sophia": `body { repeat 4 times { print current } }`,
       },
@@ -58,10 +59,10 @@ body {
 
   it("rejects hardcoded scalar direct returns when forbidden", () => {
     const result = auditConstraints({
-      pseudocode: `
-expected { result := "15" }
-forbidden { "Do not hardcode the result as a direct return." }
-`,
+      pseudocode: samplePseudocodeJson({
+        expected: { result: "15" },
+        forbidden: ["Do not hardcode the result as a direct return."],
+      }),
       files: {
         "domains/sum/actions/sum.sophia": `body { return 15 }`,
       },
@@ -73,9 +74,7 @@ forbidden { "Do not hardcode the result as a direct return." }
 
   it("rejects print usage when pseudocode forbids printing", () => {
     const result = auditConstraints({
-      pseudocode: `
-forbidden { "Do not print." }
-`,
+      pseudocode: samplePseudocodeJson({ forbidden: ["Do not print."] }),
       files: {
         "domains/demo/actions/demo.sophia": `
 action Demo {

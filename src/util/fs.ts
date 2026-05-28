@@ -1,12 +1,12 @@
-import { open, readFile, readdir, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function isNotFoundError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return isFsErrorCode(error, "ENOENT");
 }
 
 export function isFileExistsError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+  return isFsErrorCode(error, "EEXIST");
 }
 
 export async function pathExists(filePath: string): Promise<boolean> {
@@ -18,8 +18,20 @@ export async function pathExists(filePath: string): Promise<boolean> {
     });
 }
 
-export function isDirectoryError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "EISDIR";
+export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function isDirectoryError(error: unknown): boolean {
+  return isFsErrorCode(error, "EISDIR");
+}
+
+function isFsErrorCode(
+  error: unknown,
+  code: "ENOENT" | "EEXIST" | "EISDIR",
+): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 export async function collectSophiaFiles(

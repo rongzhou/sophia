@@ -4,8 +4,8 @@ import {
   expectedTopLevelKindForPath,
   isSupportedSophiaFilePath,
 } from "../workspace/sophia_paths.js";
-import { error, type Diagnostic } from "../lang/diagnostics.js";
-import { parseSophiaSource } from "../lang/parser.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
+import { parseSophiaSource } from "../lang/ast/parser.js";
 import { loadWorkspaceConfig } from "../workspace/workspace.js";
 import { collectSophiaFiles } from "../util/fs.js";
 import { stableJson } from "../util/json.js";
@@ -22,12 +22,10 @@ export interface AsgIndex {
   nodes: Record<string, AsgIndexNode>;
 }
 
-export type AsgIndexDiagnostic = Diagnostic;
-
 export interface BuildAsgIndexResult {
   ok: boolean;
   index: AsgIndex;
-  diagnostics: AsgIndexDiagnostic[];
+  diagnostics: Diagnostic[];
   output_path: string;
 }
 
@@ -36,7 +34,7 @@ export async function buildAsgIndex(root: string): Promise<BuildAsgIndexResult> 
   const domainRoot = normalizeRelativePath(config.source.domain_root);
   const generatedDir = normalizeRelativePath(config.source.generated_dir);
   const files = await readDomainSophiaFiles(root, domainRoot);
-  const diagnostics: AsgIndexDiagnostic[] = [];
+  const diagnostics: Diagnostic[] = [];
   const nodes: Record<string, AsgIndexNode> = {};
 
   for (const [filePath, content] of Object.entries(files).sort(([left], [right]) =>
@@ -44,7 +42,7 @@ export async function buildAsgIndex(root: string): Promise<BuildAsgIndexResult> 
   )) {
     if (!isSupportedSophiaFilePath(filePath, domainRoot)) {
       diagnostics.push(
-        error(
+        errorDiagnostic(
           "INDEX-FILE-001",
           filePath,
           "Sophia file path is outside the v0 domain entity action/capability layout.",
@@ -72,7 +70,7 @@ export async function buildAsgIndex(root: string): Promise<BuildAsgIndexResult> 
     const expectedKind = expectedTopLevelKindForPath(filePath, domainRoot);
     if (expectedKind && declaration.kind !== expectedKind) {
       diagnostics.push(
-        error(
+        errorDiagnostic(
           "INDEX-FILE-003",
           filePath,
           `File path expects ${expectedKind}, found ${declaration.kind}.`,
@@ -83,7 +81,7 @@ export async function buildAsgIndex(root: string): Promise<BuildAsgIndexResult> 
 
     if (nodes[declaration.name]) {
       diagnostics.push(
-        error("INDEX-NODE-001", filePath, `Duplicate top-level node name: ${declaration.name}.`),
+        errorDiagnostic("INDEX-NODE-001", filePath, `Duplicate top-level node name: ${declaration.name}.`),
       );
       continue;
     }
@@ -91,7 +89,7 @@ export async function buildAsgIndex(root: string): Promise<BuildAsgIndexResult> 
     const declarationKind = toIndexKind(declaration.kind);
     if (!declarationKind) {
       diagnostics.push(
-        error("INDEX-PARSE-001", filePath, `Unsupported parsed node kind: ${declaration.kind}.`),
+        errorDiagnostic("INDEX-PARSE-001", filePath, `Unsupported parsed node kind: ${declaration.kind}.`),
       );
       continue;
     }

@@ -1,13 +1,12 @@
 import path from "node:path";
 import ts from "typescript";
-import { error } from "../lang/diagnostics.js";
-import type { TypeScriptBuildDiagnostic } from "./ts_codegen.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
 import { SOPHIA_BUILD_DIR } from "../workspace/fs_layout.js";
 
 export interface TypeScriptTypecheckResult {
   ok: boolean;
   source: string;
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export function typecheckGeneratedTypeScript(
@@ -17,8 +16,8 @@ export function typecheckGeneratedTypeScript(
   const absoluteSourcePath = path.join(root, sourcePath);
   const program = ts.createProgram([absoluteSourcePath], {
     target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ES2022,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
     strict: true,
     skipLibCheck: true,
     noEmit: true,
@@ -27,7 +26,7 @@ export function typecheckGeneratedTypeScript(
     .getPreEmitDiagnostics(program)
     .filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
     .map((diagnostic) =>
-      error(
+      errorDiagnostic(
         "BUILD-TYPECHECK-001",
         diagnostic.file ? path.relative(root, diagnostic.file.fileName) : sourcePath,
         ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),

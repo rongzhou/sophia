@@ -37,13 +37,48 @@ export function parseJsonOption(value: string, optionName: string): unknown {
 export function parseJsonObjectOption(value: string, optionName: string): Record<string, unknown> {
   const parsed = parseJsonOption(value, optionName);
   if (!isRecord(parsed)) {
-    throw new Error(`${optionName} must be a JSON object mapping action names to input objects.`);
+    throw new Error(`${optionName} must be a JSON object.`);
   }
   return parsed;
 }
 
+export function parseStringArrayOption(value: string, optionName: string): string[] {
+  const parsed = parseJsonOption(value, optionName);
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+    throw new Error(`${optionName} must be a JSON string array.`);
+  }
+  return parsed;
+}
+
+export function parseJsonArrayOption<T>(value: string, optionName: string): T[] {
+  const parsed = parseJsonOption(value, optionName);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${optionName} must be a JSON array.`);
+  }
+  return parsed as T[];
+}
+
+export function parseEnumOption<const T extends string>(
+  value: string,
+  optionName: string,
+  allowed: readonly T[],
+): T {
+  if (!allowed.includes(value as T)) {
+    throw new Error(`${optionName} must be one of: ${allowed.join(", ")}.`);
+  }
+  return value as T;
+}
+
 export function setFailedExitIf(failed: boolean): void {
   if (failed) process.exitCode = 1;
+}
+
+export function printJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+export function printJsonLine(value: unknown): void {
+  console.log(JSON.stringify(value));
 }
 
 export async function readSophiaFilesFromDomains(root: string): Promise<Record<string, string>> {

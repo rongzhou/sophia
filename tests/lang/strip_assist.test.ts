@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseSophiaSource } from "../../src/lang/parser.js";
-import { stripSemanticAssistFromAst } from "../../src/lang/strip_assist.js";
+import { parseSophiaSource } from "../../src/lang/ast/parser.js";
+import { stripSemanticAssistFromAst } from "../../src/lang/ast/strip_assist.js";
 
 describe("stripSemanticAssistFromAst", () => {
   it("removes semantic assist attributes while preserving formal attributes", () => {

@@ -1,10 +1,9 @@
 import { z } from "zod";
 import type { PseudocodeCheckResult } from "../../pseudo/check.js";
 import { buildPseudoRepairContext } from "../../pseudo/repair_context.js";
-import { replaceNamedSection } from "../../lang/braces.js";
 import { parsePseudocodeJson } from "../../pseudo/document.js";
 import { generateOllamaJson } from "../client.js";
-import { renderPromptTemplate } from "../prompt_templates.js";
+import { PROMPT_PATHS, renderPromptTemplate } from "../prompt_templates.js";
 import {
   containsFormalPseudoSyntax,
   containsProgramLikePseudocodeSyntax,
@@ -62,7 +61,7 @@ export function buildReviseDesignPrompt(
 ): string {
   const sanitizedPseudocode = removeImplementationHints(pseudocode);
   const context = buildPseudoRepairContext({ pseudocode: sanitizedPseudocode, checkResult });
-  return renderPromptTemplate("tasks/revise_design.md", {
+  return renderPromptTemplate(PROMPT_PATHS.task.reviseDesign, {
     pseudo_repair_context: JSON.stringify(context, null, 2),
     check_result: JSON.stringify(checkResult, null, 2),
     pseudocode: sanitizedPseudocode,
@@ -76,5 +75,5 @@ function removeImplementationHints(pseudocode: string): string {
     delete rest.implementation_hints;
     return JSON.stringify(rest, null, 2);
   }
-  return replaceNamedSection(pseudocode, "implementation_hints", "").trimEnd();
+  return pseudocode;
 }

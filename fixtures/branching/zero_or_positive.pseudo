@@ -1,51 +1,44 @@
-program PrintZeroOrPositive {
-  purpose {
-    "Print whether a provided integer is zero or positive, then return unit."
-  }
-
-  inputs {
-    count := "an integer that is guaranteed to be zero or positive"
-  }
-
-  outputs {
-    result := "unit after printing"
-  }
-
-  effects {
-    Console.Write := "print one classification message"
-  }
-
-  algorithm {
-    if count == 0 {
-      print "zero"
-    } else {
-      print "positive"
+{
+  "program_name": "PrintZeroOrPositive",
+  "purpose": "Print whether a provided integer is zero or positive, then return unit.",
+  "inputs": [
+    {
+      "name": "count",
+      "meaning": "an integer that is guaranteed to be zero or positive"
     }
-
-    return unit
-  }
-
-  constraints {
-    "Print exactly zero when count equals 0."
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "meaning": "unit after printing"
+    }
+  ],
+  "effects": [
+    "Console.Write: print one classification message"
+  ],
+  "algorithm": [
+    "If count == 0, print \"zero\".",
+    "Otherwise print \"positive\".",
+    "Return unit."
+  ],
+  "constraints": [
+    "Print exactly zero when count equals 0.",
     "Print exactly positive when count is greater than 0."
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
     "Do not use randomness."
-  }
-
-  expected {
-    stdout_when_count_is_0 := "zero\n"
-    stdout_when_count_is_positive := "positive\n"
-    result := "unit"
-  }
-
-  implementation_hints {
-    domain := "BranchingDomain"
-    capability := "BranchingConsoleCapability"
-    action := "PrintZeroOrPositive"
+  ],
+  "expected": {
+    "stdout_when_count_is_0": "zero\n",
+    "stdout_when_count_is_positive": "positive\n",
+    "result": "unit"
+  },
+  "implementation_hints": {
+    "domain": "BranchingDomain",
+    "capability": "BranchingConsoleCapability",
+    "action": "PrintZeroOrPositive"
   }
 }

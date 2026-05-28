@@ -1,7 +1,7 @@
 [project]
 name = "sophia"
-version = "0.1.0"
-sophia_version = "0.1"
+version = "0.2.0"
+sophia_version = "0.2"
 
 [source]
 domain_root = "domains"

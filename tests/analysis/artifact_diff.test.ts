@@ -96,4 +96,62 @@ action Demo {
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
   });
+
+  it("detects removed parameterized action effects", () => {
+    const result = diffSophiaArtifacts({
+      before: {
+        "domains/Demo/actions/Load.sophia": `
+action Load {
+  input { id: Text }
+  output { item: Optional<Item> }
+  effects { DB.Read("Item") }
+  body { return none }
+}
+`,
+      },
+      after: {
+        "domains/Demo/actions/Load.sophia": `
+action Load {
+  input { id: Text }
+  output { item: Optional<Item> }
+  body { return none }
+}
+`,
+      },
+    });
+
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "DIFF-EFFECT-001",
+          location: 'DB.Read("Item")',
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat generic type names as effects", () => {
+    const result = diffSophiaArtifacts({
+      before: {
+        "domains/Demo/actions/Load.sophia": `
+action Load {
+  output { item: Optional<Item> }
+  body { return none }
+}
+`,
+      },
+      after: {
+        "domains/Demo/actions/Load.sophia": `
+action Load {
+  output { item: Text }
+  body { return "missing" }
+}
+`,
+      },
+    });
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "DIFF-EFFECT-001",
+    );
+  });
 });

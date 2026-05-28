@@ -1,10 +1,10 @@
 import { isRecord } from "../util/json.js";
-import { tsBuildDiagnostic, type TypeScriptBuildDiagnostic } from "./ts_codegen.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
 import {
   type GeneratedActionMetadata,
   type GeneratedFieldMetadata,
 } from "./ts_generated_module.js";
-import { matchesSophiaRuntimeType, sampleSophiaRuntimeValue } from "../lang/types.js";
+import { matchesSophiaRuntimeType, sampleSophiaRuntimeValue } from "../lang/ast/types.js";
 
 export function buildSampleInput(
   fields: GeneratedFieldMetadata[],
@@ -26,9 +26,9 @@ export function validateInput(
   sourcePath: string,
   entityTypes: Map<string, GeneratedFieldMetadata[]>,
   stateTypes: Map<string, string[]> = new Map(),
-): TypeScriptBuildDiagnostic | null {
+): Diagnostic | null {
   if (!isRecord(input)) {
-    return tsBuildDiagnostic(
+    return errorDiagnostic(
       "RUN-INPUT-001",
       sourcePath,
       `Input for ${metadata.name} must be a JSON object.`,
@@ -37,7 +37,7 @@ export function validateInput(
   const allowedKeys = new Set(metadata.input.map((field) => field.name));
   for (const key of Object.keys(input)) {
     if (!allowedKeys.has(key)) {
-      return tsBuildDiagnostic(
+      return errorDiagnostic(
         "RUN-INPUT-002",
         sourcePath,
         `Input for ${metadata.name} contains unknown field ${key}.`,
@@ -46,14 +46,14 @@ export function validateInput(
   }
   for (const field of metadata.input) {
     if (!(field.name in input)) {
-      return tsBuildDiagnostic(
+      return errorDiagnostic(
         "RUN-INPUT-003",
         sourcePath,
         `Input for ${metadata.name} is missing required field ${field.name}.`,
       );
     }
     if (!matchesSophiaRuntimeType(input[field.name], field.type, entityTypes, stateTypes)) {
-      return tsBuildDiagnostic(
+      return errorDiagnostic(
         "RUN-INPUT-004",
         sourcePath,
         `Input field ${field.name} for ${metadata.name} must be ${field.type}.`,
@@ -69,10 +69,10 @@ export function validateOutput(
   sourcePath: string,
   entityTypes: Map<string, GeneratedFieldMetadata[]>,
   stateTypes: Map<string, string[]> = new Map(),
-): TypeScriptBuildDiagnostic | null {
+): Diagnostic | null {
   const outputType = metadata.output[0]?.type ?? "Unit";
   if (!matchesSophiaRuntimeType(result, outputType, entityTypes, stateTypes)) {
-    return tsBuildDiagnostic(
+    return errorDiagnostic(
       "RUN-OUTPUT-001",
       sourcePath,
       `Result for ${metadata.name} must be ${outputType}.`,

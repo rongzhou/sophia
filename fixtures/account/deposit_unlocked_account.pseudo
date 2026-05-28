@@ -1,62 +1,64 @@
-program DepositUnlockedAccount {
-  purpose {
-    "Return an updated account after depositing an amount only when the account is not locked."
-  }
-
-  entities {
-    DepositAccount {
-      balance: Int
-      is_locked: Bool
+{
+  "program_name": "DepositUnlockedAccount",
+  "purpose": "Return an updated account after depositing an amount only when the account is not locked.",
+  "definitions": [
+    {
+      "name": "DepositAccount",
+      "fields": [
+        {
+          "name": "balance",
+          "type": "Int"
+        },
+        {
+          "name": "is_locked",
+          "type": "Bool"
+        }
+      ]
     }
-  }
-
-  inputs {
-    account: DepositAccount
-    amount: Int
-  }
-
-  outputs {
-    result: DepositAccount
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    let can_deposit be not account.is_locked
-    if can_deposit {
-      let updated_balance be account.balance + amount
-      return DepositAccount with balance set to updated_balance and is_locked preserved from account
-    } else {
-      return account unchanged
+  ],
+  "inputs": [
+    {
+      "name": "account",
+      "meaning": "DepositAccount"
+    },
+    {
+      "name": "amount",
+      "meaning": "Int"
     }
-  }
-
-  constraints {
-    "The account is updated only when account.is_locked is false."
-    "The returned DepositAccount must preserve is_locked from the input account."
-    "The algorithm must use a named Bool condition before the branch."
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "meaning": "DepositAccount"
+    }
+  ],
+  "effects": [],
+  "algorithm": [
+    "Set can_deposit to not account.is_locked.",
+    "If can_deposit, set updated_balance to account.balance + amount and return DepositAccount with balance set to updated_balance and is_locked preserved from account.",
+    "Otherwise return account unchanged."
+  ],
+  "constraints": [
+    "The account is updated only when account.is_locked is false.",
+    "The returned DepositAccount must preserve is_locked from the input account.",
+    "The algorithm must use a named Bool condition before the branch.",
     "Do not hardcode concrete balances or fixture input values."
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
     "Do not use randomness."
-  }
-
-  expected {
-    unlocked_input := "{ account: { balance: 10, is_locked: false }, amount: 7 }"
-    unlocked_result := "{ balance: 17, is_locked: false }"
-    locked_input := "{ account: { balance: 10, is_locked: true }, amount: 7 }"
-    locked_result := "{ balance: 10, is_locked: true }"
-  }
-
-  implementation_hints {
-    domain := "AccountWorkflowDomain"
-    capability := "AccountWorkflowCapability"
-    action := "DepositUnlockedAccount"
+  ],
+  "expected": {
+    "unlocked_input": "{ account: { balance: 10, is_locked: false }, amount: 7 }",
+    "unlocked_result": "{ balance: 17, is_locked: false }",
+    "locked_input": "{ account: { balance: 10, is_locked: true }, amount: 7 }",
+    "locked_result": "{ balance: 10, is_locked: true }"
+  },
+  "implementation_hints": {
+    "domain": "AccountWorkflowDomain",
+    "capability": "AccountWorkflowCapability",
+    "action": "DepositUnlockedAccount"
   }
 }

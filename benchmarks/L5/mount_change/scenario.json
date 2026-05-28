@@ -1,0 +1,127 @@
+{
+  "id": "mount_change",
+  "title": "Simplified mount cross-system change workflow",
+  "purpose": "Model a late request that lets a player ride a mount and requires impact analysis across state, input, movement rules, and save data.",
+  "root_objective": {
+    "title": "Maintain a simple character movement system",
+    "description": "Keep player movement deterministic while allowing staged changes to movement features.",
+    "constraints": [
+      "Walking movement must continue to work.",
+      "Position updates remain deterministic."
+    ],
+    "acceptance": ["Player position changes when walking input is applied."]
+  },
+  "steps": [
+    {
+      "type": "decompose",
+      "decomposition_id": "D_MOVE_001",
+      "objectives": [
+        {
+          "ref": "player_position",
+          "status": "open",
+          "title": "Represent player position",
+          "description": "Track player position as deterministic state.",
+          "constraints": ["Position is explicit state."],
+          "acceptance": ["Position can be read before and after movement."]
+        },
+        {
+          "ref": "walking_input",
+          "status": "open",
+          "title": "Apply walking input",
+          "description": "Move the player by applying walking input to position.",
+          "constraints": ["Walking does not require mount state."],
+          "acceptance": ["Walking input updates position."]
+        }
+      ],
+      "milestones": [
+        {
+          "ref": "walking_slice",
+          "status": "planned",
+          "name": "Walking movement slice",
+          "scope": ["Player", "Position", "Walking input"],
+          "out_of_scope": ["Mount state", "Inventory", "Networking"],
+          "acceptance": ["Walking input updates Player.Position."]
+        }
+      ]
+    },
+    { "type": "accept_decomposition", "decomposition_id": "D_MOVE_001" },
+    { "type": "activate_milestone", "milestone_ref": "walking_slice" },
+    {
+      "type": "record_change",
+      "ref": "mount_change",
+      "source_ref": "root",
+      "kind": "new_requirement",
+      "request": "Allow the player to ride a mount, move using mounted speed, dismount, and save the mounted state.",
+      "applies_to": ["Player", "Mount", "Position", "MovementInput", "SaveState"],
+      "priority": "must"
+    },
+    {
+      "type": "analyze_change",
+      "ref": "mount_impact",
+      "change_ref": "mount_change",
+      "payload": {
+        "affected_objectives": ["player_position", "walking_input"],
+        "affected_milestones": ["walking_slice"],
+        "affected_artifacts": [
+          "Player",
+          "Mount",
+          "Position",
+          "MovementInput",
+          "MovementRules",
+          "SaveState"
+        ],
+        "preserved_constraints": [
+          "Walking movement must continue to work.",
+          "Position updates remain deterministic."
+        ],
+        "possibly_invalidated_acceptance": [
+          "Walking-only movement acceptance may be incomplete once mounted movement exists."
+        ],
+        "recommended_action": "plan_vertical_slice",
+        "risk": "high",
+        "blast_radius": "cross_system",
+        "affected_systems": ["state", "input", "movement_rules", "animation", "save_data"],
+        "unknowns": [
+          "Mount collision and animation are deferred.",
+          "Network replication is not part of this slice."
+        ],
+        "recommended_strategy": "vertical_slice",
+        "first_slice": {
+          "scope": [
+            "Player has optional mounted state.",
+            "Mount has position and speed.",
+            "Mounted movement updates Position.",
+            "Dismount clears mounted state.",
+            "SaveState records mounted state."
+          ],
+          "out_of_scope": ["Mount combat", "Mount inventory", "Pathfinding", "Network replication"],
+          "acceptance": [
+            "Player can mount, move at mounted speed, dismount, and reload mounted state."
+          ]
+        },
+        "regression_constraints": [
+          "Walking movement still updates Position when not mounted.",
+          "Existing Position semantics do not change for unmounted players."
+        ]
+      }
+    },
+    { "type": "accept_change", "change_ref": "mount_change", "impact_ref": "mount_impact" }
+  ],
+  "records": {
+    "prompt": "Manual graph run prompt: admit mounted movement only after cross-system impact analysis over Player, Mount, Position, input, movement rules, and save data.",
+    "llm_response": {
+      "selected_path": ["record_change_request", "analyze_change_impact", "accept_change_request"],
+      "notes": [
+        "The request is too broad for direct implementation; first slice and regression constraints must enter active context."
+      ]
+    },
+    "final_verification": {
+      "check_ok": true,
+      "audit_ok": true,
+      "verify_ok": true,
+      "notes": [
+        "Graph-level verification confirms cross-system impact analysis captures state, input, movement, and save-data effects."
+      ]
+    }
+  }
+}

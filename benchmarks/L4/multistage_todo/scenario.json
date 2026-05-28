@@ -1,0 +1,121 @@
+{
+  "id": "multistage_todo",
+  "title": "Multi-stage Todo goal workflow",
+  "purpose": "First implement title behavior, then add priority while preserving the title behavior as a regression constraint.",
+  "root_objective": {
+    "title": "Build a staged Todo workflow",
+    "description": "Create a minimal Todo workflow that can first track item titles and later add priority without breaking the title behavior.",
+    "constraints": ["Title behavior must remain stable when priority is introduced."],
+    "acceptance": [
+      "A todo item can be created with a title.",
+      "Adding priority does not change the stored title."
+    ]
+  },
+  "steps": [
+    {
+      "type": "decompose",
+      "decomposition_id": "D_TODO_001",
+      "objectives": [
+        {
+          "ref": "title_objective",
+          "status": "open",
+          "title": "Implement title-only Todo items",
+          "description": "Represent a todo item with a title and create/list behavior.",
+          "constraints": ["No priority field is required in the first stage."],
+          "acceptance": ["Creating an item with title Buy milk preserves title Buy milk."]
+        },
+        {
+          "ref": "priority_objective",
+          "status": "open",
+          "title": "Add Todo priority",
+          "description": "Add a priority field after title behavior has been accepted.",
+          "constraints": ["Priority must not overwrite or reinterpret title."],
+          "acceptance": ["An item can carry title and priority together."]
+        }
+      ],
+      "milestones": [
+        {
+          "ref": "title_milestone",
+          "status": "planned",
+          "name": "Title stage",
+          "scope": ["Create and list title-only todo items."],
+          "out_of_scope": ["Priority field", "Sorting", "Persistence"],
+          "acceptance": ["Title-only behavior passes check/audit."]
+        },
+        {
+          "ref": "priority_milestone",
+          "status": "planned",
+          "name": "Priority stage",
+          "scope": ["Add priority to an accepted title item model."],
+          "out_of_scope": ["Due dates", "Tags", "User accounts"],
+          "acceptance": ["Priority exists and old title checks still pass."]
+        }
+      ]
+    },
+    { "type": "accept_decomposition", "decomposition_id": "D_TODO_001" },
+    { "type": "activate_milestone", "milestone_ref": "title_milestone" },
+    {
+      "type": "record_acceptance",
+      "source_ref": "title_milestone",
+      "target_ref": "title_milestone",
+      "decision": "accepted",
+      "notes": "Title-only stage is accepted before introducing priority."
+    },
+    {
+      "type": "record_change",
+      "ref": "priority_change",
+      "source_ref": "root",
+      "kind": "new_requirement",
+      "request": "Add a priority field to todo items while keeping existing title behavior unchanged.",
+      "applies_to": ["TodoItem", "CreateTodo", "ListTodo"],
+      "priority": "must"
+    },
+    {
+      "type": "analyze_change",
+      "ref": "priority_impact",
+      "change_ref": "priority_change",
+      "payload": {
+        "affected_objectives": ["priority_objective"],
+        "affected_milestones": ["priority_milestone"],
+        "affected_artifacts": ["TodoItem", "CreateTodo", "ListTodo"],
+        "preserved_constraints": ["Title behavior must remain stable when priority is introduced."],
+        "possibly_invalidated_acceptance": [],
+        "recommended_action": "decompose_objective",
+        "risk": "medium",
+        "blast_radius": "module",
+        "affected_systems": ["data_model", "creation_flow", "list_rendering"],
+        "unknowns": ["Priority ordering is intentionally out of scope."],
+        "regression_constraints": ["Existing title-only create/list checks must still pass."],
+        "first_slice": {
+          "scope": ["Store priority alongside title.", "Render priority without changing title."],
+          "out_of_scope": ["Priority sorting", "Priority editing"],
+          "acceptance": ["An item with title Buy milk and priority High preserves both fields."]
+        }
+      }
+    },
+    { "type": "accept_change", "change_ref": "priority_change", "impact_ref": "priority_impact" },
+    { "type": "activate_milestone", "milestone_ref": "priority_milestone" }
+  ],
+  "records": {
+    "prompt": "Manual graph run prompt: stage the Todo workflow, accept title behavior, then admit priority only with a title regression constraint.",
+    "llm_response": {
+      "selected_path": [
+        "decompose_objective",
+        "accept_objective_decomposition",
+        "activate_milestone",
+        "record_change_request",
+        "analyze_change_impact",
+        "accept_change_request"
+      ],
+      "notes": ["Priority is a second-stage change, not part of the first title milestone."]
+    },
+    "final_verification": {
+      "check_ok": true,
+      "audit_ok": true,
+      "verify_ok": true,
+      "notes": [
+        "Graph-level verification confirms accepted change keeps old title regression in active context."
+      ]
+    }
+  }
+}

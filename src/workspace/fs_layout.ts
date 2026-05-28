@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isFileExistsError } from "../util/fs.js";
+import { sophiaTomlTemplate } from "./workspace.js";
 
 export const SOPHIA_RUNS_DIR = "sophia-runs";
 export const SOPHIA_GRAPH_DIR = path.join(SOPHIA_RUNS_DIR, "graph");
@@ -48,10 +49,49 @@ export async function ensureRunStageDirectories(runRoot: string): Promise<void> 
   );
 }
 
-export async function createScratchDirectory(root: string, label: string): Promise<string> {
+async function createScratchDirectory(root: string, label: string): Promise<string> {
   const scratchRoot = path.join(root, SOPHIA_SCRATCH_DIR);
   await ensureDir(scratchRoot);
   return mkdtemp(path.join(scratchRoot, `${safePathSegment(label)}-`));
+}
+
+export async function withScratchDirectory<T>(options: {
+  root: string;
+  label: string;
+  run: (scratchRoot: string) => Promise<T>;
+}): Promise<T> {
+  const scratchRoot = await createScratchDirectory(options.root, options.label);
+  try {
+    return await options.run(scratchRoot);
+  } finally {
+    await rm(scratchRoot, { recursive: true, force: true });
+  }
+}
+
+export async function withSophiaScratchWorkspace<T>(options: {
+  root: string;
+  label: string;
+  projectName: string;
+  files: Record<string, string>;
+  run: (scratchRoot: string) => Promise<T>;
+}): Promise<T> {
+  return withScratchDirectory({
+    root: options.root,
+    label: options.label,
+    run: async (scratchRoot) => {
+      await writeFile(
+        path.join(scratchRoot, "sophia.toml"),
+        `${sophiaTomlTemplate(options.projectName)}\n`,
+        "utf8",
+      );
+      for (const [filePath, content] of Object.entries(options.files)) {
+        const absolutePath = path.join(scratchRoot, filePath);
+        await mkdir(path.dirname(absolutePath), { recursive: true });
+        await writeFile(absolutePath, content, "utf8");
+      }
+      return options.run(scratchRoot);
+    },
+  });
 }
 
 export async function ensureDir(dir: string): Promise<void> {

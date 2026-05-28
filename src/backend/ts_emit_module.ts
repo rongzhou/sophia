@@ -1,5 +1,5 @@
-import type { SophiaActionSignature } from "../lang/expression.js";
-import type { SophiaRawAst } from "../lang/parser.js";
+import type { SophiaActionSignature } from "../lang/ast/expression.js";
+import type { SophiaRawAst } from "../lang/ast/parser.js";
 import {
   parseActionAst,
   parseCapabilityAst,
@@ -12,13 +12,13 @@ import {
   type ParsedEntity,
   type ParsedState,
   type ParsedStorage,
-} from "../lang/check_model.js";
+} from "../lang/ast/check_model.js";
 import {
   sophiaTypeToTypeScript,
   type SophiaEntityTypes,
   type SophiaField,
   type SophiaStateTypes,
-} from "../lang/types.js";
+} from "../lang/ast/types.js";
 import { stableJson } from "../util/json.js";
 import { indent } from "../util/strings.js";
 import { emitBody } from "./ts_emit_body.js";

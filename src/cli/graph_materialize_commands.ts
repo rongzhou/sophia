@@ -1,18 +1,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Command } from "commander";
-import { readSophiaFilesFromDomains } from "./cli_utils.js";
+import { printJson, readSophiaFilesFromDomains } from "./cli_utils.js";
 import { verifyCandidateTypeScriptBuild } from "../backend/candidate_verify.js";
-import { checkSophiaFiles } from "../lang/checker.js";
+import { checkSophiaFiles } from "../lang/checker/index.js";
 import { pathExists } from "../util/fs.js";
 import { isSupportedSophiaFilePath } from "../workspace/sophia_paths.js";
 import {
   assertCodeNodeCanMaterialize,
   assertCodeNodeSelectedForMaterialize,
   readCodeNodeFiles,
-} from "../graph/code_workflow.js";
-import type { GraphNode } from "../graph/nodes.js";
-import { GraphStore } from "../graph/store.js";
+} from "../graph/workflow/code.js";
+import { assertNodeType, type GraphNode } from "../graph/core/nodes.js";
+import { GraphStore } from "../graph/core/store.js";
 
 export function registerGraphMaterializeCommands(graph: Command): void {
   graph
@@ -23,9 +23,7 @@ export function registerGraphMaterializeCommands(graph: Command): void {
     .action(async (codeNodeId: string, options: { force?: boolean }) => {
       const store = new GraphStore(process.cwd());
       const codeNode = await store.readNode(codeNodeId);
-      if (codeNode.type !== "CodeNode") {
-        throw new Error(`Expected CodeNode, got ${codeNode.type}.`);
-      }
+      assertNodeType(codeNode, "CodeNode");
       await assertCodeNodeCanMaterialize(store, codeNode);
       await assertCodeNodeSelectedForMaterialize(store, codeNode);
 
@@ -89,8 +87,8 @@ export function registerGraphMaterializeCommands(graph: Command): void {
       const materializeNode = await store.createNode({
         type: "MaterializeNode",
         createdFrom: codeNode.id,
-        action_used: "materialize_code",
-        ...(codeNode.goal ? { goal: codeNode.goal } : {}),
+        actionUsed: "materialize_code",
+        goal: codeNode.goal,
         summary: `Materialized ${codeNode.id} into domains/.`,
         artifacts: ["result.json"],
         tags: ["materialize"],
@@ -102,13 +100,9 @@ export function registerGraphMaterializeCommands(graph: Command): void {
         check: result,
         build: buildPreflight,
       };
-      await store.writeArtifact(
-        materializeNode,
-        "result.json",
-        `${JSON.stringify(materializeResult, null, 2)}\n`,
-      );
+      await store.writeArtifactJson(materializeNode, "result.json", materializeResult);
       await store.appendEdge({ from: codeNode.id, to: materializeNode.id, type: "materializes" });
-      console.log(JSON.stringify({ node: materializeNode, ...materializeResult }, null, 2));
+      printJson({ node: materializeNode, ...materializeResult });
     });
 }
 
@@ -122,17 +116,13 @@ async function recordMaterializeFailure(options: {
     type: "MaterializeNode",
     status: "failed",
     createdFrom: options.codeNode.id,
-    action_used: "materialize_code",
-    ...(options.codeNode.goal ? { goal: options.codeNode.goal } : {}),
+    actionUsed: "materialize_code",
+    goal: options.codeNode.goal,
     summary: options.summary,
     artifacts: ["result.json"],
     tags: ["materialize", "failed"],
   });
-  await options.store.writeArtifact(
-    failedNode,
-    "result.json",
-    `${JSON.stringify(options.payload, null, 2)}\n`,
-  );
+  await options.store.writeArtifactJson(failedNode, "result.json", options.payload);
   await options.store.appendEdge({
     from: options.codeNode.id,
     to: failedNode.id,

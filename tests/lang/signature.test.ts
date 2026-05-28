@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSophiaEffectNames, parseSophiaFieldDeclarations } from "../../src/lang/signature.js";
+import { parseSophiaEffectNames, parseSophiaFieldDeclarations } from "../../src/lang/ast/signature.js";
 
 describe("Sophia signature parsing", () => {
   it("parses field declarations shared by checker and backend metadata", () => {

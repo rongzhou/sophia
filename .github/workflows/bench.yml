@@ -1,0 +1,58 @@
+name: Benchmarks (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Benchmark suite directory'
+        default: 'benchmarks'
+        required: true
+      model:
+        description: 'Ollama model name'
+        default: 'qwen3.6:latest'
+        required: true
+      mode:
+        description: 'Experiment mode: full | direct-ts | goal-graph'
+        default: 'full'
+        required: true
+      max_design_revisions:
+        description: 'Max design revisions'
+        default: '2'
+        required: true
+      max_repairs:
+        description: 'Max code repairs'
+        default: '2'
+        required: true
+      runs:
+        description: 'Independent runs per task'
+        default: '1'
+        required: true
+
+jobs:
+  bench:
+    # This job requires a self-hosted runner with Ollama available and models pulled.
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Run suite
+        run: >-
+          node dist/cli/main.js experiment run-suite
+          --suite "${{ github.event.inputs.suite }}"
+          --model "${{ github.event.inputs.model }}"
+          --mode "${{ github.event.inputs.mode }}"
+          --max-design-revisions "${{ github.event.inputs.max_design_revisions }}"
+          --max-repairs "${{ github.event.inputs.max_repairs }}"
+          --runs "${{ github.event.inputs.runs }}"
+          --out-dir "sophia-runs/results/manual-${{ github.run_id }}"
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: sophia-runs/results/manual-${{ github.run_id }}

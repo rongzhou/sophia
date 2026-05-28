@@ -1,10 +1,4 @@
-import {
-  braceDepth,
-  extractNamedSection,
-  readBraceBody,
-  replaceNamedSection,
-} from "../lang/braces.js";
-import { pseudocodeSection } from "./document.js";
+import { parsePseudocodeJson, readPseudoSection } from "./document.js";
 
 const REDACTED_SECTION_NAMES = ["expected"] as const;
 
@@ -51,20 +45,19 @@ export interface ImplementationStructureOverride {
 }
 
 export function pseudocodeForImplementationPrompt(content: string): string {
-  let sanitized = content;
+  const parsed = parsePseudocodeJson(content);
+  if (!parsed) return content;
+  const sanitized = { ...parsed };
   for (const sectionName of REDACTED_SECTION_NAMES) {
-    sanitized = replaceNamedSection(
-      sanitized,
-      sectionName,
-      `${sectionName} {\n  <redacted for implementation; deterministic audit uses the original .pseudo>\n}`,
-    );
+    if (Object.prototype.hasOwnProperty.call(sanitized, sectionName)) {
+      sanitized[sectionName] =
+        "<redacted for implementation; deterministic audit uses the original .pseudo>";
+    }
   }
-  sanitized = replaceSectionIfPresent(
-    sanitized,
-    "constraints",
-    (sectionBody) => `constraints {\n${redactConstraintBody(sectionBody)}\n}`,
-  );
-  return sanitized;
+  if (Object.prototype.hasOwnProperty.call(sanitized, "constraints")) {
+    sanitized.constraints = redactConstraints(sanitized.constraints);
+  }
+  return JSON.stringify(sanitized, null, 2);
 }
 
 export function buildImplementationStructurePlan(
@@ -102,13 +95,13 @@ export function buildImplementationStructurePlan(
       inputs: override.inputs
         ? normalizeFieldOverrides(override.inputs)
         : extractFieldHints(
-            pseudocodeSection(content, "inputs") ?? extractNamedSection(content, "inputs") ?? "",
+            readPseudoSection(content, "inputs"),
             entities,
           ),
       output: override.output
         ? normalizeFieldOverride(override.output)
         : (extractFieldHints(
-            pseudocodeSection(content, "outputs") ?? extractNamedSection(content, "outputs") ?? "",
+            readPseudoSection(content, "outputs"),
             entities,
           )[0] ?? null),
       effects,
@@ -153,49 +146,55 @@ function normalizeEffectOverrides(effects: string[]): string[] {
 function extractEntityHints(
   content: string,
 ): Array<{ name: string; fields: Array<{ name: string; type: string; source: string }> }> {
-  const body = pseudocodeSection(content, "definitions") ?? extractNamedSection(content, "entities") ?? "";
+  const parsed = parsePseudocodeJson(content);
+  const definitions = parsed?.definitions;
+  if (Array.isArray(definitions)) {
+    return definitions.flatMap((definition) => {
+      if (!definition || typeof definition !== "object") return [];
+      const record = definition as Record<string, unknown>;
+      const name = typeof record.name === "string" ? toPascalIdentifier(record.name) : "";
+      if (!name) return [];
+      const fields = extractFieldHintsFromJson(record.fields);
+      return [{ name, fields }];
+    });
+  }
+  const body = readPseudoSection(content, "definitions") || readPseudoSection(content, "entities");
   const entities: Array<{
     name: string;
     fields: Array<{ name: string; type: string; source: string }>;
   }> = [];
-  const source = body.replace(/"[^"]*"/g, (match) => " ".repeat(match.length));
-  for (const match of source.matchAll(/\b([A-Z][A-Za-z0-9]*)\s*\{/g)) {
-    if (braceDepth(source.slice(0, match.index)) !== 0 || !match[1] || match.index === undefined) {
-      continue;
-    }
-    const fieldsBody = readBraceBody(body, match.index + match[0].length);
-    if (fieldsBody === null) continue;
-    entities.push({ name: match[1], fields: extractFieldHints(fieldsBody) });
+  for (const line of body.split("\n")) {
+    const match = /^([A-Z][A-Za-z0-9]*)\s*:\s*(.+)$/.exec(line.trim());
+    if (!match?.[1] || !match[2]) continue;
+    entities.push({ name: match[1], fields: extractFieldHints(match[2]) });
   }
   return entities;
 }
 
-function replaceSectionIfPresent(
-  content: string,
-  sectionName: string,
-  replacement: (sectionBody: string) => string,
-): string {
-  const sectionBody = extractNamedSection(content, sectionName);
-  if (sectionBody === null) return content;
-  return replaceNamedSection(content, sectionName, replacement(sectionBody));
+function extractFieldHintsFromJson(value: unknown): Array<{ name: string; type: string; source: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((field) => {
+    if (!field || typeof field !== "object") return [];
+    const record = field as Record<string, unknown>;
+    if (typeof record.name !== "string" || typeof record.type !== "string") return [];
+    return [normalizeFieldOverride({ name: record.name, type: record.type })];
+  });
 }
 
-function redactConstraintBody(sectionBody: string): string {
-  return sectionBody
-    .split("\n")
-    .map((line) => {
-      if (/\bsequence\b|\bexpected\b|\bstdout\b|\bresult\b|\bexactly\b/i.test(line)) {
-        return line.replace(/"[^"]*"/g, '"<redacted validation detail>"');
-      }
-      return line;
-    })
-    .join("\n")
-    .trimEnd();
+function redactConstraints(value: unknown): unknown {
+  const redactString = (line: string): string =>
+    /\bsequence\b|\bexpected\b|\bstdout\b|\bresult\b|\bexactly\b/i.test(line)
+      ? line.replace(/"[^"]*"/g, '"<redacted validation detail>"')
+      : line;
+  if (Array.isArray(value)) return value.map((item) => (typeof item === "string" ? redactString(item) : item));
+  if (typeof value === "string") return redactString(value);
+  return value;
 }
 
 function extractProgramName(content: string): string {
-  const match = /^\s*program\s+([A-Za-z_]\w*)\s*\{/m.exec(content);
-  return toPascalIdentifier(match?.[1] ?? "Program");
+  const parsed = parsePseudocodeJson(content);
+  const name = parsed?.program_name ?? parsed?.program ?? parsed?.name;
+  return toPascalIdentifier(typeof name === "string" ? name : "Program");
 }
 
 function extractFieldHints(

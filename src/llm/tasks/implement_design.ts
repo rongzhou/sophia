@@ -1,15 +1,20 @@
 import { z } from "zod";
-import type { SophiaRawAst } from "../../lang/parser.js";
-import { parseSophiaSource } from "../../lang/parser.js";
-import { parseStateAst } from "../../lang/check_model.js";
-import { parseSophiaEffectNames, parseSophiaFieldDeclarations } from "../../lang/signature.js";
+import type { SophiaRawAst } from "../../lang/ast/parser.js";
+import { parseSophiaSource } from "../../lang/ast/parser.js";
+import { parseStateAst } from "../../lang/ast/check_model.js";
+import { parseSophiaEffectNames, parseSophiaFieldDeclarations } from "../../lang/ast/signature.js";
 import {
   isSafeRelativeArtifactPath,
   isSupportedSophiaFilePath,
 } from "../../workspace/sophia_paths.js";
 import { generateOllamaJson } from "../client.js";
-import { renderPromptTemplate } from "../prompt_templates.js";
-import { ANTI_CHEAT_RULES, JSON_FILESET_CONTRACT, SOPHIA_V0_SYNTAX_GUIDE } from "./prompts.js";
+import {
+  ANTI_CHEAT_RULES,
+  JSON_FILESET_CONTRACT,
+  PROMPT_PATHS,
+  SOPHIA_V0_SYNTAX_GUIDE,
+  renderPromptTemplate,
+} from "../prompt_templates.js";
 import { escapeRegExp } from "../../util/strings.js";
 import {
   buildImplementationStructurePlan,
@@ -76,7 +81,7 @@ export function buildImplementDesignPrompt(
     structurePlan.symbols.action,
   );
   const sanitizedPseudocode = pseudocodeForImplementationPrompt(pseudocode);
-  return renderPromptTemplate("tasks/implement_design.md", {
+  return renderPromptTemplate(PROMPT_PATHS.task.implementDesign, {
     sophia_v0_syntax_guide: SOPHIA_V0_SYNTAX_GUIDE,
     anti_cheat_rules: ANTI_CHEAT_RULES,
     json_fileset_contract: JSON_FILESET_CONTRACT,
@@ -102,10 +107,11 @@ function stripScaffoldComments(files: Record<string, string>): Record<string, st
 
 function validateImplementationOutputShape(output: ImplementationOutput): ImplementationOutput {
   if (output.self_check) {
-    for (const [key, value] of Object.entries(output.self_check)) {
-      if (value === false) {
-        throw new Error(`Implementation self_check failed: ${key}`);
-      }
+    const failedChecks = Object.entries(output.self_check)
+      .filter(([, value]) => value === false)
+      .map(([key]) => key);
+    if (failedChecks.length > 0) {
+      throw new Error(`Implementation self_check failed: ${failedChecks.join(", ")}`);
     }
   }
   const paths = Object.keys(output.files);
@@ -165,7 +171,6 @@ export function validateImplementationOutputForPseudocode(
   const parsedFiles = parseImplementationFiles(contractOutput.files);
   const actionAst = requireParsedNode(parsedFiles, plan.files.action, "action");
   const capabilityAst = requireParsedNode(parsedFiles, plan.files.capability, "capability");
-  const actionBody = contractOutput.files[plan.files.action] ?? "";
   for (const [index, entity] of plan.action_contract_hints.entities.entries()) {
     const filePath = plan.files.entities[index] ?? "";
     const entityAst = requireParsedNode(parsedFiles, filePath, "entity");
@@ -215,23 +220,6 @@ export function validateImplementationOutputForPseudocode(
       throw new Error(`Implementation output capability allow block must preserve ${effect}.`);
     }
   }
-  for (const subactionName of extractPseudoSubactionNames(pseudocode)) {
-    const subactionPath = actionPathForName(actualPaths, subactionName);
-    if (!subactionPath) {
-      throw new Error(`Implementation output must preserve pseudo subaction ${subactionName}.`);
-    }
-    const subactionAst = requireParsedNode(parsedFiles, subactionPath, "action");
-    if (subactionAst.name !== subactionName) {
-      throw new Error(
-        `Implementation output file ${subactionPath} must declare action ${subactionName}.`,
-      );
-    }
-    if (!new RegExp(`\\b${escapeRegExp(subactionName)}\\s*\\{`).test(actionBody)) {
-      throw new Error(
-        `Main scaffold action must explicitly invoke pseudo subaction ${subactionName} with a direct action expression.`,
-      );
-    }
-  }
   return contractOutput;
 }
 
@@ -249,20 +237,6 @@ ${state.values.map((value) => `  value ${value} { }`).join("\n")}
 }`;
   }
   return next;
-}
-
-function extractPseudoSubactionNames(pseudocode: string): string[] {
-  return [
-    ...new Set(
-      [...pseudocode.matchAll(/\bsubaction\s+([A-Z][A-Za-z0-9]*)\s*\{/g)]
-        .map((match) => match[1])
-        .filter((name): name is string => Boolean(name)),
-    ),
-  ].sort();
-}
-
-function actionPathForName(paths: string[], actionName: string): string | null {
-  return paths.find((filePath) => filePath.endsWith(`/actions/${actionName}.sophia`)) ?? null;
 }
 
 function parseImplementationFiles(files: Record<string, string>): Map<string, SophiaRawAst> {

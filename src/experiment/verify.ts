@@ -1,14 +1,11 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { runTypeScriptAction } from "../backend/ts_runner.js";
 import {
   type TypeScriptTypecheckResult,
   typecheckGeneratedTypeScript,
 } from "../backend/ts_typecheck.js";
-import { checkSophiaFiles } from "../lang/checker.js";
-import type { CheckResult, Diagnostic } from "../lang/diagnostics.js";
-import { sophiaTomlTemplate } from "../workspace/workspace.js";
-import { createScratchDirectory, SOPHIA_BUILD_DIR } from "../workspace/fs_layout.js";
+import { checkSophiaFiles } from "../lang/checker/index.js";
+import type { CheckResult, Diagnostic } from "../lang/ast/diagnostics.js";
+import { SOPHIA_BUILD_DIR, withSophiaScratchWorkspace } from "../workspace/fs_layout.js";
 import { buildTypeScript, type TypeScriptBuildResult } from "../backend/ts_codegen.js";
 import { deepEqualJson } from "../util/json.js";
 import type { BenchmarkCase, BenchmarkTask } from "./task.js";
@@ -51,56 +48,52 @@ export async function verifySophiaFilesAgainstTask(
     };
   }
 
-  const root = await createScratchDirectory(options.scratchRoot ?? process.cwd(), "benchmark");
-  try {
-    await writeFile(path.join(root, "sophia.toml"), `${sophiaTomlTemplate("benchmark")}\n`, "utf8");
-    for (const [filePath, content] of Object.entries(files)) {
-      const absolutePath = path.join(root, filePath);
-      await mkdir(path.dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, content, "utf8");
-    }
+  return withSophiaScratchWorkspace({
+    root: options.scratchRoot ?? process.cwd(),
+    label: "benchmark",
+    projectName: "benchmark",
+    files,
+    run: async (root) => {
+      const build = await buildTypeScript(root);
+      if (!build.ok) {
+        return {
+          ok: false,
+          action,
+          check,
+          build,
+          typecheck: null,
+          cases: [],
+        };
+      }
 
-    const build = await buildTypeScript(root);
-    if (!build.ok) {
-      return {
-        ok: false,
-        action,
-        check,
-        build,
-        typecheck: null,
-        cases: [],
-      };
-    }
+      const typecheck = typecheckGeneratedTypeScript(
+        root,
+        build.files[0] ?? `${SOPHIA_BUILD_DIR}/index.ts`,
+      );
+      if (!typecheck.ok) {
+        return {
+          ok: false,
+          action,
+          check,
+          build,
+          typecheck,
+          cases: [],
+        };
+      }
 
-    const typecheck = typecheckGeneratedTypeScript(
-      root,
-      build.files[0] ?? `${SOPHIA_BUILD_DIR}/index.ts`,
-    );
-    if (!typecheck.ok) {
+      const cases = await Promise.all(
+        task.hidden_cases.map(async (testCase) => verifyCase(root, action, testCase)),
+      );
       return {
-        ok: false,
+        ok: cases.every((testCase) => testCase.ok),
         action,
         check,
         build,
         typecheck,
-        cases: [],
+        cases,
       };
-    }
-
-    const cases = await Promise.all(
-      task.hidden_cases.map(async (testCase) => verifyCase(root, action, testCase)),
-    );
-    return {
-      ok: cases.every((testCase) => testCase.ok),
-      action,
-      check,
-      build,
-      typecheck,
-      cases,
-    };
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+    },
+  });
 }
 
 async function verifyCase(

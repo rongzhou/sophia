@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { extractNamedSection } from "../../lang/braces.js";
+import { parsePseudocodeJson } from "../../pseudo/document.js";
 import { generateOllamaJson } from "../client.js";
-import { renderPromptTemplate } from "../prompt_templates.js";
+import { PROMPT_PATHS, renderPromptTemplate } from "../prompt_templates.js";
 
 export const DesignSolutionOutputSchema = z
   .object({
@@ -44,14 +44,19 @@ export async function designSolutionWithOllama(options: {
 }
 
 export function buildDesignSolutionPrompt(goal: string): string {
-  return renderPromptTemplate("tasks/design_solution.md", { goal });
+  return renderPromptTemplate(PROMPT_PATHS.task.designSolution, { goal });
 }
 
 export function validateDesignSolutionOutput(output: DesignSolutionOutput): DesignSolutionOutput {
-  for (const [key, value] of Object.entries(output.self_check)) {
-    if (value === false) {
-      throw new Error(`Solution design self_check failed: ${key}`);
-    }
+  const failedChecks = Object.entries(output.self_check)
+    .filter(([, value]) => value === false)
+    .map(([key]) => key);
+  if (failedChecks.length > 0) {
+    throw new Error(`Solution design self_check failed: ${failedChecks.join(", ")}`);
+  }
+  const pseudocode = parsePseudocodeJson(output.pseudocode);
+  if (!pseudocode) {
+    throw new Error("Solution design pseudocode must be a JSON object encoded as a string.");
   }
   if (containsProgramLikePseudocodeSyntax(output.pseudocode)) {
     throw new Error("Solution design output contains program-like top-level code.");
@@ -66,35 +71,25 @@ export function validateDesignSolutionOutput(output: DesignSolutionOutput): Desi
 }
 
 export function containsProgramLikePseudocodeSyntax(pseudocode: string): boolean {
-  return (
-    /^\s*(program|action|capability|domain)\s+[A-Z][A-Za-z0-9]*\s*\{/m.test(pseudocode) ||
-    /\b(?:subaction|main_flow)\s+[A-Z][A-Za-z0-9]*\s*\{/m.test(pseudocode)
-  );
+  return parsePseudocodeJson(pseudocode) === null;
 }
 
 export function containsFormalPseudoSyntax(pseudocode: string): boolean {
-  if (
-    /\b(?:inputs|outputs|entities)\s*\{[^}]*\b[a-z_]\w*\s*:\s*(?:Unit|Bool|Int|Text|List\s*<|Optional\s*<|Raw\s*<|Parsed\s*<|Validated\s*<|Sanitized\s*<|Verified\s*<|Authorized\s*<|Persisted\s*<|Secret\s*<|Redacted\s*<|[A-Z][A-Za-z0-9]*)\b/im.test(
-      pseudocode,
-    )
-  ) {
-    return true;
+  const parsed = parsePseudocodeJson(pseudocode);
+  if (!parsed) return true;
+  return collectStrings(parsed).some((value) =>
+    /\b(?:Console\.Write|DB\.(?:Read|Write)\s*\()/.test(value) ||
+    /\b(?:Unit|Bool|Int|Text|List\s*<|Optional\s*<|Raw\s*<|Parsed\s*<|Validated\s*<|Sanitized\s*<|Verified\s*<|Authorized\s*<|Persisted\s*<|Secret\s*<|Redacted\s*<)\b/.test(
+      value,
+    ),
+  );
+}
+
+function collectStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStrings);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap(collectStrings);
   }
-  if (/\beffects\s*\{[^}]*\b(?:Console\.Write|DB\.(?:Read|Write)\s*\()/im.test(pseudocode)) {
-    return true;
-  }
-  const typedSections = ["inputs", "outputs", "entities"] as const;
-  for (const section of typedSections) {
-    const body = extractNamedSection(pseudocode, section) ?? "";
-    if (
-      /^\s*[a-z_]\w*\s*:\s*(?:Unit|Bool|Int|Text|List\s*<|Optional\s*<|Raw\s*<|Parsed\s*<|Validated\s*<|Sanitized\s*<|Verified\s*<|Authorized\s*<|Persisted\s*<|Secret\s*<|Redacted\s*<|[A-Z][A-Za-z0-9]*)\b/im.test(
-        body,
-      )
-    ) {
-      return true;
-    }
-  }
-  const effects = extractNamedSection(pseudocode, "effects") ?? "";
-  if (/\bConsole\.Write\b|\bDB\.(?:Read|Write)\s*\(/.test(effects)) return true;
-  return false;
+  return [];
 }

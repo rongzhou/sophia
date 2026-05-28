@@ -1,5 +1,6 @@
-import type { CheckResult, Diagnostic } from "../lang/diagnostics.js";
-import { stripQuotedText } from "../lang/braces.js";
+import type { CheckResult, Diagnostic } from "../lang/ast/diagnostics.js";
+import { stripQuotedText } from "../lang/ast/braces.js";
+import { parsePseudocodeJson } from "../pseudo/document.js";
 import { escapeRegExp } from "../util/strings.js";
 
 export function auditConstraints(options: {
@@ -104,6 +105,13 @@ function extractRepeatCounts(pseudocode: string): string[] {
 }
 
 function extractExpectedScalars(pseudocode: string): string[] {
+  const parsed = parsePseudocodeJson(pseudocode);
+  if (parsed?.expected && typeof parsed.expected === "object" && !Array.isArray(parsed.expected)) {
+    return Object.values(parsed.expected)
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter((value) => Boolean(value && !value.includes("[") && value.length <= 40));
+  }
   const expectedBlock = /\bexpected\s*\{([\s\S]*?)\}/i.exec(pseudocode)?.[1] ?? "";
   return [...expectedBlock.matchAll(/:=\s*"([^"]+)"/g)]
     .map((match) => match[1]?.trim())

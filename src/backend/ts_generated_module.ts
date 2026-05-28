@@ -1,13 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
-import { error } from "../lang/diagnostics.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
 import { isRecord } from "../util/json.js";
-import {
-  buildTypeScript,
-  tsBuildDiagnostic,
-  type TypeScriptBuildDiagnostic,
-} from "./ts_codegen.js";
+import { buildTypeScript } from "./ts_codegen.js";
 
 export interface GeneratedFieldMetadata {
   name: string;
@@ -46,7 +42,7 @@ export type LoadedGeneratedModule =
       ok: false;
       sourcePath: string | null;
       module: null;
-      diagnostics: TypeScriptBuildDiagnostic[];
+      diagnostics: Diagnostic[];
     };
 
 export async function loadGeneratedTypeScriptModule(root: string): Promise<LoadedGeneratedModule> {
@@ -61,7 +57,7 @@ export async function loadGeneratedTypeScriptModule(root: string): Promise<Loade
       ok: false,
       sourcePath: null,
       module: null,
-      diagnostics: [tsBuildDiagnostic("RUN-BUILD-001", "<build>", "Build produced no entry file.")],
+      diagnostics: [errorDiagnostic("RUN-BUILD-001", "<build>", "Build produced no entry file.")],
     };
   }
 
@@ -84,7 +80,7 @@ export async function loadGeneratedTypeScriptModule(root: string): Promise<Loade
       sourcePath,
       module: null,
       diagnostics: transpileErrors.map((diagnostic) =>
-        error(
+        errorDiagnostic(
           "RUN-TRANSPILE-001",
           sourcePath,
           ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),

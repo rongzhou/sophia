@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createTempDir } from "../helpers/sophia_workspace.js";
 import { describe, expect, it } from "vitest";
-import { GraphStore } from "../../src/graph/store.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 describe("GraphStore", () => {
   it("creates nodes, writes artifacts, and appends edges", async () => {
@@ -12,7 +12,7 @@ describe("GraphStore", () => {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Test goal",
       summary: "Test goal",
       artifacts: ["content.md"],
@@ -22,7 +22,7 @@ describe("GraphStore", () => {
     const pseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: goal.id,
-      action_used: "add_pseudo",
+      actionUsed: "add_pseudo",
       summary: "Pseudo",
       artifacts: ["content.pseudo"],
     });
@@ -43,7 +43,7 @@ describe("GraphStore", () => {
     const node = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       summary: "Test",
     });
 
@@ -61,7 +61,7 @@ describe("GraphStore", () => {
         store.createNode({
           type: "GoalNode",
           createdFrom: null,
-          action_used: "start",
+          actionUsed: "start",
           summary: `Goal ${index}`,
         }),
       ),
@@ -85,7 +85,7 @@ describe("GraphStore", () => {
         store.createNode({
           type: "GoalNode",
           createdFrom: null,
-          action_used: "start",
+          actionUsed: "start",
           summary: `Goal ${index}`,
         }),
       ),
@@ -96,7 +96,7 @@ describe("GraphStore", () => {
         store.appendEdge({
           from: nodes[0]!.id,
           to: node.id,
-          type: "parallel_edge",
+          type: "designs_solution",
         }),
       ),
     );
@@ -112,19 +112,19 @@ describe("GraphStore", () => {
     const code = await store.createNode({
       type: "CodeNode",
       createdFrom: null,
-      action_used: "implement_design",
+      actionUsed: "implement_design",
       summary: "Code",
     });
     const selection = await store.createNode({
       type: "SelectionNode",
       createdFrom: code.id,
-      action_used: "select_code",
+      actionUsed: "select_code",
       summary: "Selected",
     });
     const materialized = await store.createNode({
       type: "MaterializeNode",
       createdFrom: code.id,
-      action_used: "materialize_code",
+      actionUsed: "materialize_code",
       summary: "Materialized",
     });
 

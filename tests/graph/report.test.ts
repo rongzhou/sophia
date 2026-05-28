@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { createTempDir } from "../helpers/sophia_workspace.js";
-import type { CheckResult } from "../../src/lang/diagnostics.js";
-import { buildGraphReport } from "../../src/graph/report.js";
-import { GraphStore } from "../../src/graph/store.js";
+import type { CheckResult } from "../../src/lang/ast/diagnostics.js";
+import {
+  acceptChangeRequest,
+  acceptObjectiveDecomposition,
+  createChangeRequestNode,
+  createImpactAnalysisNode,
+  createObjectiveNode,
+  decomposeObjective,
+  invalidateDecomposition,
+} from "../../src/graph/goal/workflow.js";
+import { buildGraphReport } from "../../src/graph/core/report.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 describe("buildGraphReport", () => {
   it("summarizes experiments by pseudocode node without mutating code nodes", async () => {
@@ -12,14 +21,14 @@ describe("buildGraphReport", () => {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Build a tiny list",
       summary: "Build a tiny list",
     });
     const pseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: goal.id,
-      action_used: "add_pseudo",
+      actionUsed: "add_pseudo",
       goal: goal.goal,
       summary: "Pseudocode from fixtures/list/build_three_numbers.pseudo.",
     });
@@ -28,7 +37,7 @@ describe("buildGraphReport", () => {
     const implemented = await store.createNode({
       type: "CodeNode",
       createdFrom: pseudo.id,
-      action_used: "implement_design",
+      actionUsed: "implement_design",
       goal: goal.goal,
       summary: "Implemented",
     });
@@ -47,7 +56,7 @@ describe("buildGraphReport", () => {
     const repaired = await store.createNode({
       type: "CodeNode",
       createdFrom: failedCheck.id,
-      action_used: "repair_code",
+      actionUsed: "repair_code",
       goal: goal.goal,
       summary: "Repaired",
     });
@@ -73,41 +82,33 @@ describe("buildGraphReport", () => {
     const selection = await store.createNode({
       type: "SelectionNode",
       createdFrom: repaired.id,
-      action_used: "select_code",
+      actionUsed: "select_code",
       summary: "Selected",
     });
     await store.appendEdge({ from: repaired.id, to: selection.id, type: "selects" });
     const decision = await store.createNode({
       type: "DecisionNode",
       createdFrom: repaired.id,
-      action_used: "llm_decide",
+      actionUsed: "llm_decide",
       summary: "Selected by LLM decision",
       artifacts: ["result.json"],
     });
-    await store.writeArtifact(
-      decision,
-      "result.json",
-      `${JSON.stringify(
-        {
-          current_node: repaired.id,
-          state_assessment: {
-            goal_size: "small",
-            logic_clarity: "high",
-            has_pseudocode: true,
-            has_code: true,
-            compile_status: "pass",
-            error_type: "none",
-            repair_attempts: 1,
-            decomposition_needed: false,
-          },
-          candidate_actions: [{ action: "select", score: 0.9, reason: "passed" }],
-          selected_action: "select",
-          confidence: 0.9,
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    await store.writeArtifactJson(decision, "result.json", {
+      current_node: repaired.id,
+      state_assessment: {
+        goal_size: "small",
+        logic_clarity: "high",
+        has_pseudocode: true,
+        has_code: true,
+        compile_status: "pass",
+        error_type: "none",
+        repair_attempts: 1,
+        decomposition_needed: false,
+      },
+      candidate_actions: [{ action: "select", score: 0.9, reason: "passed" }],
+      selected_action: "select",
+      confidence: 0.9,
+    });
     await store.appendEdge({ from: decision.id, to: selection.id, type: "applies" });
 
     const report = await buildGraphReport(store, await store.listNodes(), await store.listEdges());
@@ -146,14 +147,14 @@ describe("buildGraphReport", () => {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Classify a count",
       summary: "Classify a count",
     });
     const originalPseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: goal.id,
-      action_used: "design_solution",
+      actionUsed: "design_solution",
       goal: goal.goal,
       summary: "Original pseudocode",
     });
@@ -171,7 +172,7 @@ describe("buildGraphReport", () => {
     const revisedPseudo = await store.createNode({
       type: "PseudocodeNode",
       createdFrom: failedPseudoCheck.id,
-      action_used: "revise_design",
+      actionUsed: "revise_design",
       goal: goal.goal,
       summary: "Revised pseudocode",
     });
@@ -180,7 +181,7 @@ describe("buildGraphReport", () => {
     const implemented = await store.createNode({
       type: "CodeNode",
       createdFrom: revisedPseudo.id,
-      action_used: "implement_design",
+      actionUsed: "implement_design",
       goal: goal.goal,
       summary: "Implemented",
     });
@@ -220,6 +221,98 @@ describe("buildGraphReport", () => {
       latest_code_node: implemented.id,
     });
   });
+
+  it("summarizes goal workflow context and excluded invalidated branches", async () => {
+    const root = await createTempDir("sophia-report-");
+    const store = new GraphStore(root);
+    const objective = await createObjectiveNode({
+      store,
+      payload: {
+        origin: "human",
+        authority: "authoritative",
+        status: "open",
+        title: "Build mount movement",
+        description: "Add mount movement as staged work.",
+        constraints: ["Preserve walking movement."],
+        acceptance: ["Player can still walk."],
+        parent_objective: null,
+      },
+    });
+    const wrong = await decomposeObjective({
+      store,
+      parentObjective: objective,
+      decompositionId: "D0001",
+      objectives: [
+        {
+          status: "open",
+          title: "Replace movement system",
+          description: "Too broad.",
+          constraints: [],
+          acceptance: [],
+        },
+      ],
+    });
+    await acceptObjectiveDecomposition({
+      store,
+      parentObjective: objective,
+      decompositionId: "D0001",
+    });
+    await invalidateDecomposition({
+      store,
+      parentObjective: objective,
+      decompositionId: "D0001",
+      reason: "Too broad.",
+    });
+    const change = await createChangeRequestNode({
+      store,
+      createdFrom: objective,
+      payload: {
+        origin: "human",
+        authority: "authoritative",
+        status: "proposed",
+        kind: "new_requirement",
+        request: "Player can mount.",
+        applies_to: ["player", "mount"],
+        priority: "must",
+      },
+    });
+    const impact = await createImpactAnalysisNode({
+      store,
+      createdFrom: change,
+      payload: {
+        origin: "ai",
+        authority: "proposed",
+        status: "proposed",
+        change_request: change.id,
+        affected_objectives: [objective.id],
+        affected_milestones: [],
+        affected_artifacts: ["Player", "Movement"],
+        preserved_constraints: ["Preserve walking movement."],
+        possibly_invalidated_acceptance: [],
+        recommended_action: "decompose_objective",
+        risk: "medium",
+        affected_systems: ["movement"],
+        unknowns: [],
+        regression_constraints: ["Walking movement still works."],
+      },
+    });
+    await acceptChangeRequest({ store, changeRequestNode: change, impactAnalysisNode: impact });
+
+    const report = await buildGraphReport(store, await store.listNodes(), await store.listEdges());
+
+    expect(report.goal_workflow.metrics).toMatchObject({
+      objective_nodes: 2,
+      accepted_changes: 1,
+      invalidated_decompositions: 1,
+      abandoned_branches: 1,
+    });
+    expect(report.goal_workflow.accepted_changes).toEqual([
+      expect.objectContaining({ id: change.id, request: "Player can mount." }),
+    ]);
+    expect(report.goal_workflow.active_context.excluded.objectives).toContain(
+      wrong.objective_nodes[0]!.id,
+    );
+  });
 });
 
 async function resultNode(
@@ -236,11 +329,26 @@ async function resultNode(
     type: options.type,
     status: options.status ?? (options.result.ok ? "active" : "failed"),
     createdFrom: options.createdFrom,
-    action_used: options.edge,
+    actionUsed: resultNodeAction(options.type),
     summary: options.result.ok ? "passed" : "failed",
     artifacts: ["result.json"],
   });
-  await store.writeArtifact(node, "result.json", `${JSON.stringify(options.result, null, 2)}\n`);
+  await store.writeArtifactJson(node, "result.json", options.result);
   await store.appendEdge({ from: options.createdFrom, to: node.id, type: options.edge });
   return node;
+}
+
+function resultNodeAction(
+  type: "PseudocodeCheckNode" | "CheckResultNode" | "AuditNode" | "ArtifactDiffNode",
+) {
+  switch (type) {
+    case "PseudocodeCheckNode":
+      return "pseudo_check";
+    case "CheckResultNode":
+      return "check_code";
+    case "AuditNode":
+      return "constraint_audit";
+    case "ArtifactDiffNode":
+      return "artifact_diff";
+  }
 }

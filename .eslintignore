@@ -1,0 +1,9 @@
+dist/
+node_modules/
+sophia-runs/
+website/.docusaurus/
+website/build/
+website/node_modules/
+benchmarks/**/task.json
+fixtures/**/*.pseudo
+domains/**/*.sophia

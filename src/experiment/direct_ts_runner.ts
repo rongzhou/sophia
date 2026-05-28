@@ -1,18 +1,19 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 import { z } from "zod";
-import { tsBuildDiagnostic, type TypeScriptBuildDiagnostic } from "../backend/ts_codegen.js";
+import { errorDiagnostic as diagnosticError, type Diagnostic } from "../lang/ast/diagnostics.js";
 import { generateOllamaJson } from "../llm/client.js";
 import { isLlmCallError } from "../llm/errors.js";
-import { renderPromptTemplate } from "../llm/prompt_templates.js";
+import { PROMPT_PATHS, renderPromptTemplate } from "../llm/prompt_templates.js";
 import {
   createRunDirectory,
-  createScratchDirectory,
   ensureRunStageDirectories,
+  withScratchDirectory,
 } from "../workspace/fs_layout.js";
 import { deepEqualJson } from "../util/json.js";
 import type { BenchmarkCase, BenchmarkTask } from "./task.js";
+import type { DirectTsExperimentResult } from "./result.js";
 
 export const DirectTsOutputSchema = z
   .object({
@@ -46,7 +47,7 @@ export interface DirectTsCaseResult {
   run_ok: boolean;
   actual_result: unknown;
   actual_effects: string[];
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export interface DirectTsVerificationResult {
@@ -54,26 +55,9 @@ export interface DirectTsVerificationResult {
   source: string;
   typecheck: {
     ok: boolean;
-    diagnostics: TypeScriptBuildDiagnostic[];
+    diagnostics: Diagnostic[];
   };
   cases: DirectTsCaseResult[];
-}
-
-export interface DirectTsExperimentResult {
-  ok: boolean;
-  mode: "direct-ts";
-  task_id: string;
-  model: string;
-  workspace: string;
-  graph_dir: null;
-  goal_node: null;
-  pseudocode_node: null;
-  code_node: null;
-  repairs_used: 0;
-  design_revisions_used: 0;
-  failure_type: string | null;
-  steps: Array<Record<string, unknown>>;
-  verification: DirectTsVerificationResult | null;
 }
 
 type DirectTsAction = (
@@ -169,17 +153,18 @@ export async function runDirectTsExperiment(
 
 export function buildDirectTsPrompt(task: BenchmarkTask): string {
   const forbidden = task.public_forbidden.map((item) => `- ${item}`).join("\n");
-  return renderPromptTemplate("experiment/direct_ts.md", {
+  return renderPromptTemplate(PROMPT_PATHS.experiment.directTs, {
     prompt_goal: task.prompt_goal,
     public_constraints: forbidden || "- No extra public constraints.",
   });
 }
 
 export function validateDirectTsOutput(output: DirectTsOutput): DirectTsOutput {
-  for (const [key, value] of Object.entries(output.self_check)) {
-    if (value === false) {
-      throw new Error(`Direct-TS self_check failed: ${key}`);
-    }
+  const failedChecks = Object.entries(output.self_check)
+    .filter(([, value]) => value === false)
+    .map(([key]) => key);
+  if (failedChecks.length > 0) {
+    throw new Error(`Direct-TS self_check failed: ${failedChecks.join(", ")}`);
   }
   if (/```/.test(output.code)) {
     throw new Error("Direct-TS output must not contain markdown fences.");
@@ -204,61 +189,62 @@ export async function verifyDirectTsCodeAgainstTask(
   code: string,
   task: BenchmarkTask,
 ): Promise<DirectTsVerificationResult> {
-  const root = await createScratchDirectory(process.cwd(), "direct-ts-verify");
-  const sourcePath = "candidate.ts";
-  const absoluteSourcePath = path.join(root, sourcePath);
-  try {
-    await writeFile(absoluteSourcePath, code, "utf8");
-    const typecheck = typecheckDirectTs(root, sourcePath);
-    if (!typecheck.ok) {
+  return withScratchDirectory({
+    root: process.cwd(),
+    label: "direct-ts-verify",
+    run: async (root) => {
+      const sourcePath = "candidate.ts";
+      const absoluteSourcePath = path.join(root, sourcePath);
+      await writeFile(absoluteSourcePath, code, "utf8");
+      const typecheck = typecheckDirectTs(root, sourcePath);
+      if (!typecheck.ok) {
+        return {
+          ok: false,
+          source: sourcePath,
+          typecheck,
+          cases: [],
+        };
+      }
+
+      const source = await importDirectTsModule(root, sourcePath);
+      const exported = source.runAction;
+      if (typeof exported !== "function") {
+        return {
+          ok: false,
+          source: sourcePath,
+          typecheck: {
+            ok: false,
+            diagnostics: [
+              diagnosticError(
+                "DIRECT-TS-EXPORT-001",
+                sourcePath,
+                "Module does not export runAction.",
+              ),
+            ],
+          },
+          cases: [],
+        };
+      }
+
+      const cases = await Promise.all(
+        task.hidden_cases.map(async (testCase) =>
+          verifyDirectTsCase(exported as DirectTsAction, testCase),
+        ),
+      );
       return {
-        ok: false,
+        ok: cases.every((testCase) => testCase.ok),
         source: sourcePath,
         typecheck,
-        cases: [],
+        cases,
       };
-    }
-
-    const source = await importDirectTsModule(root, sourcePath);
-    const exported = source.runAction;
-    if (typeof exported !== "function") {
-      return {
-        ok: false,
-        source: sourcePath,
-        typecheck: {
-          ok: false,
-          diagnostics: [
-            tsBuildDiagnostic(
-              "DIRECT-TS-EXPORT-001",
-              sourcePath,
-              "Module does not export runAction.",
-            ),
-          ],
-        },
-        cases: [],
-      };
-    }
-
-    const cases = await Promise.all(
-      task.hidden_cases.map(async (testCase) =>
-        verifyDirectTsCase(exported as DirectTsAction, testCase),
-      ),
-    );
-    return {
-      ok: cases.every((testCase) => testCase.ok),
-      source: sourcePath,
-      typecheck,
-      cases,
-    };
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+    },
+  });
 }
 
 function typecheckDirectTs(
   root: string,
   sourcePath: string,
-): { ok: boolean; diagnostics: TypeScriptBuildDiagnostic[] } {
+): { ok: boolean; diagnostics: Diagnostic[] } {
   const program = ts.createProgram([path.join(root, sourcePath)], {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ES2022,
@@ -271,7 +257,7 @@ function typecheckDirectTs(
     .getPreEmitDiagnostics(program)
     .filter((item) => item.category === ts.DiagnosticCategory.Error)
     .map((item) =>
-      tsBuildDiagnostic(
+      diagnosticError(
         "DIRECT-TS-TYPECHECK-001",
         item.file ? path.relative(root, item.file.fileName) : sourcePath,
         ts.flattenDiagnosticMessageText(item.messageText, "\n"),
@@ -331,7 +317,7 @@ async function verifyDirectTsCase(
       actual_result: null,
       actual_effects: effects,
       diagnostics: [
-        tsBuildDiagnostic(
+        diagnosticError(
           "DIRECT-TS-RUN-001",
           "candidate.ts",
           error instanceof Error ? error.message : String(error),

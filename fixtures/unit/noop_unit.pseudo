@@ -1,39 +1,30 @@
-program NoopUnit {
-  purpose {
-    "Return unit without observable side effects."
-  }
-
-  inputs {
-    none
-  }
-
-  outputs {
-    result := "unit"
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    return unit
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
-    "Do not use randomness."
+{
+  "program_name": "NoopUnit",
+  "purpose": "Return unit without observable side effects.",
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "result",
+      "meaning": "unit"
+    }
+  ],
+  "effects": [],
+  "algorithm": [
+    "Return unit."
+  ],
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
+    "Do not use randomness.",
     "Do not print."
-  }
-
-  expected {
-    result := "unit"
-  }
-
-  implementation_hints {
-    domain := "UnitDomain"
-    capability := "UnitPureCapability"
-    action := "NoopUnit"
+  ],
+  "expected": {
+    "result": "unit"
+  },
+  "implementation_hints": {
+    "domain": "UnitDomain",
+    "capability": "UnitPureCapability",
+    "action": "NoopUnit"
   }
 }

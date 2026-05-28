@@ -22,10 +22,12 @@ export function hasPseudocodeSection(content: string, sectionName: string): bool
   return Object.prototype.hasOwnProperty.call(json, sectionName);
 }
 
-export function listPseudocodeSections(content: string): string[] {
-  const json = parsePseudocodeJson(content);
-  if (!json) return [];
-  return Object.keys(json);
+export function readPseudoSection(content: string, sectionName: string): string {
+  return pseudocodeSection(content, sectionName) ?? "";
+}
+
+export function hasPseudoSection(content: string, sectionName: string): boolean {
+  return hasPseudocodeSection(content, sectionName);
 }
 
 export function pseudocodeAlgorithmLines(content: string): string[] | null {

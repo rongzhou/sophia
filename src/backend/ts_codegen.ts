@@ -1,30 +1,20 @@
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { checkSophiaFiles } from "../lang/checker.js";
-import { error, type Diagnostic } from "../lang/diagnostics.js";
-import { parseSophiaSource } from "../lang/parser.js";
+import { checkSophiaFiles } from "../lang/checker/index.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
+import { parseSophiaSource } from "../lang/ast/parser.js";
 import { loadWorkspaceConfig } from "../workspace/workspace.js";
 import { collectSophiaFiles, withFileLock } from "../util/fs.js";
 import { normalizeRelativePath } from "../util/strings.js";
 import { checkStripAssistTypeScriptEquivalence } from "./strip_assist_equivalence.js";
 import { emitTypeScript, type SophiaSourceFile } from "./ts_emit_module.js";
 
-export type TypeScriptBuildDiagnostic = Diagnostic;
-
-export function tsBuildDiagnostic(
-  code: string,
-  diagnosticLocation: string,
-  problem: string,
-): TypeScriptBuildDiagnostic {
-  return error(code, diagnosticLocation, problem);
-}
-
 export interface TypeScriptBuildResult {
   ok: boolean;
   target: "typescript";
   output_dir: string;
   files: string[];
-  diagnostics: TypeScriptBuildDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export async function buildTypeScript(root: string): Promise<TypeScriptBuildResult> {
@@ -36,7 +26,7 @@ export async function buildTypeScript(root: string): Promise<TypeScriptBuildResu
       output_dir: normalizeRelativePath(config.build.out_dir),
       files: [],
       diagnostics: [
-        error("BUILD-TARGET-001", "sophia.toml", `Unsupported build target: ${config.build.target}.`),
+        errorDiagnostic("BUILD-TARGET-001", "sophia.toml", `Unsupported build target: ${config.build.target}.`),
       ],
     };
   }
@@ -61,7 +51,7 @@ export async function buildTypeScript(root: string): Promise<TypeScriptBuildResu
   }
 
   const parsedFiles: SophiaSourceFile[] = [];
-  const diagnostics: TypeScriptBuildDiagnostic[] = [];
+  const diagnostics: Diagnostic[] = [];
   for (const [filePath, content] of Object.entries(sourceFiles).sort(([left], [right]) =>
     left.localeCompare(right),
   )) {

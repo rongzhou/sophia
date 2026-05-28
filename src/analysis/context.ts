@@ -1,4 +1,4 @@
-import { stripQuotedText } from "../lang/braces.js";
+import { stripQuotedText } from "../lang/ast/braces.js";
 import {
   parseActions,
   parseCapabilities,
@@ -8,14 +8,12 @@ import {
   parseStorages,
   type ParsedAction,
   type SophiaFileSet,
-} from "../lang/check_model.js";
-import { parseSophiaTopLevelDeclarations } from "../lang/parser.js";
-import { parseSophiaStorageEffect } from "../lang/signature.js";
-import { error, type Diagnostic } from "../lang/diagnostics.js";
-import { unwrapSophiaContextType } from "../lang/types.js";
+} from "../lang/ast/check_model.js";
+import { parseSophiaTopLevelDeclarations } from "../lang/ast/parser.js";
+import { parseSophiaStorageEffect } from "../lang/ast/signature.js";
+import { errorDiagnostic, type Diagnostic } from "../lang/ast/diagnostics.js";
+import { unwrapSophiaContextType } from "../lang/ast/types.js";
 import { isSophiaNodeDirectory } from "../workspace/sophia_paths.js";
-
-export type SophiaContextDiagnostic = Diagnostic;
 
 export interface SophiaContextNode {
   name: string;
@@ -57,7 +55,7 @@ export interface SophiaActionContextResult {
   edges: SophiaContextEdge[];
   sources: SophiaContextSource[];
   summary: SophiaContextSummary;
-  diagnostics: SophiaContextDiagnostic[];
+  diagnostics: Diagnostic[];
 }
 
 export interface SophiaContextSummary {
@@ -85,7 +83,7 @@ export function buildActionContext(
   files: SophiaFileSet,
   actionName: string,
 ): SophiaActionContextResult {
-  const diagnostics: SophiaContextDiagnostic[] = [];
+  const diagnostics: Diagnostic[] = [];
   const nodeIndex = buildNodeIndex(files, diagnostics);
   const actions = buildActionMap(files, diagnostics);
   const capabilities = parseCapabilities(files);
@@ -137,7 +135,7 @@ export function buildActionContext(
   function includeAction(name: string): void {
     const entry = actions.get(name);
     if (!entry) {
-      diagnostics.push(error("CONTEXT-ACTION-001", "<context>", `Unknown action: ${name}.`));
+      diagnostics.push(errorDiagnostic("CONTEXT-ACTION-001", "<context>", `Unknown action: ${name}.`));
       return;
     }
     if (visitedActions.has(name)) return;
@@ -161,7 +159,7 @@ export function buildActionContext(
       const variant = errorVariants.get(variantName);
       if (!variant) {
         diagnostics.push(
-          error(
+          errorDiagnostic(
             "CONTEXT-ERROR-001",
             entry.path,
             `Action ${name} declares unknown error variant: ${variantName}.`,
@@ -260,7 +258,7 @@ export function buildActionContext(
     const node = nodeIndex.get(name);
     if (!node) {
       diagnostics.push(
-        error(
+        errorDiagnostic(
           "CONTEXT-NODE-001",
           sourcePath,
           `Referenced ${expectedKind.toLowerCase()} node does not exist: ${name}.`,
@@ -270,7 +268,7 @@ export function buildActionContext(
     }
     if (node.kind !== expectedKind) {
       diagnostics.push(
-        error(
+        errorDiagnostic(
           "CONTEXT-NODE-002",
           sourcePath,
           `Referenced node ${name} is ${node.kind}, expected ${expectedKind}.`,
@@ -338,7 +336,7 @@ export function buildActionContext(
 
 function buildActionMap(
   files: SophiaFileSet,
-  diagnostics: SophiaContextDiagnostic[],
+  diagnostics: Diagnostic[],
 ): Map<string, ActionEntry> {
   const actions = new Map<string, ActionEntry>();
   for (const [path, content] of Object.entries(files).sort(([left], [right]) =>
@@ -348,7 +346,7 @@ function buildActionMap(
     for (const action of parseActions(content)) {
       if (actions.has(action.name)) {
         diagnostics.push(
-          error("CONTEXT-ACTION-002", path, `Duplicate action declaration: ${action.name}.`),
+          errorDiagnostic("CONTEXT-ACTION-002", path, `Duplicate action declaration: ${action.name}.`),
         );
         continue;
       }
@@ -360,7 +358,7 @@ function buildActionMap(
 
 function buildNodeIndex(
   files: SophiaFileSet,
-  diagnostics: SophiaContextDiagnostic[],
+  diagnostics: Diagnostic[],
 ): Map<string, NodeIndexEntry> {
   const nodes = new Map<string, NodeIndexEntry>();
   for (const [path, content] of Object.entries(files).sort(([left], [right]) =>
@@ -373,7 +371,7 @@ function buildNodeIndex(
     if (!kind) continue;
     if (nodes.has(declaration.name)) {
       diagnostics.push(
-        error("CONTEXT-NODE-003", path, `Duplicate top-level node name: ${declaration.name}.`),
+        errorDiagnostic("CONTEXT-NODE-003", path, `Duplicate top-level node name: ${declaration.name}.`),
       );
       continue;
     }

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTempDir } from "../helpers/sophia_workspace.js";
-import { buildDecisionActionBaseline } from "../../src/graph/decision_baseline.js";
+import { buildDecisionActionBaseline } from "../../src/graph/decision/baseline.js";
 import {
   buildLlmDecisionPrompt,
   decideNextActionWithOllama,
-} from "../../src/graph/llm_decision.js";
-import { GraphStore } from "../../src/graph/store.js";
+} from "../../src/graph/decision/llm.js";
+import { createObjectiveNode } from "../../src/graph/goal/workflow.js";
+import { GraphStore } from "../../src/graph/core/store.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -17,7 +18,7 @@ describe("LLM node decision", () => {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Given an input count, return count doubled.",
       summary: "Given an input count, return count doubled.",
     });
@@ -35,6 +36,7 @@ describe("LLM node decision", () => {
     expect(prompt).toContain("Choose exactly one next action from the allowed action list");
     expect(prompt).toContain("Decision scaffold");
     expect(prompt).toContain("Focused graph context");
+    expect(prompt).toContain("Active goal context");
     expect(prompt).toContain("graph design <goal-node> --model <model>");
     expect(prompt).toContain("Do not write pseudocode");
     expect(prompt).toContain("do not write Sophia code");
@@ -45,12 +47,43 @@ describe("LLM node decision", () => {
     expect(prompt).not.toContain("expected_outputs.json");
   });
 
+  it("includes deterministic active goal context in decision prompts", async () => {
+    const store = await tempStore();
+    const objective = await createObjectiveNode({
+      store,
+      payload: {
+        origin: "human",
+        authority: "authoritative",
+        status: "open",
+        title: "Todo workflow",
+        description: "Build todo creation and listing.",
+        constraints: ["Keep title behavior stable"],
+        acceptance: ["Title-only todos still list"],
+        parent_objective: null,
+      },
+    });
+    const baseline = await buildDecisionActionBaseline(store, objective);
+
+    const prompt = await buildLlmDecisionPrompt({
+      store,
+      currentNode: objective,
+      nodes: await store.listNodes(),
+      edges: await store.listEdges(),
+      baseline,
+    });
+
+    expect(prompt).toContain("Active goal context");
+    expect(prompt).toContain("Todo workflow");
+    expect(prompt).toContain("Keep title behavior stable");
+    expect(prompt).toContain('"excluded"');
+  });
+
   it("parses and validates an Ollama decision against allowed actions", async () => {
     const store = await tempStore();
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Return a label for an input count.",
       summary: "Return a label for an input count.",
     });
@@ -109,7 +142,7 @@ describe("LLM node decision", () => {
     const goal = await store.createNode({
       type: "GoalNode",
       createdFrom: null,
-      action_used: "start",
+      actionUsed: "start",
       goal: "Return a label for an input count.",
       summary: "Return a label for an input count.",
     });

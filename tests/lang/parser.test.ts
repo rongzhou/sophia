@@ -4,7 +4,7 @@ import {
   parseSophiaImmediateNamedBlocks,
   parseSophiaSource,
   parseSophiaTopLevelDeclarations,
-} from "../../src/lang/parser.js";
+} from "../../src/lang/ast/parser.js";
 
 describe("parseSophiaSource", () => {
   it("parses a v0 action into a deterministic raw AST summary", () => {

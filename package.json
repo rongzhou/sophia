@@ -1,6 +1,6 @@
 {
   "name": "sophia",
-  "version": "0.0.0",
+  "version": "0.2.0",
   "description": "Sophia v0 exploratory LLM-native programming workflow",
   "type": "module",
   "private": true,
@@ -12,8 +12,15 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "dev": "tsx src/cli/main.ts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.test.json",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "lint": "eslint . --ext .ts,.js,.mjs,.cjs",
+    "lint:fix": "eslint . --ext .ts,.js,.mjs,.cjs --fix",
+    "docs:status": "node scripts/update_status.mjs",
+    "bench:report": "npm run build && node dist/cli/main.js experiment run-suite --suite benchmarks --model qwen3.6:latest --mode full --max-design-revisions 2 --max-repairs 2",
+    "bench:summarize": "node dist/cli/main.js experiment summarize --inputs",
+    "prepare": "husky install"
   },
   "engines": {
     "node": ">=26.0.0",
@@ -26,8 +33,23 @@
   },
   "devDependencies": {
     "@types/node": "25.9.1",
+    "@typescript-eslint/eslint-plugin": "6.21.0",
+    "@typescript-eslint/parser": "6.21.0",
+    "eslint": "8.57.0",
+    "eslint-config-prettier": "9.1.0",
+    "husky": "9.0.11",
+    "lint-staged": "15.2.7",
     "prettier": "3.8.3",
     "tsx": "4.22.3",
     "vitest": "4.1.7"
+  },
+  "lint-staged": {
+    "**/*.{ts,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "**/*.{md,json,yml,yaml}": [
+      "prettier --write"
+    ]
   }
 }

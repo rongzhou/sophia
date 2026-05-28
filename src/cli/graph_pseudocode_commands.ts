@@ -1,16 +1,16 @@
 import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
-import { isNodeId, parseNonNegativeIntegerOption, setFailedExitIf } from "./cli_utils.js";
+import { isNodeId, parseNonNegativeIntegerOption, printJson, setFailedExitIf } from "./cli_utils.js";
 import {
   countDesignRevisionAttempts,
   createDesignBudgetExhaustedNode,
-  createRawLlmFailureNode,
   createRevisedDesignNode,
   createDesignedPseudocodeNode,
-} from "../graph/llm_node_workflow.js";
-import { createPseudocodeCheckNode } from "../graph/pseudocode_workflow.js";
-import { GraphStore } from "../graph/store.js";
-import { isLlmCallError } from "../llm/errors.js";
+} from "../graph/workflow/llm_node.js";
+import { captureRawLlmFailure } from "../graph/workflow/llm_failure.js";
+import { createPseudocodeCheckNode } from "../graph/workflow/pseudocode.js";
+import { GraphStore } from "../graph/core/store.js";
+import { assertNodeType } from "../graph/core/nodes.js";
 import { reviseDesignWithOllama } from "../llm/tasks/revise_design.js";
 import { designSolutionWithOllama } from "../llm/tasks/design_solution.js";
 import { checkPseudocode } from "../pseudo/check.js";
@@ -27,63 +27,56 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
     .action(async (goalNodeId: string, options: { model: string }) => {
       const store = new GraphStore(process.cwd());
       const goalNode = await store.readNode(goalNodeId);
-      if (goalNode.type !== "GoalNode") {
-        throw new Error(`Expected GoalNode, got ${goalNode.type}.`);
-      }
+      assertNodeType(goalNode, "GoalNode");
       if (!goalNode.goal) {
         throw new Error(`GoalNode ${goalNode.id} does not contain goal text.`);
       }
+      const goalText = goalNode.goal;
 
-      try {
-        const result = await designSolutionWithOllama({
-          goal: goalNode.goal,
-          model: options.model,
-        });
-        const pseudoNode = await createDesignedPseudocodeNode({
-          store,
-          goalNode,
-          result,
-          model: options.model,
-          ...(result.output.status === "needs_clarification" ? { status: "failed" } : {}),
-        });
-        const checkResult = checkPseudocode(result.output.pseudocode);
-        const checkNode = await createPseudocodeCheckNode({
-          store,
-          pseudoNode,
-          pseudocode: result.output.pseudocode,
-          summary: checkResult.ok
-            ? "Designed pseudocode check passed."
-            : `Designed pseudocode check failed with ${checkResult.diagnostics.length} diagnostic(s).`,
-          tags: ["pseudo", "check", "design"],
-        });
-        console.log(
-          JSON.stringify(
-            {
-              node: pseudoNode,
-              check: checkNode.node,
-              result: checkResult,
-              questions: result.output.questions,
-            },
-            null,
-            2,
-          ),
-        );
-        setFailedExitIf(result.output.status !== "designed" || !checkResult.ok);
-      } catch (error) {
-        if (isLlmCallError(error)) {
-          await createRawLlmFailureNode({
-            store,
-            createdFrom: goalNode,
-            action_used: "design_solution",
-            edgeType: "designs_solution",
-            tags: ["llm", "pseudo", "design", "failed"],
+      const result = await captureRawLlmFailure({
+        store,
+        createdFrom: goalNode,
+        actionUsed: "design_solution",
+        edgeType: "designs_solution",
+        tags: ["llm", "pseudo", "design", "failed"],
+        model: options.model,
+        goal: goalText,
+        call: () =>
+          designSolutionWithOllama({
+            goal: goalText,
             model: options.model,
-            error,
-            goal: goalNode.goal,
-          });
-        }
-        throw error;
-      }
+          }),
+      });
+      const pseudoNode = await createDesignedPseudocodeNode({
+        store,
+        goalNode,
+        result,
+        model: options.model,
+        ...(result.output.status === "needs_clarification" ? { status: "failed" } : {}),
+      });
+      const checkResult = checkPseudocode(result.output.pseudocode);
+      const checkNode = await createPseudocodeCheckNode({
+        store,
+        pseudoNode,
+        pseudocode: result.output.pseudocode,
+        summary: checkResult.ok
+          ? "Designed pseudocode check passed."
+          : `Designed pseudocode check failed with ${checkResult.diagnostics.length} diagnostic(s).`,
+        tags: ["pseudo", "check", "design"],
+      });
+      console.log(
+        JSON.stringify(
+          {
+            node: pseudoNode,
+            check: checkNode.node,
+            result: checkResult,
+            questions: result.output.questions,
+          },
+          null,
+          2,
+        ),
+      );
+      setFailedExitIf(result.output.status !== "designed" || !checkResult.ok);
     });
 
   graph
@@ -105,7 +98,7 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
           summary: result.ok ? "Pseudocode check passed." : "Pseudocode check failed.",
         });
       }
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -115,7 +108,7 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
     .description("Extract an algorithm outline from a .pseudo file")
     .action(async (file: string) => {
       const content = await readFile(file, "utf8");
-      console.log(JSON.stringify(outlinePseudocode(content), null, 2));
+      printJson(outlinePseudocode(content));
     });
 
   graph
@@ -124,7 +117,7 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
     .description("Extract deterministic implementation structure hints from a .pseudo file")
     .action(async (file: string) => {
       const content = await readFile(file, "utf8");
-      console.log(JSON.stringify(buildImplementationStructurePlan(content), null, 2));
+      printJson(buildImplementationStructurePlan(content));
     });
 
   graph
@@ -137,7 +130,7 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
       const content = sourceNode
         ? await store.readArtifact(sourceNode, "content.pseudo")
         : await readFile(target, "utf8");
-      console.log(JSON.stringify(buildSophiaScaffold(content), null, 2));
+      printJson(buildSophiaScaffold(content));
     });
 
   graph
@@ -153,16 +146,12 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
     .action(async (checkNodeId: string, options: { model: string; maxDesignRevisions: string }) => {
       const store = new GraphStore(process.cwd());
       const checkNode = await store.readNode(checkNodeId);
-      if (checkNode.type !== "PseudocodeCheckNode") {
-        throw new Error(`Expected PseudocodeCheckNode, got ${checkNode.type}.`);
-      }
+      assertNodeType(checkNode, "PseudocodeCheckNode");
       if (!checkNode.created_from) {
         throw new Error(`PseudocodeCheckNode ${checkNode.id} does not reference a PseudocodeNode.`);
       }
       const pseudoNode = await store.readNode(checkNode.created_from);
-      if (pseudoNode.type !== "PseudocodeNode") {
-        throw new Error(`Expected checked node to be PseudocodeNode, got ${pseudoNode.type}.`);
-      }
+      assertNodeType(pseudoNode, "PseudocodeNode");
       const maxRevisions = parseNonNegativeIntegerOption(
         options.maxDesignRevisions,
         "--max-design-revisions",
@@ -190,78 +179,72 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
         );
       }
 
-      try {
-        const revision = await reviseDesignWithOllama({
-          pseudocode,
-          checkResult,
-          model: options.model,
-        });
-        if (revision.output.status === "needs_clarification") {
-          const failedNode = await createRevisedDesignNode({
-            store,
-            sourcePseudoNode: pseudoNode,
-            checkNode,
-            result: revision,
+      const revision = await captureRawLlmFailure({
+        store,
+        createdFrom: checkNode,
+        actionUsed: "revise_design",
+        edgeType: "revises",
+        tags: ["llm", "pseudo", "revise", "failed"],
+        model: options.model,
+        goal: pseudoNode.goal,
+        call: () =>
+          reviseDesignWithOllama({
+            pseudocode,
+            checkResult,
             model: options.model,
-            status: "failed",
-            tags: ["pseudo", "revise", "failed", "needs_clarification"],
-            summary: `Pseudocode revision needs clarification for ${pseudoNode.id}.`,
-          });
-          console.log(
-            JSON.stringify(
-              {
-                ok: false,
-                node: failedNode,
-                reason: "needs_clarification",
-                questions: revision.output.questions,
-              },
-              null,
-              2,
-            ),
-          );
-          setFailedExitIf(true);
-          return;
-        }
-        const revisedNode = await createRevisedDesignNode({
+          }),
+      });
+      if (revision.output.status === "needs_clarification") {
+        const failedNode = await createRevisedDesignNode({
           store,
           sourcePseudoNode: pseudoNode,
           checkNode,
           result: revision,
           model: options.model,
-        });
-        const revisedCheck = checkPseudocode(revision.output.pseudocode);
-        const revisedCheckNode = await createPseudocodeCheckNode({
-          store,
-          pseudoNode: revisedNode,
-          pseudocode: revision.output.pseudocode,
-          summary: revisedCheck.ok
-            ? "Revised pseudocode check passed."
-            : `Revised pseudocode check failed with ${revisedCheck.diagnostics.length} diagnostic(s).`,
-          tags: ["pseudo", "check", "revise"],
+          status: "failed",
+          tags: ["pseudo", "revise", "failed", "needs_clarification"],
+          summary: `Pseudocode revision needs clarification for ${pseudoNode.id}.`,
         });
         console.log(
           JSON.stringify(
-            { node: revisedNode, check: revisedCheckNode.node, result: revisedCheck },
+            {
+              ok: false,
+              node: failedNode,
+              reason: "needs_clarification",
+              questions: revision.output.questions,
+            },
             null,
             2,
           ),
         );
-        setFailedExitIf(!revisedCheck.ok);
-      } catch (error) {
-        if (isLlmCallError(error)) {
-          await createRawLlmFailureNode({
-            store,
-            createdFrom: checkNode,
-            action_used: "revise_design",
-            edgeType: "revises",
-            tags: ["llm", "pseudo", "revise", "failed"],
-            model: options.model,
-            error,
-            ...(pseudoNode.goal ? { goal: pseudoNode.goal } : {}),
-          });
-        }
-        throw error;
+        setFailedExitIf(true);
+        return;
       }
+      const revisedNode = await createRevisedDesignNode({
+        store,
+        sourcePseudoNode: pseudoNode,
+        checkNode,
+        result: revision,
+        model: options.model,
+      });
+      const revisedCheck = checkPseudocode(revision.output.pseudocode);
+      const revisedCheckNode = await createPseudocodeCheckNode({
+        store,
+        pseudoNode: revisedNode,
+        pseudocode: revision.output.pseudocode,
+        summary: revisedCheck.ok
+          ? "Revised pseudocode check passed."
+          : `Revised pseudocode check failed with ${revisedCheck.diagnostics.length} diagnostic(s).`,
+        tags: ["pseudo", "check", "revise"],
+      });
+      console.log(
+        JSON.stringify(
+          { node: revisedNode, check: revisedCheckNode.node, result: revisedCheck },
+          null,
+          2,
+        ),
+      );
+      setFailedExitIf(!revisedCheck.ok);
     });
 
   graph
@@ -276,14 +259,14 @@ export function registerGraphPseudocodeCommands(graph: Command): void {
       const node = await store.createNode({
         type: "PseudocodeNode",
         createdFrom: goalNode.id,
-        action_used: "add_pseudo",
-        ...(goalNode.goal ? { goal: goalNode.goal } : {}),
+        actionUsed: "add_pseudo",
+        goal: goalNode.goal,
         summary: `Pseudocode from ${file}.`,
         artifacts: ["content.pseudo"],
         tags: ["pseudo"],
       });
       await store.writeArtifact(node, "content.pseudo", content);
       await store.appendEdge({ from: goalNode.id, to: node.id, type: "designs_solution" });
-      console.log(JSON.stringify(node, null, 2));
+      printJson(node);
     });
 }

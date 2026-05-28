@@ -1,5 +1,7 @@
-import type { CheckResult, Diagnostic } from "../lang/diagnostics.js";
-import { error, warning } from "../lang/diagnostics.js";
+import type { CheckResult, Diagnostic } from "../lang/ast/diagnostics.js";
+import { errorDiagnostic, warningDiagnostic } from "../lang/ast/diagnostics.js";
+import { parseSophiaImmediateNamedBlocks, parseSophiaTopLevelDeclarations } from "../lang/ast/parser.js";
+import { parseSophiaEffectNames } from "../lang/ast/signature.js";
 
 export interface ArtifactDiffResult extends CheckResult {
   files: {
@@ -37,7 +39,7 @@ export function diffSophiaArtifacts(options: {
   );
 
   for (const filePath of removed) {
-    diagnostics.push(error("DIFF-FILE-001", filePath, "Repair removed a .sophia file."));
+    diagnostics.push(errorDiagnostic("DIFF-FILE-001", filePath, "Repair removed a .sophia file."));
   }
 
   const beforeCombined = Object.values(options.before).join("\n");
@@ -45,14 +47,14 @@ export function diffSophiaArtifacts(options: {
   for (const action of extractNamedBlocks(beforeCombined, "action")) {
     if (!extractNamedBlocks(afterCombined, "action").has(action)) {
       diagnostics.push(
-        error("DIFF-ACTION-001", action, `Repair removed action declaration: ${action}.`),
+        errorDiagnostic("DIFF-ACTION-001", action, `Repair removed action declaration: ${action}.`),
       );
     }
   }
   for (const capability of extractNamedBlocks(beforeCombined, "capability")) {
     if (!extractNamedBlocks(afterCombined, "capability").has(capability)) {
       diagnostics.push(
-        error(
+        errorDiagnostic(
           "DIFF-CAPABILITY-001",
           capability,
           `Repair removed capability declaration: ${capability}.`,
@@ -63,7 +65,7 @@ export function diffSophiaArtifacts(options: {
   for (const effect of extractEffects(beforeCombined)) {
     if (!extractEffects(afterCombined).has(effect)) {
       diagnostics.push(
-        error("DIFF-EFFECT-001", effect, `Repair removed effect reference: ${effect}.`),
+        errorDiagnostic("DIFF-EFFECT-001", effect, `Repair removed effect reference: ${effect}.`),
       );
     }
   }
@@ -82,7 +84,7 @@ export function diffSophiaArtifacts(options: {
 
   if (lineStats.removed_lines + lineStats.added_lines > 40) {
     diagnostics.push(
-      warning(
+      warningDiagnostic(
         "DIFF-SIZE-001",
         "<files>",
         "Repair made a large textual change.",
@@ -114,11 +116,17 @@ function extractNamedBlocks(content: string, kind: "action" | "capability"): Set
 }
 
 function extractEffects(content: string): Set<string> {
-  return new Set(
-    [...content.matchAll(/\b[A-Z][\w]*(?:\.[A-Z][\w]*)\b/g)]
-      .map((match) => match[0])
-      .filter((value) => value.includes(".")),
-  );
+  const effects = new Set<string>();
+  for (const declaration of parseSophiaTopLevelDeclarations(content)) {
+    if (declaration.kind !== "action") continue;
+    for (const block of parseSophiaImmediateNamedBlocks(declaration.body)) {
+      if (block.name !== "effects") continue;
+      for (const effect of parseSophiaEffectNames(block.body)) {
+        effects.add(effect);
+      }
+    }
+  }
+  return effects;
 }
 
 function normalizeLines(content: string): string[] {

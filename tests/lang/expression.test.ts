@@ -3,7 +3,7 @@ import {
   collectSophiaExpressionIdentifiers,
   inferSophiaExpressionType,
   parseEntityAssignments,
-} from "../../src/lang/expression.js";
+} from "../../src/lang/ast/expression.js";
 
 describe("Sophia v0 expressions", () => {
   it("infers scalar, list, arithmetic, append, and concat expression types", () => {

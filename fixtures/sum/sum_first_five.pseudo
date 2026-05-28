@@ -1,39 +1,28 @@
-program SumFirstFive {
-  purpose {
-    "Compute and return the sum of the first five positive integers."
-  }
-
-  inputs {
-    none
-  }
-
-  outputs {
-    total := "the integer 15"
-  }
-
-  effects {
-    none
-  }
-
-  algorithm {
-    set total to 0
-    set current to 1
-    repeat 5 times {
-      set total to total + current
-      set current to current + 1
+{
+  "program_name": "SumFirstFive",
+  "purpose": "Compute and return the sum of the first five positive integers.",
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "total",
+      "meaning": "the integer 15"
     }
-    return total
-  }
-
-  expected {
-    result := "15"
-  }
-
-  forbidden {
-    "Do not use storage."
-    "Do not use time."
-    "Do not use network."
-    "Do not use randomness."
+  ],
+  "effects": [],
+  "algorithm": [
+    "Set total to 0.",
+    "Set current to 1.",
+    "Repeat 5 times: set total to total + current and set current to current + 1.",
+    "Return total."
+  ],
+  "expected": {
+    "result": "15"
+  },
+  "forbidden": [
+    "Do not use storage.",
+    "Do not use time.",
+    "Do not use network.",
+    "Do not use randomness.",
     "Do not hardcode the result as a direct return."
-  }
+  ]
 }

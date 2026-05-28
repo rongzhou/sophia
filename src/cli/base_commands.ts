@@ -2,23 +2,25 @@ import type { Command } from "commander";
 import {
   parseJsonObjectOption,
   parseJsonOption,
+  printJson,
   readSophiaFilesFromDomains,
   setFailedExitIf,
 } from "./cli_utils.js";
 import { buildTypeScript } from "../backend/ts_codegen.js";
 import { runTypeScriptAction, smokeTypeScriptActions } from "../backend/ts_runner.js";
 import { typecheckGeneratedTypeScript } from "../backend/ts_typecheck.js";
-import { checkSophiaFiles } from "../lang/checker.js";
-import { error, type CheckResult } from "../lang/diagnostics.js";
+import { checkSophiaFiles } from "../lang/checker/index.js";
+import { errorDiagnostic, type CheckResult } from "../lang/ast/diagnostics.js";
 import { buildAsgIndex } from "../analysis/indexer.js";
 import { buildActionContext } from "../analysis/context.js";
-import { parseSophiaFile, parseSophiaSource } from "../lang/parser.js";
+import { parseSophiaFile, parseSophiaSource } from "../lang/ast/parser.js";
 import { buildRepairContext } from "../analysis/repair_context.js";
 import { initWorkspace, loadWorkspaceConfig } from "../workspace/workspace.js";
-import { readCodeNodeFiles } from "../graph/code_workflow.js";
-import { GraphStore } from "../graph/store.js";
+import { readCodeNodeFiles } from "../graph/workflow/code.js";
+import { GraphStore } from "../graph/core/store.js";
 import { checkStripAssistTypeScriptEquivalence } from "../backend/strip_assist_equivalence.js";
 import type { SophiaSourceFile } from "../backend/ts_emit_module.js";
+import { assertNodeType } from "../graph/core/nodes.js";
 
 export function registerBaseCommands(program: Command): void {
   program
@@ -26,7 +28,7 @@ export function registerBaseCommands(program: Command): void {
     .description("Initialize a Sophia workspace")
     .action(async () => {
       const result = await initWorkspace(process.cwd());
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
     });
 
   program
@@ -35,7 +37,7 @@ export function registerBaseCommands(program: Command): void {
     .action(async () => {
       const files = await readSophiaFilesFromDomains(process.cwd());
       const result = await checkWorkspaceFiles(process.cwd(), files);
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -44,7 +46,7 @@ export function registerBaseCommands(program: Command): void {
     .description("Generate the configured ASG index from materialized domains/**/*.sophia files")
     .action(async () => {
       const result = await buildAsgIndex(process.cwd());
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -55,7 +57,7 @@ export function registerBaseCommands(program: Command): void {
     .action(async (options: { action: string }) => {
       const files = await readSophiaFilesFromDomains(process.cwd());
       const result = buildActionContext(files, options.action);
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -64,7 +66,7 @@ export function registerBaseCommands(program: Command): void {
     .description("Build materialized domains/**/*.sophia into deterministic TypeScript")
     .action(async () => {
       const result = await buildTypeScript(process.cwd());
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -76,7 +78,7 @@ export function registerBaseCommands(program: Command): void {
     .action(async (action: string, options: { input: string }) => {
       const input = parseJsonOption(options.input, "--input");
       const result = await runTypeScriptAction(process.cwd(), action, input);
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -94,7 +96,7 @@ export function registerBaseCommands(program: Command): void {
         inputs,
         autoInputs: Boolean(options.autoInputs),
       });
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -128,7 +130,7 @@ export function registerBaseCommands(program: Command): void {
         typecheck,
         smoke,
       };
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -138,7 +140,7 @@ export function registerBaseCommands(program: Command): void {
     .description("Parse a single .sophia file into a deterministic raw AST summary")
     .action(async (file: string) => {
       const result = await parseSophiaFile(file);
-      console.log(JSON.stringify(result, null, 2));
+      printJson(result);
       setFailedExitIf(!result.ok);
     });
 
@@ -151,16 +153,12 @@ export function registerBaseCommands(program: Command): void {
     .action(async (checkNodeId: string) => {
       const store = new GraphStore(process.cwd());
       const checkNode = await store.readNode(checkNodeId);
-      if (checkNode.type !== "CheckResultNode") {
-        throw new Error(`Expected CheckResultNode, got ${checkNode.type}.`);
-      }
+      assertNodeType(checkNode, "CheckResultNode");
       if (!checkNode.created_from) {
         throw new Error(`CheckResultNode ${checkNode.id} does not reference a CodeNode.`);
       }
       const codeNode = await store.readNode(checkNode.created_from);
-      if (codeNode.type !== "CodeNode") {
-        throw new Error(`Expected checked node to be CodeNode, got ${codeNode.type}.`);
-      }
+      assertNodeType(codeNode, "CodeNode");
       const checkResult = await store.readArtifactJson<CheckResult>(checkNode, "result.json");
       const files = await readCodeNodeFiles(store, codeNode);
       const context = buildRepairContext({ files, checkResult });
@@ -218,7 +216,7 @@ function parseSourceFilesForStripAssist(
     if (!parsed.ok || !parsed.ast) {
       diagnostics.push(
         ...parsed.diagnostics.map((diagnostic) =>
-          error(diagnostic.code, diagnostic.location, diagnostic.problem),
+          errorDiagnostic(diagnostic.code, diagnostic.location, diagnostic.problem),
         ),
       );
       continue;

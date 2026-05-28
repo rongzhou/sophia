@@ -1,4 +1,4 @@
-import { renderPromptTemplate } from "./prompt_templates.js";
+import { PROMPT_PATHS, renderPromptTemplate } from "./prompt_templates.js";
 
 export interface JsonExtractResult {
   ok: boolean;
@@ -31,7 +31,7 @@ export function buildJsonOnlyRetryPrompt(options: {
   invalidResponse: string;
   parseError: string;
 }): string {
-  return renderPromptTemplate("llm/json_only_retry.md", {
+  return renderPromptTemplate(PROMPT_PATHS.client.jsonOnlyRetry, {
     parse_error: options.parseError,
     original_prompt: options.originalPrompt,
     invalid_response: options.invalidResponse,
