@@ -9,7 +9,6 @@
 - `benchmarks/L3`：分支和 `match` 任务，包括 effect、pure-return、`Optional` 和 `state` 变体。
 - `benchmarks/L4`：目标/流程语义转换为单任务契约。
 - `benchmarks/L5`：变更应用类单任务契约。
-- `benchmarks/category_a`：跨 action / entity pipeline 任务。
 
 列出已注册任务：
 

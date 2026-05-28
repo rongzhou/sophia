@@ -108,8 +108,8 @@ async function ensureSophiaToml(
 export function sophiaTomlTemplate(projectName: string): string {
   return `[project]
 name = "${escapeTomlString(projectName)}"
-version = "0.2.0"
-sophia_version = "0.2"
+version = "0.3.0"
+sophia_version = "0.3"
 
 [source]
 domain_root = "domains"

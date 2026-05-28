@@ -1,7 +1,7 @@
 {
   "id": "account_pipeline",
   "title": "Account deposit validation and update pipeline",
-  "category": "category_a_cross_action",
+  "category": "L3_orchestration_pure",
   "scaffold": {
     "program": "ProcessDepositPipeline",
     "domain": "ActionPipelineDomain",

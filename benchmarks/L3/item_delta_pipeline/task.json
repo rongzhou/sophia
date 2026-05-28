@@ -1,7 +1,7 @@
 {
   "id": "item_delta_pipeline",
   "title": "Item validation and delta update pipeline",
-  "category": "category_a_cross_action",
+  "category": "L3_pipeline_pure",
   "scaffold": {
     "program": "ValidateAndApplyDelta",
     "domain": "ItemOperations",

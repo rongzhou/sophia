@@ -7,7 +7,7 @@ import { isLlmCallError } from "../llm/errors.js";
 
 const program = new Command();
 
-program.name("sophia").description("Sophia v0 experimental CLI").version("0.2.0");
+program.name("sophia").description("Sophia v0 experimental CLI").version("0.3.0");
 
 registerBaseCommands(program);
 registerGraphCommands(program);
