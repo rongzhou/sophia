@@ -1,0 +1,43 @@
+{
+  "id": "mount_change",
+  "title": "Apply mount add/remove change to a list of mounts",
+  "category": "L5_change_application",
+  "scaffold": {
+    "program": "ApplyMountChange",
+    "domain": "ConfigDomain",
+    "action": "ApplyMountChange",
+    "capability": "ConfigPureCapability",
+    "inputs": [
+      { "name": "mounts", "type": "List<Mount>" },
+      { "name": "change", "type": "Change" }
+    ],
+    "output": { "name": "result", "type": "List<Mount>" },
+    "effects": []
+  },
+  "prompt_goal": "Design pure behavior to apply a mount change to a list of mounts. A Mount has fields source Text and target Text. A Change has fields op Text (either add or remove) and entry Mount. Return a new list of mounts: for add, include entry if not present; for remove, drop any existing mount matching entry by source and target. Preserve other mounts.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "add_into_empty",
+      "input": {
+        "mounts": [],
+        "change": { "op": "add", "entry": { "source": "/dev/sda1", "target": "/mnt/data" } }
+      },
+      "expected_result": [ { "source": "/dev/sda1", "target": "/mnt/data" } ],
+      "expected_effects": []
+    },
+    {
+      "name": "remove_existing",
+      "input": {
+        "mounts": [ { "source": "/dev/sda1", "target": "/mnt/data" } ],
+        "change": { "op": "remove", "entry": { "source": "/dev/sda1", "target": "/mnt/data" } }
+      },
+      "expected_result": [],
+      "expected_effects": []
+    }
+  ]
+}

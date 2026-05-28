@@ -1,0 +1,37 @@
+{
+  "id": "multistage_todo",
+  "title": "Preserve title while updating priority",
+  "category": "L4_goal_workflow_translation",
+  "scaffold": {
+    "program": "TodoPriorityUpdate",
+    "domain": "TodoDomain",
+    "action": "UpdatePriority",
+    "capability": "TodoPureCapability",
+    "inputs": [
+      { "name": "item", "type": "TodoItem" },
+      { "name": "new_priority", "type": "Text" }
+    ],
+    "output": { "name": "result", "type": "TodoItem" },
+    "effects": []
+  },
+  "prompt_goal": "Design pure behavior to set the priority field of a todo item without modifying its title. Accept an input item with fields title Text and optional priority Text, and an input new_priority Text. Return a new item preserving title and setting priority to new_priority.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    {
+      "name": "set_priority_from_none",
+      "input": { "item": { "title": "Buy milk", "priority": null }, "new_priority": "High" },
+      "expected_result": { "title": "Buy milk", "priority": "High" },
+      "expected_effects": []
+    },
+    {
+      "name": "overwrite_existing_priority",
+      "input": { "item": { "title": "Call mom", "priority": "Low" }, "new_priority": "High" },
+      "expected_result": { "title": "Call mom", "priority": "High" },
+      "expected_effects": []
+    }
+  ]
+}

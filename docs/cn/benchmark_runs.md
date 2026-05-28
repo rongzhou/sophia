@@ -6,8 +6,9 @@
 
 - `benchmarks/L1`：没有循环或分支的线性任务。
 - `benchmarks/L2`：单循环、列表和 effect 任务。
-- `benchmarks/L3`：分支和 `match` 任务，包括 effect、pure-return、`Optional`
-  和 `state` 变体。
+- `benchmarks/L3`：分支和 `match` 任务，包括 effect、pure-return、`Optional` 和 `state` 变体。
+- `benchmarks/L4`：目标/流程语义转换为单任务契约。
+- `benchmarks/L5`：变更应用类单任务契约。
 - `benchmarks/category_a`：跨 action / entity pipeline 任务。
 
 列出已注册任务：
@@ -75,7 +76,7 @@ node dist/cli/main.js experiment run-suite \
   --out-dir sophia-runs/results/all-benchmarks-direct-ts
 ```
 
-## 2026-05-26 Full Suite 试跑记录
+## 2026-05-26 Full Suite 说明
 
 命令：
 
@@ -90,9 +91,9 @@ node dist/cli/main.js experiment run-suite \
   --out-dir sophia-runs/results/all-benchmarks-full
 ```
 
-最新一次结果：16 个 task 中 13 个通过，3 个失败。
+基准任务数量会随着合并而变化。使用 `experiment list --suite benchmarks` 查看当前套件，使用 `experiment summarize` 汇总结果与模式对比。
 
-失败分类：
+失败分类（节选示例）：
 
 - `first_five_squares`：design 阶段直接失败，错误为 `.pseudo` 含 formal Sophia syntax。根因不是模型“抄错”，而是 public design goal 和 design prompt 仍暴露了 scaffold/formal 语法片段，并且 design prompt 还把 `.pseudo` 写成 `program { ... }` 风格的伪 DSL。这导致 workflow 一边喂 formal 信息，一边禁止 `.pseudo` 写 formal 信息。这是边界错误，已修正为 design goal 只含语义任务和公共约束；design prompt 只要求 JSON 结构承载算法伪代码，不再包含实现标签、scaffold contract、formal type、formal effect、source syntax 或伪 DSL 模板。
 - `zero_or_positive_label`：同样在 design 阶段被 formal syntax validator 拒绝，根因同上。已为 design/revise LLM 调用启用 validation retry，但这只是兜底；主要修复是移除 design 输入中的 formal 语法污染。

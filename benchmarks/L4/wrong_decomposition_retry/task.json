@@ -1,0 +1,27 @@
+{
+  "id": "wrong_decomposition_retry",
+  "title": "Decide next step based on decomposition status",
+  "category": "L4_goal_workflow_translation",
+  "scaffold": {
+    "program": "DecompositionDecision",
+    "domain": "DecompositionDomain",
+    "action": "DecideNextStep",
+    "capability": "DecisionPureCapability",
+    "inputs": [
+      { "name": "status", "type": "Text" },
+      { "name": "reason", "type": "Text" }
+    ],
+    "output": { "name": "result", "type": "Text" },
+    "effects": []
+  },
+  "prompt_goal": "Design pure behavior to decide the next step given a decomposition status and reason. If status is the literal text invalidated, return the literal text redecompose. If status is the literal text accepted, return the literal text accept. Otherwise, return the literal text accept.",
+  "public_forbidden": [
+    "Do not use storage, network, time, randomness, filesystem, or external services.",
+    "Do not hardcode verifier cases or special-case concrete input values.",
+    "Do not print or emit observable effects."
+  ],
+  "hidden_cases": [
+    { "name": "invalidated_status", "input": { "status": "invalidated", "reason": "conflict" }, "expected_result": "redecompose", "expected_effects": [] },
+    { "name": "accepted_status", "input": { "status": "accepted", "reason": "ok" }, "expected_result": "accept", "expected_effects": [] }
+  ]
+}

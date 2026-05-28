@@ -7,6 +7,8 @@ This project treats `experiment run --task <task.json>` as the source of each be
 - `benchmarks/L1`: linear tasks without loops or branches.
 - `benchmarks/L2`: single-loop, list, and effect tasks.
 - `benchmarks/L3`: branch and `match` tasks, including effect, pure-return, `Optional`, and `state` variants.
+- `benchmarks/L4`: goal-workflow translations captured as single-task contracts.
+- `benchmarks/L5`: change-application tasks captured as single-task contracts.
 - `benchmarks/category_a`: cross-action / entity pipeline tasks.
 
 List registered tasks:
@@ -76,7 +78,7 @@ node dist/cli/main.js experiment run-suite \
 
 ## 2026-05-26 Notes
 
-The current stable v0.2 run recorded 16 tasks. Sophia full passed 16/16, while direct-ts passed 14/16. These numbers are implementation and workflow health signals, not the central project claim. The central claim is that programming ability need not be entirely internalized through code pretraining, and that an LLM-native graph language plus heuristic node workflow is viable.
+Task counts evolve as benchmarks are consolidated. Use `experiment list --suite benchmarks` to view the current suite, and `experiment summarize` to compare modes. These numbers indicate implementation and workflow health signals, not the central project claim. The central claim is that programming ability need not be entirely internalized through code pretraining, and that an LLM-native graph language plus heuristic node workflow is viable.
 
 Direct-ts failures:
 
