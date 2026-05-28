@@ -370,7 +370,7 @@ LMQL、Guidance、DSPy 等关注如何组织或约束 LLM 调用。Sophia 不是
 ## 15. 后续路线
 
 **S1：Intent safety adversarial suite。**  
-把 现有的 intent 安全回归样例中的 Raw/Secret/DB.Write/Console/capability/error propagation fixture 转成 adversarial benchmark。目标不是 Sophia 运行成功，而是 Sophia 静态拒绝不安全 candidate，同时 TypeScript + typecheck + 非对抗性测试 baseline 会接受。
+把现有的 intent 安全回归样例中的 Raw/Secret/DB.Write/Console/capability/error propagation fixture 转成 adversarial benchmark。目标不是 Sophia 运行成功，而是 Sophia 静态拒绝不安全 candidate，同时 TypeScript + typecheck + 非对抗性测试 baseline 会接受。
 
 **S2：Edit transitions 与 Evolution Boundary。**  
 把编辑作为 graph 一等节点，支持字段新增、intent 收紧、error 扩展、action 拆分等多轮演化。目标是在无人审查下拒绝未经授权的 semantic drift。
