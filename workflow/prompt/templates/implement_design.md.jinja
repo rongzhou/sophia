@@ -1,0 +1,19 @@
+# 实现设计：把 .pseudo 转换为 .sophia
+
+把已稳定的伪代码实现为可通过确定性检查的 Sophia-Core 候选源码。
+输入 / 输出必须写完整 formal type；副作用写 formal effect；错误写 error algebra variant。
+
+## 伪代码
+{{ pseudocode }}
+
+## 目标域语义闭包
+{% for f in context_files %}- {{ f }}
+{% endfor %}
+
+## 必须保持的约束
+{% for c in constraints %}- {{ c }}
+{% endfor %}
+
+## 输出要求
+输出候选 `.sophia` 文件集合。每个顶层 node 一个文件，遵循 domain-first 布局。
+不得引入未声明的 effect / capability / error。

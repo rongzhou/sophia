@@ -1,0 +1,23 @@
+[package]
+name = "sophia-syntax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia-Core 语法层：Tree-sitter binding 与 CST → AST 转换（core，零 IO 依赖）"
+
+# 仅构建 rlib（默认）：工作区其他 crate 通过路径依赖引用。
+# 语法验证经由 Rust 测试（examples + insta 快照），不依赖 tree-sitter CLI 动态加载，
+# 因此无需 cdylib/staticlib。
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+tree-sitter.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

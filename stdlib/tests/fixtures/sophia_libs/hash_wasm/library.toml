@@ -1,0 +1,17 @@
+[library]
+name = "hash_wasm"
+summary = "整数 digest（WASM host 实现，演示用）"
+abi_version = 1
+
+# WASM-effect 库：声明 effect-op WasmHash.Mix，由 host.wasm 实现（导出 wasm_hash_mix）。
+# effectful = false：纯计算 op，调用方无需 effects{} / capability 声明，直接 WasmHash.Mix(s, v)。
+[[op]]
+family = "WasmHash"
+op = "Mix"
+params = ["Int", "Int"]
+returns = "Int"
+effectful = false
+host_fn = "wasm_hash_mix"
+
+[prompt]
+asset = "hash_wasm.md"

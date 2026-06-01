@@ -1,0 +1,20 @@
+[package]
+name = "sophia-codegen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia → WASM codegen（工作流 A，tools 层，确定性、零 IO）"
+
+[dependencies]
+sophia-syntax.workspace = true
+sophia-hir.workspace = true
+sophia-semantic.workspace = true
+sophia-exec-ir.workspace = true
+sophia-stdlib.workspace = true
+thiserror.workspace = true
+wasm-encoder.workspace = true
+
+[dev-dependencies]
+sophia-runtime.workspace = true
+wasmi.workspace = true

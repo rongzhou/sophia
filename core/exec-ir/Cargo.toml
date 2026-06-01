@@ -1,0 +1,16 @@
+[package]
+name = "sophia-exec-ir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia-Core Execution Graph IR：执行 DAG、类型化边、调度语义（core，零 IO 依赖）"
+
+[dependencies]
+sophia-semantic.workspace = true
+sophia-syntax.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+sophia-hir.workspace = true
+insta.workspace = true

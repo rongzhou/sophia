@@ -1,0 +1,17 @@
+[package]
+name = "sophia-hir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia-Core HIR 层：名称解析、模块解析、scope（core，零 IO 依赖）"
+
+[dependencies]
+sophia-syntax.workspace = true
+sophia-library.workspace = true
+thiserror.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

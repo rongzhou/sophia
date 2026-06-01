@@ -1,0 +1,121 @@
+# Sophia 工作区根清单
+#
+# 分层纪律（见 docs/engineering_architecture.md 第三节）：
+#   core/*    纯语言语义，禁止 IO，禁止依赖 workflow/*
+#   tools/*   确定性工具链，依赖 core
+#   workflow/* 启发式工作流引擎，依赖 core（异步）
+#   lsp / runtime / cli 为上层
+#
+# 版本对齐（见 docs/engineering_notes.md 2026-05-28 版本与依赖策略）：
+#   tree-sitter CLI 0.26.x、生成的 parser.c ABI 与 tree-sitter crate 版本三者一致。
+
+[workspace]
+resolver = "2"
+members = [
+    "core/syntax",
+    "core/hir",
+    "core/semantic",
+    "core/exec-ir",
+    "core/library",
+    "workflow/graph-db",
+    "workflow/llm",
+    "workflow/prompt",
+    "workflow/engine",
+    "tools/check",
+    "tools/audit",
+    "tools/materialize",
+    "tools/codegen",
+    "lsp",
+    "cli",
+    "runtime",
+    "stdlib",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# 项目策略是「跟随最新稳定版」（见 docs/engineering_notes.md 2026-05-28 版本与依赖策略），
+# 不维护固定旧 MSRV。此值取**已验证可构建的最低稳定版**（1.94 失败、1.95 通过；transitive 依赖
+# rusqlite → libsqlite3-sys 用 `cfg_select!`〔1.95 稳定〕，故旧值 1.80 失真、已据实校正）。
+rust-version = "1.95"
+license = "MIT"
+
+# 统一的依赖版本来源：各 crate 通过 `dep.workspace = true` 引用，保证全工作区版本一致。
+[workspace.dependencies]
+# 错误处理基线：库用 thiserror，二进制可用 anyhow。
+thiserror = "2.0"
+anyhow = "1.0"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 解析（单一路线：Tree-sitter）
+tree-sitter = "0.26"
+cc = "1.0"
+
+# 异步运行时（仅工作流 / 运行时 / 协调层）
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# LSP
+tower-lsp = "0.20"
+
+# 图持久化：SQLite，启用 bundled，零外部系统依赖
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# Prompt 模板
+minijinja = "2.20"
+
+# 库清单解析（sophia-library：library.toml → LibraryRegistry，确定性、纯解析）
+toml = "0.9"
+
+# JSON Schema 校验（LLM 结构化输出 fallback）
+jsonschema = "0.46"
+
+# HTTP client（LLM 后端：OpenAI 兼容 / Ollama；CLI 的 Http.Get 真实 host 用 blocking）。reqwest 默认启用 rustls。
+reqwest = { version = "0.13", features = ["json", "blocking"] }
+
+# 哈希（ContextSnapshot digest 等）
+sha2 = "0.11"
+
+# 时间戳
+chrono = { version = "0.4", features = ["serde"] }
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.6", features = ["derive"] }
+
+# 快照测试
+insta = "1.47"
+
+# WASM codegen（工作流 A）：纯 Rust 编码库 + 纯 Rust 解释执行器（差测试）。
+# 选 wasm-encoder 0.243 / wasmi 0.40：当前版本可用、与工作区其余依赖共存；更新无收益故不动
+# （YAGNI）。重型部署工具链（wasmtime / 浏览器）不进 cargo 树（见 docs/wasm_codegen.md §七）。
+wasm-encoder = "0.243"
+wasmi = "0.40"
+
+# 工作区内部 crate
+sophia-syntax = { path = "core/syntax" }
+sophia-hir = { path = "core/hir" }
+sophia-semantic = { path = "core/semantic" }
+sophia-exec-ir = { path = "core/exec-ir" }
+sophia-library = { path = "core/library" }
+sophia-graph-db = { path = "workflow/graph-db" }
+sophia-llm = { path = "workflow/llm" }
+sophia-prompt = { path = "workflow/prompt" }
+sophia-engine = { path = "workflow/engine" }
+sophia-check = { path = "tools/check" }
+sophia-audit = { path = "tools/audit" }
+sophia-materialize = { path = "tools/materialize" }
+sophia-codegen = { path = "tools/codegen" }
+sophia-lsp = { path = "lsp" }
+sophia-runtime = { path = "runtime" }
+sophia-stdlib = { path = "stdlib" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

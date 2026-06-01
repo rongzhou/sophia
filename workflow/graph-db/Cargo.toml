@@ -1,0 +1,18 @@
+[package]
+name = "sophia-graph-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Development Graph 持久化：SQLite + 事件溯源（workflow 层）"
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

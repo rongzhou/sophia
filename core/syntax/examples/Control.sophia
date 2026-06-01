@@ -1,0 +1,31 @@
+action SanitizeTitle {
+  intent_conversion: true
+  input  { raw: Raw<Text> }
+  output { clean: Sanitized<Text> }
+  effects { Pure }
+  body {
+    return raw
+  }
+}
+
+action ReportProgress {
+  capability: TodoCapability
+  input  { items: list of Int }
+  output { total: Int }
+  effects { Console.Write }
+  body {
+    let mutable total = 0
+    repeat 3 times {
+      set total = total + 1
+    }
+    if total > 2 {
+      print "many"
+    } else {
+      print "few"
+    }
+    let flag = total > 0 and not (total == 5)
+    let label = to_text(total)
+    print label
+    return total
+  }
+}

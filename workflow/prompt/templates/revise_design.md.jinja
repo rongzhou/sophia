@@ -1,0 +1,24 @@
+# 修订设计：当错误反映概念问题时重写伪代码
+
+当代码错误反映的是概念 / 算法层面的问题（而非局部 bug）时，重写 `.pseudo`。
+这会生成新的伪代码版本（通过 `revises` 边连接来源），旧版本保留。
+
+## 现有伪代码
+{{ pseudocode }}
+
+## 概念性诊断
+{% for d in diagnostics %}- {{ d.code }}: {{ d.problem }}
+{% endfor %}
+
+## 目标与约束
+- 目标：{{ objective }}
+{% for c in constraints %}- 约束：{{ c }}
+{% endfor %}
+
+## 可用标准库（如修订后方案需要某库功能，在 libraries 中列出其名）
+{{ stdlib_catalog }}
+
+## 输出要求
+输出修订后的、包含六个固定 heading 的 `.pseudo`（首行 `<!-- sophia-pseudo: v1 -->`）。
+聚焦修正概念问题，不要退化为局部修补。
+若修订后方案要用到上面列出的标准库，在 `libraries` 字段列出所选库名（不用则空数组）。

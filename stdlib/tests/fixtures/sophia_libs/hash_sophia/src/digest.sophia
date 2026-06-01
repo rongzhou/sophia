@@ -1,0 +1,11 @@
+action SophiaDigest {
+  input { seed: Int; value: Int }
+  output { digest: Int }
+  body {
+    let mutable acc = seed
+    repeat 3 times {
+      set acc = acc * 31 + value
+    }
+    return acc
+  }
+}

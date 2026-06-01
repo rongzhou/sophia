@@ -1,0 +1,26 @@
+{
+  "grammars": [
+    {
+      "name": "sophia",
+      "camelcase": "Sophia",
+      "scope": "source.sophia",
+      "file-types": ["sophia"],
+      "injection-regex": "^sophia$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Sophia-Core grammar for Tree-sitter (ABI 15)",
+    "authors": [{ "name": "Sophia" }]
+  },
+  "bindings": {
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "rust": true,
+    "swift": false,
+    "zig": false
+  }
+}

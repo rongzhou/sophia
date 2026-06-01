@@ -1,0 +1,4 @@
+# 统一代码风格（见 docs/engineering_notes.md 2026-05-28 格式化配置）
+edition = "2021"
+max_width = 100
+newline_style = "Unix"

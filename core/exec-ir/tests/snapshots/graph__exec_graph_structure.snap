@@ -1,0 +1,11 @@
+---
+source: core/exec-ir/tests/graph.rs
+expression: out
+---
+nodes:
+  Transition("Add")
+  Action("Combine")
+  Transition("Double")
+edges:
+  Combine --Control-> Add
+  Combine --Control-> Double

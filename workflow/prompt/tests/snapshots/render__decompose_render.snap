@@ -1,0 +1,22 @@
+---
+source: workflow/prompt/tests/render.rs
+expression: out
+---
+# 拆解：把过大的目标拆成子目标
+
+你是 Sophia 工作流的拆解者。当前目标过大或跨多个关注点，无法一次性 design / implement。
+把它拆成若干**互相独立、各自可单独推进**的子目标。
+
+## 当前目标
+实现完整的待办系统
+
+## 必须遵守的约束
+- 不得访问 Users 表
+
+
+## 输出要求
+只输出严格符合 decompose_result schema 的 JSON：
+- `rationale`：为什么这样拆（一句话说明拆解依据）；
+- `children`：至少 2 个子目标，每个含 `title`（简短）与 `description`（这个子目标要达成什么）。
+
+子目标应覆盖原目标的全部范围，彼此尽量不重叠。不要输出额外字段或说明文字。

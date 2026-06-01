@@ -1,0 +1,25 @@
+[library]
+name = "file"
+summary = "读写本地文件（读取 / 写入）"
+abi_version = 1
+
+# File.Read(path: Text) -> Raw<Text>（不可信文件内容，下游须经 intent 转换）。
+[[op]]
+family = "File"
+op = "Read"
+params = ["Text"]
+returns = "Raw<Text>"
+effectful = true
+host_fn = "file_read"
+
+# File.Write(path: Text, content: Sanitized<Text>) -> Unit（写出边界：content 须 Sanitized）。
+[[op]]
+family = "File"
+op = "Write"
+params = ["Text", "Sanitized<Text>"]
+returns = "Unit"
+effectful = true
+host_fn = "file_write"
+
+[prompt]
+asset = "file.md"

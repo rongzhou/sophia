@@ -1,0 +1,18 @@
+[library]
+name = "http"
+summary = "从网络 URL 获取数据（网络请求）"
+abi_version = 1
+
+# Http.Get(url: Text) -> Raw<Text>（不可信响应体，下游须经 intent 转换）。
+# effect 身份不带 url arg（url 是运行时绑定值，走特殊根 method_call）；host_fn 是 native /
+# WASM host 的分派键 + WASM import 名。见 docs/stdlib_design.md。
+[[op]]
+family = "Http"
+op = "Get"
+params = ["Text"]
+returns = "Raw<Text>"
+effectful = true
+host_fn = "http_get"
+
+[prompt]
+asset = "http.md"

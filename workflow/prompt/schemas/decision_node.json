@@ -1,0 +1,82 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["selected_action", "confidence", "rationale", "state_assessment"],
+  "properties": {
+    "selected_action": {
+      "type": "string",
+      "enum": [
+        "design_solution",
+        "implement_design",
+        "repair_code",
+        "revise_design",
+        "decompose",
+        "backtrack",
+        "select",
+        "materialize",
+        "needs_clarification"
+      ]
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "rationale": { "type": "string", "minLength": 1 },
+    "state_assessment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "goal_size",
+            "decomposition_pressure",
+            "active_milestone_present",
+            "outstanding_clarifications"
+          ],
+          "properties": {
+            "kind": { "const": "goal" },
+            "goal_size": { "type": "string", "enum": ["tiny", "small", "medium", "large"] },
+            "decomposition_pressure": { "type": "string", "enum": ["low", "medium", "high"] },
+            "active_milestone_present": { "type": "boolean" },
+            "outstanding_clarifications": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "has_pseudocode",
+            "has_code",
+            "compile_status",
+            "error_type",
+            "repair_attempts"
+          ],
+          "properties": {
+            "kind": { "const": "code" },
+            "has_pseudocode": { "type": "boolean" },
+            "has_code": { "type": "boolean" },
+            "compile_status": { "type": "string", "enum": ["not_checked", "pass", "fail"] },
+            "error_type": {
+              "type": "string",
+              "enum": ["none", "local", "conceptual", "integration"]
+            },
+            "repair_attempts": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "blast_radius", "risk", "affects_active_milestone"],
+          "properties": {
+            "kind": { "const": "change" },
+            "blast_radius": {
+              "type": "string",
+              "enum": ["local", "module", "subsystem", "cross_system", "product_scale"]
+            },
+            "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+            "affects_active_milestone": { "type": "boolean" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "missing_headings"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "missing_headings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["Purpose", "Inputs", "Outputs", "Algorithm", "Constraints", "Forbidden"]
+      }
+    },
+    "schema_version_ok": { "type": "boolean" }
+  }
+}

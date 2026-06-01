@@ -1,0 +1,16 @@
+[package]
+name = "sophia-prompt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Prompt 模板管理：minijinja 渲染 + JSON Schema（workflow 层）"
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+minijinja.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

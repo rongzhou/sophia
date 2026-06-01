@@ -1,0 +1,15 @@
+[package]
+name = "sophia-semantic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia-Core Semantic IR：type / effect / contract 三层（core，零 IO 依赖）"
+
+[dependencies]
+sophia-hir.workspace = true
+sophia-syntax.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

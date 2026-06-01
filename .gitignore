@@ -1,0 +1,31 @@
+# Rust 构建产物
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# Tree-sitter CLI 生成的本地缓存（保留 vendor 的 grammar 源与生成的 parser.c）
+node_modules/
+
+# 编辑器与系统
+.DS_Store
+*.swp
+
+# 测试夹具里 wasm-encoder 在测试时生成的 host.wasm（demo 三方 WASM 库；非 repo 源,见
+# docs/stdlib_design.md §六.1）——不提交不透明二进制。
+stdlib/tests/fixtures/sophia_libs/hash_wasm/host.wasm
+
+# 本地密钥 / 凭证（LLM API key 等）——绝不提交
+.secrets/
+*.env
+
+# Sophia 项目运行目录（示例工程的生成物）
+sophia-runs/build/
+sophia-runs/generated/
+sophia-runs/benchmark/
+sophia-runs/e2e-logs/
+
+# 本地图数据库
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm

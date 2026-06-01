@@ -1,0 +1,19 @@
+[package]
+name = "sophia-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# 库契约类型层（见 docs/stdlib_design.md / docs/stdlib_implementation.md）。
+# 把「库」从散落各层的硬编码切片收敛为「清单 = 单一真相源 + LibraryRegistry = 各层只读数据源」。
+# 本 crate 只放**无 Value 的契约类型 + 清单解析**（OpContract / TypeDesc / LibrarySurface /
+# LibraryRegistry），故归 core 层、core/* 可依赖；HostFn / HostRegistry（需 runtime::Value）落
+# sophia-runtime（避免依赖环，见 stdlib_design §依赖图）。零文件 IO：只解析传入的清单字符串。
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]

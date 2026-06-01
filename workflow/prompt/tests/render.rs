@@ -1,0 +1,201 @@
+//! Prompt 渲染与 schema 测试。
+//!
+//! 模板渲染结果用 insta snapshot 捕获，守护模板变更不静默影响 LLM 行为
+//! （docs/engineering_architecture.md 8.2）。
+
+use serde_json::json;
+use sophia_prompt::{schema_for, PromptError, PromptRegistry};
+
+#[test]
+fn all_templates_loaded() {
+    let reg = PromptRegistry::new();
+    let names = reg.template_names();
+    for expected in [
+        "decision",
+        "decompose",
+        "design_solution",
+        "implement_design",
+        "repair_code",
+        "revise_design",
+    ] {
+        assert!(names.contains(&expected), "缺少模板 {expected}");
+    }
+}
+
+#[test]
+fn unknown_template_errors() {
+    let reg = PromptRegistry::new();
+    let err = reg.render("no_such", json!({})).unwrap_err();
+    assert!(matches!(err, PromptError::UnknownTemplate(_)));
+}
+
+#[test]
+fn decision_template_renders_stable() {
+    let reg = PromptRegistry::new();
+    let ctx = json!({
+        "focus_summary": "Objective N0001: 实现 CompleteTodo",
+        "bound_objective_count": 2,
+        "active_milestone": "M1: 起步切片",
+        "outstanding_questions": 0,
+        "ancestors": ["N0001 Objective", "N0002 Decomposition"],
+        "diagnostics": [
+            { "severity": "error", "code": "CHECK-TYPE-001", "problem": "类型不匹配" }
+        ],
+        "budget": { "remaining_depth": 4, "repair_attempts": 1 },
+        "candidate_actions": ["design_solution", "decompose"]
+    });
+    let out = reg.render("decision", &ctx).expect("render");
+    insta::assert_snapshot!("decision_render", out);
+}
+
+#[test]
+fn design_solution_template_renders_stable() {
+    let reg = PromptRegistry::new();
+    let ctx = json!({
+        "objective": "实现 CompleteTodo",
+        "constraints": ["不得访问 Users 表"],
+        "acceptance_criteria": ["完成后 status == Done"],
+        "context_files": ["domains/TodoDomain/entities/Todo.sophia"],
+        // 库目录由库注册表提供（sophia-stdlib），prompt crate 不持库内容；此处用固定串测模板渲染。
+        "stdlib_catalog": "- `example_lib` — 中立示例库"
+    });
+    let out = reg.render("design_solution", &ctx).expect("render");
+    insta::assert_snapshot!("design_solution_render", out);
+}
+
+#[test]
+fn decompose_template_renders_stable() {
+    let reg = PromptRegistry::new();
+    let ctx = json!({
+        "objective": "实现完整的待办系统",
+        "constraints": ["不得访问 Users 表"]
+    });
+    let out = reg.render("decompose", &ctx).expect("render");
+    insta::assert_snapshot!("decompose_render", out);
+}
+
+#[test]
+fn strict_undefined_variable_errors() {
+    // Strict undefined：缺变量应渲染失败而非静默成空。
+    let reg = PromptRegistry::new();
+    // decision 模板需要多个变量；只给一个 → 失败。
+    let err = reg.render("decision", json!({ "focus_summary": "x" }));
+    assert!(err.is_err(), "缺变量应渲染失败");
+}
+
+#[test]
+fn schemas_are_valid_json_and_strict() {
+    for name in [
+        "design_result",
+        "implement_result",
+        "decision",
+        "decompose_result",
+        "pseudo_check",
+        "repair_result",
+    ] {
+        let src = schema_for(name).unwrap_or_else(|| panic!("缺 schema {name}"));
+        let value: serde_json::Value = serde_json::from_str(src).expect("schema 应为合法 JSON");
+        // strict 模式：顶层对象 additionalProperties:false（workflow_graph_spec 1.3）。
+        assert_eq!(
+            value.get("additionalProperties"),
+            Some(&serde_json::Value::Bool(false)),
+            "schema {name} 顶层应 additionalProperties:false"
+        );
+    }
+}
+
+#[test]
+fn schema_for_unknown_returns_none() {
+    assert!(schema_for("no_such_schema").is_none());
+}
+
+#[test]
+fn syntax_baseline_preamble_is_stable() {
+    // 语言语法基线是所有 implement / repair 步骤共享的 system preamble（架构 8.3）。
+    // snapshot 守护其内容变更不被静默引入。
+    let baseline =
+        sophia_prompt::preamble("sophia_syntax_baseline").expect("内置语法基线资产应存在");
+    insta::assert_snapshot!("sophia_syntax_baseline", baseline);
+}
+
+#[test]
+fn syntax_baseline_carries_no_task_answer_tokens() {
+    // 防答案泄漏（架构 8.3 硬约束①）：语法基线只含可泛化规则 + 中立示例，
+    // 不得出现任何具体测试任务的领域名 / 节点名 / 状态值 / 业务逻辑。
+    let baseline = sophia_prompt::preamble("sophia_syntax_baseline").unwrap();
+    for forbidden in FORBIDDEN_TASK_TOKENS {
+        assert!(
+            !baseline.contains(forbidden),
+            "语法基线泄漏了任务相关 token `{forbidden}`"
+        );
+    }
+}
+
+/// e2e / benchmark 任务相关 token（领域名 / 节点名 / 状态值 / 业务逻辑）。
+/// 共享 prompt 资产（常驻语法基线 + 标准库资产）一律不得出现这些 token（防答案泄漏，架构 8.3）。
+const FORBIDDEN_TASK_TOKENS: &[&str] = &[
+    "IncrementCounter",
+    "CounterDomain",
+    "TodoStatus",
+    "TodoDomain",
+    "CompleteTodo",
+    "Pending",
+    "Done",
+    "current + 1",
+    // G2 effect/capability 任务 token。
+    "AuditCapability",
+    "LogNotice",
+    "NotifyCapability",
+    "Broadcast",
+    "LineTotal",
+    "CartItem",
+    "QualifiesForFreeShipping",
+    // G2-03 网络获取 + intent 安全任务 token（真实 IO，见 docs/e2e_test.md G2-03）。
+    "IngestCapability",
+    "FetchNonEmpty",
+    // G3 / G4 任务 token。
+    "DeductStock",
+    "OrderTotal",
+    "LineSubtotal",
+    "WalletError",
+    "InsufficientFunds",
+    "Withdraw",
+    // G5 持久化任务 token。
+    "ReadingStore",
+    "MeterCapability",
+    "RecordReading",
+    "meter_id",
+    // G5 文件库（File）任务 token（标准库 File 用例，见 docs/file_lib.md）。
+    "VaultCapability",
+    "StoreNote",
+    // G6 目标树任务 token。
+    "CelsiusToScaled",
+    "FahrenheitOffset",
+    "climate",
+    // benchmark 题集 token（与 e2e 同源防泄漏纪律：题目领域名不得出现在共享资产）。
+    "AbsDifference",
+    "WithinBudget",
+    "RectangleArea",
+    "TrafficLight",
+    "NextLight",
+    "NetTotal",
+    "GrossTotal",
+    "RemoveStock",
+    "StockError",
+    "Insufficient",
+    "OrderLine",
+    "LineAmount",
+    "CreditError",
+    "OverLimit",
+    "Checkout",
+    // 可失败返回 `one of` 任务 token（benchmark L6 clamp_or_reject + e2e G4-03，
+    // 见 docs/benchmark_test.md / docs/e2e_test.md）。
+    "ClampOrReject",
+    "RangeError",
+    "OutOfRange",
+];
+
+#[test]
+fn preamble_unknown_returns_none() {
+    assert!(sophia_prompt::preamble("no_such_asset").is_none());
+}

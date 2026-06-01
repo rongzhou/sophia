@@ -1,0 +1,21 @@
+action CompleteTodo {
+  meaning: "Complete an existing pending Todo."
+  capability: TodoCapability
+  input  { todo: Todo; completed_time: Time }
+  output { todo: Todo where todo.status == TodoStatus.Done }
+  effects { Console.Write }
+  errors  { TodoAlreadyDone }
+  body {
+    match todo.status {
+      TodoStatus.Done => raise TodoAlreadyDone { id = todo.id; done_at = todo.created_at }
+      TodoStatus.Pending => {
+        let updated = CompleteTodoTransition { todo = todo; completed_time = completed_time }
+        print "completed todo"
+        return updated
+      }
+    }
+  }
+  ensures {
+    output.todo.status == TodoStatus.Done
+  }
+}

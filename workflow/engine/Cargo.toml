@@ -1,0 +1,22 @@
+[package]
+name = "sophia-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "工作流编排：ContextSnapshot → LLM 调用 → emit 节点 / RawLlmNode 兜底（workflow 层，异步）"
+
+[dependencies]
+sophia-graph-db.workspace = true
+sophia-llm.workspace = true
+sophia-prompt.workspace = true
+sophia-materialize.workspace = true
+sophia-syntax.workspace = true
+sophia-check.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+async-trait.workspace = true

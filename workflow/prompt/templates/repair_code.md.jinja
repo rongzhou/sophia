@@ -1,0 +1,17 @@
+# 修复代码：根据结构化诊断修复候选
+
+根据确定性检查器的结构化诊断修复 `.sophia` 候选。只做局部修复，不改变算法意图。
+
+## 当前候选文件
+{% for f in files %}- {{ f }}
+{% endfor %}
+
+## 诊断
+{% for d in diagnostics %}### {{ d.code }}
+- 位置：{{ d.location }}
+- 问题：{{ d.problem }}
+{% endfor %}
+
+## 输出要求
+输出 `repair_result` schema 的 JSON：修复后的文件集合与每处修改的简述。
+不要引入新的 effect / capability / error variant。

@@ -1,0 +1,18 @@
+[package]
+name = "sophia-llm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "模型无关的 LLM 抽象与结构化输出 fallback；OpenAI 兼容 / Ollama 后端（workflow 层，异步）"
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+jsonschema.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }

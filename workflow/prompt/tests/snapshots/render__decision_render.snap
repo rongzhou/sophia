@@ -1,0 +1,38 @@
+---
+source: workflow/prompt/tests/render.rs
+expression: out
+---
+# 决策：选择下一步动作
+
+你是 Sophia 工作流的决策者。基于当前 active context 与可选动作集合，选择**一个**下一步动作。
+动作选择必须由你产生，不由系统替你决定。
+
+## 当前焦点节点
+Objective N0001: 实现 CompleteTodo
+
+## Active Context 摘要
+- 绑定目标数：2
+- active milestone：M1: 起步切片
+- 未决澄清问题数：0
+
+## 祖先链
+- N0001 Objective
+- N0002 Decomposition
+
+
+## 相关诊断
+- [error] CHECK-TYPE-001: 类型不匹配
+
+
+## 预算
+- 剩余深度：4
+- 已用修复次数：1
+
+## 候选动作
+- design_solution
+- decompose
+
+
+## 输出要求
+只输出严格符合 decision schema 的 JSON：`selected_action`、`confidence`（0..1）、
+`rationale`、`state_assessment`（按 kind 判别）。不要输出额外字段或说明文字。

@@ -1,0 +1,78 @@
+---
+source: core/semantic/tests/analyze.rs
+expression: model.formal_fingerprint()
+---
+SemanticModel {
+    entities: {
+        "Item": EntityDecl {
+            name: "Item",
+            fields: [
+                (
+                    "id",
+                    Int,
+                ),
+                (
+                    "label",
+                    Text,
+                ),
+                (
+                    "state",
+                    State(
+                        "Status",
+                    ),
+                ),
+            ],
+        },
+    },
+    states: {
+        "Status": StateDecl {
+            name: "Status",
+            values: [
+                "Open",
+                "Closed",
+            ],
+        },
+    },
+    variants: {
+        "NotFound": VariantDecl {
+            name: "NotFound",
+            fields: [
+                (
+                    "id",
+                    Int,
+                ),
+            ],
+        },
+    },
+    capabilities: {},
+    callables: {
+        "CloseItem": CallableDecl {
+            name: "CloseItem",
+            kind: Action,
+            capability: None,
+            intent_conversion: false,
+            inputs: [
+                (
+                    "item",
+                    Entity(
+                        "Item",
+                    ),
+                ),
+            ],
+            outputs: [
+                (
+                    "result",
+                    State(
+                        "Status",
+                    ),
+                ),
+            ],
+            declared_effects: EffectSet {
+                effects: [],
+            },
+            declared_errors: [
+                "NotFound",
+            ],
+        },
+    },
+}

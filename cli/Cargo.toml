@@ -1,0 +1,46 @@
+[package]
+name = "sophia-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sophia CLI 入口（协调层）"
+
+[[bin]]
+name = "sophia"
+path = "src/main.rs"
+
+# 多文件 e2e example：真实 LLM 端到端用例（见 docs/e2e_test.md）。
+# 单一 harness + 用例注册表，按组组织；不进 cargo test 门禁。
+[[example]]
+name = "e2e"
+path = "examples/e2e/main.rs"
+
+# 多文件 benchmark example：横向对比基准（见 docs/benchmark_test.md）。
+# 对比「LLM 直接写 Python」vs「Sophia 工作流」的成功率 + 耗时；不进 cargo test 门禁。
+[[example]]
+name = "benchmark"
+path = "examples/benchmark/main.rs"
+
+[dependencies]
+sophia-syntax.workspace = true
+sophia-hir.workspace = true
+sophia-semantic.workspace = true
+sophia-check.workspace = true
+sophia-audit.workspace = true
+sophia-codegen.workspace = true
+sophia-runtime.workspace = true
+sophia-stdlib.workspace = true
+sophia-graph-db.workspace = true
+sophia-llm.workspace = true
+sophia-prompt.workspace = true
+sophia-engine.workspace = true
+sophia-materialize.workspace = true
+sophia-lsp.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true

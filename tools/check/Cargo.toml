@@ -1,0 +1,14 @@
+[package]
+name = "sophia-check"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "确定性检查器与诊断，含 strip-assist 等价门禁（tools 层，同步）"
+
+[dependencies]
+sophia-syntax.workspace = true
+sophia-hir.workspace = true
+sophia-semantic.workspace = true
+sophia-stdlib.workspace = true
+thiserror.workspace = true

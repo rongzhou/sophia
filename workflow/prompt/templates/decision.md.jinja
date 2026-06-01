@@ -1,0 +1,32 @@
+# 决策：选择下一步动作
+
+你是 Sophia 工作流的决策者。基于当前 active context 与可选动作集合，选择**一个**下一步动作。
+动作选择必须由你产生，不由系统替你决定。
+
+## 当前焦点节点
+{{ focus_summary }}
+
+## Active Context 摘要
+- 绑定目标数：{{ bound_objective_count }}
+- active milestone：{% if active_milestone %}{{ active_milestone }}{% else %}（无）{% endif %}
+- 未决澄清问题数：{{ outstanding_questions }}
+
+## 祖先链
+{% for node in ancestors %}- {{ node }}
+{% endfor %}
+
+## 相关诊断
+{% for d in diagnostics %}- [{{ d.severity }}] {{ d.code }}: {{ d.problem }}
+{% endfor %}
+
+## 预算
+- 剩余深度：{{ budget.remaining_depth }}
+- 已用修复次数：{{ budget.repair_attempts }}
+
+## 候选动作
+{% for a in candidate_actions %}- {{ a }}
+{% endfor %}
+
+## 输出要求
+只输出严格符合 decision schema 的 JSON：`selected_action`、`confidence`（0..1）、
+`rationale`、`state_assessment`（按 kind 判别）。不要输出额外字段或说明文字。

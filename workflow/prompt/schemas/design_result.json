@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["purpose", "pseudocode"],
+  "properties": {
+    "purpose": { "type": "string", "minLength": 1 },
+    "pseudocode": { "type": "string", "minLength": 1 },
+    "libraries": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "本方案要用到的标准库名（从库目录中选；不用库则空数组）。"
+    }
+  }
+}

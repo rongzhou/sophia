@@ -1,0 +1,11 @@
+[library]
+name = "hash_sophia"
+summary = "整数 digest（纯 Sophia 实现，演示用）"
+abi_version = 1
+
+# 纯 Sophia 源码库：无 [[op]]（不引入新原语 effect），只随附 .sophia 节点，作为额外 ASG 输入。
+[surface]
+sophia_sources = ["src/digest.sophia"]
+
+[prompt]
+asset = "hash_sophia.md"

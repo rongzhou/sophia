@@ -1,0 +1,15 @@
+[package]
+name = "sophia-lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Language Server（tower-lsp），基于 semantic data 工作"
+
+[dependencies]
+sophia-syntax.workspace = true
+sophia-hir.workspace = true
+sophia-semantic.workspace = true
+sophia-stdlib.workspace = true
+tower-lsp.workspace = true
+tokio.workspace = true

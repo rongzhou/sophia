@@ -1,0 +1,128 @@
+Sophia-Core 起步子集语法基线（标准语法规则，务必严格遵守）。
+
+下列示例仅演示**语法形状**，与任何具体任务无关，请勿照抄其中的名字或逻辑——
+你必须把规则应用到当前任务，而不是复制示例。
+
+**命名保真（务必遵守）**：任务题面 / 验收条件里**显式给出的名字**——node 名（action / entity /
+state / error / capability 等）、字段名、状态取值名、error variant 名——必须**逐字照用**，
+不得改名、翻译、缩写或换大小写（举一个与任何任务无关的中立例子：若题面要求名为 `WidgetKind` 的
+state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些名字是需求规格的一部分，下游会按
+原名调用 / 校验。注意区分：上面"勿照抄"针对的是本基线里**中立示例**的名字（如 `Light` / `Toggle`），
+那些与任务无关、不可借用；而题面**给定**的名字则相反，必须原样保留。
+
+## 顶层结构
+
+- 一个文件恰好一个顶层 node（action / entity / state / error / capability / transition）。
+- action 的形状：
+    action <名字> {
+      input { <参数名>: <类型>; <参数名>: <类型> }
+      output { <参数名>: <类型> }
+      body { <语句> }
+    }
+- state 的形状（每个 value 后必须跟花括号块，块内至少有一个 meaning 字段）：
+    state <名字> {
+      value <值名> { meaning: "<说明>" }
+      value <值名> { meaning: "<说明>" }
+    }
+  引用某个 state 值用点号：<state 名>.<值名>。
+- entity 的形状：
+    entity <名字> {
+      fields {
+        <字段名> { type: <类型> }
+      }
+    }
+
+## 类型
+
+- 标量与具名：Unit / Bool / Int / Text / Null / 已声明的 entity / state，及标量上的 Intent
+  wrapper（如 `Sanitized<Text>`）。`<>` **只**用于 Intent wrapper，不用于任何其它类型。
+- 结构类型用 `of` 关键字族（**不用** `<>`）：
+    - 列表：`list of Int` / `list of Text` / `list of <类型>`。
+    - 联合：`one of { 成员A, 成员B, ... }`——值在运行时恰是其中一个成员（见下「one of 联合类型」）。
+- `Null` 是表达"无 / 缺席"的内置单值类型，字面值写作 `Null`，典型用在 `one of { T, Null }` 里表达可空。
+
+## one of 联合类型
+
+- `one of { M1, M2, ... }` 表示一个值是若干**互斥结局**之一。成员可以是标量、`Null`、已声明的
+  entity / state，或 error variant。
+- 成员**直接构造、直接返回**，没有任何包装子（没有 `Ok`/`Err`/`Some`/`None`）：
+  返回成功值就直接 `return <值>`，返回失败就直接 `return <Variant { 字段 = ... }>`。
+- 取值用 `match`，按成员**类型 / variant 名**分派（见下「body 子语言」的 match 模式）。
+- 成员必须两两可区分（标量按类型名、entity/state 按名、error variant 按名、`Null` 唯一）。
+
+## body 子语言
+
+- 语句子集：let x = expr  /  let mutable x = expr  /  set x = expr  /  return expr  /
+  raise Variant { f = expr }  /  if cond { ... } else { ... }  /
+  match subj { 模式 => ... }  /  repeat N times { ... }  /  print expr。
+- **语句之间用换行分隔，语句末尾不写分号 `;`**（分号不是语句终结符）。
+- 表达式子集：整数算术 + - *、一元取负 `-x`、比较 == != < <= > >=、and / or / not、Text + Text、
+  list + [item]、list.append(item)、字段访问 a.b、entity 构造 E { f = expr }、to_text(Int)、
+  `Null` 字面、**调用其它 action：`<ActionName>(实参, ...)`**（实参按被调用 action 的 input 顺序）。
+- **没有除法 `/` 与取模 `%`**（不在起步子集）；需要"取较大/较小/绝对值"等用比较 + 算术表达
+  （如绝对值：`if d < 0 { -d } else { d }`）。
+- 内置伪字段：`<text>.length`（Text 的字符数，结果 Int）。`to_text(Int)` 仅把 Int 转 Text
+  （不接受其它类型）。判断一个 `one of { T, Null }` 是否有值：在谓词（require / ensures / where）里用
+  `<表达式> != Null`；在 body 里用 `match` 的 `Null` 分支。
+- body 中只能引用 input 声明的参数或本地 let 绑定的变量；引用未声明的名字是错误。
+- **match 模式**（必须穷尽，**禁止** `_` 通配分支）：
+    - 类型模式 `<类型名> <绑定名> => ...`：匹配 `one of` 的标量 / entity / state 成员，把值绑定到该名字
+      （例：`Int n => return n`、`Todo t => return t.status`）。
+    - variant 模式 `<VariantName> { 字段, ... } => ...`：匹配 error variant 成员，按字段名绑定。
+    - `Null => ...`：匹配 `Null` 成员。
+    - 状态值模式 `<state 名>.<值名> => ...`：当 match 主语是 state 时按取值分派。
+    - 布尔字面 `true => ...` / `false => ...`：当 match 主语是 Bool 时。
+  match 一个 `one of` 必须覆盖其**全部成员**；match 一个 state 必须覆盖全部取值；match 一个 Bool 须覆盖
+  `true`/`false`。
+
+## error algebra（错误代数）
+
+- error 是顶层 node，声明一组 variant；每个 variant 可带若干字段：
+    error <名字> {
+      variant <VariantName> { <字段名>: <类型> }
+    }
+- action 若可能抛出领域错误，必须在 `errors { <VariantName>; ... }` 中声明会抛出的 variant；
+  在 body 中用 `raise <VariantName> { <字段名> = expr }` 抛出。
+- 被调用 action 声明的 errors，调用方必须继续在自己的 `errors` 中声明（错误向上传播）。
+
+## effect 与 capability
+
+- 纯逻辑 action 无需 effects / capability。
+- 有副作用（如 `print` 产生 `Console.Write`）的 action 必须：声明 `effects { Console.Write }`，
+  并用 `capability: <能力名>` 绑定一个 allow 了该 effect 的 capability。
+- capability 是一个顶层 node，形状：
+    capability <名字> {
+      allow { Console.Write }
+    }
+- 不得引入未声明的 effect / capability / error variant。
+- `Console.Write`（`print` 触发）是唯一的**内置** effect。文件 / 网络等 I/O 由**标准库**提供（如
+  `File` / `Http`），其用法不在本基线——用到时由工具按需注入对应库的介绍，按其中说明声明 effect /
+  capability。本基线只承载核心语言语法。
+
+## 中立语法形状示例（与任何任务无关，仅供参考形状，切勿照抄其名字或逻辑）
+
+    state Light {
+      value On { meaning: "示例：开" }
+      value Off { meaning: "示例：关" }
+    }
+
+    action Toggle {
+      input { flag: Bool }
+      output { result: Bool }
+      body { return not flag }
+    }
+
+    capability ExampleCapability {
+      allow { Console.Write }
+    }
+
+    action Announce {
+      capability: ExampleCapability
+      input { text: Text }
+      output { echoed: Text }
+      effects { Console.Write }
+      body {
+        print text
+        return text
+      }
+    }

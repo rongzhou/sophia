@@ -1,0 +1,82 @@
+domain TodoDomain {
+  meaning: "Todo management domain."
+}
+
+entity Todo {
+  meaning: "A Todo is a user-created task item."
+  not:
+    "A Todo is not a calendar event."
+    "Todo 不得包含认证数据。"
+  fields {
+    id { type: Uuid }
+    title { type: Sanitized<Text> }
+    status { type: TodoStatus }
+    created_at { type: Time }
+    completed_at { type: one of { Time, Null } }
+  }
+  invariants {
+    TitleNotEmpty {
+      require { self.title.length > 0 }
+    }
+    DoneHasCompletionTime {
+      when { self.status == TodoStatus.Done }
+      require { self.completed_at != Null }
+    }
+  }
+  semantic_identity {
+    core_capability: [
+      "task.lifecycle.management",
+      "completion.state.tracking",
+    ]
+    forbidden_drift: [
+      "user.authentication",
+    ]
+    drift_tolerance: 0.15
+  }
+  evolution {
+    allowed:       [ "improve title validation precision", "add metadata fields" ]
+    forbidden:     [ "add routing or scheduling logic" ]
+    requires_gate: [ "adding new top-level fields" ]
+  }
+}
+
+state TodoStatus {
+  value Pending { meaning: "这个 Todo 尚未完成。" }
+  value Done    { meaning: "这个 Todo 已完成。" }
+}
+
+transition CompleteTodoTransition {
+  input  { todo: Todo where todo.status == TodoStatus.Pending; completed_time: Time }
+  output { todo: Todo where todo.status == TodoStatus.Done }
+  effects { Pure }
+  body {
+    return Todo {
+      id = todo.id
+      title = todo.title
+      status = TodoStatus.Done
+      created_at = todo.created_at
+      completed_at = completed_time
+    }
+  }
+  ensures {
+    output.todo.status == TodoStatus.Done
+    output.todo.completed_at != Null
+  }
+}
+
+error TodoError {
+  variant TodoAlreadyDone { id: Uuid; done_at: Time }
+}
+
+capability TodoCapability {
+  allow { Console.Write }
+}
+
+task ImplementCompleteTodo {
+  goal: "Implement and verify CompleteTodo."
+  include {
+    entity Todo; state TodoStatus; error TodoError
+    capability TodoCapability; transition CompleteTodoTransition; action CompleteTodo
+  }
+  exclude { Http.Get }
+}
