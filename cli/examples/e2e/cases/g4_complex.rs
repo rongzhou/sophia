@@ -25,24 +25,23 @@ fn g4_01() -> Case {
         id: "G4-01",
         group: "g4",
         kind: CaseKind::DesignImplement,
-        title: "订单总价（跨 action 调用）",
-        description: "在 order 域内实现两个 action：\
-                      ① LineSubtotal：输入两个整数 unit_price（单价）与 quantity（数量），\
-                      输出单项小计（单价 × 数量）的 Int；\
-                      ② OrderTotal：输入三个整数 unit_price、quantity、shipping（运费），\
-                      它必须**调用** LineSubtotal 得到小计，再加上 shipping，输出订单总价 Int。\
-                      两个 action 各放一个文件。",
+        title: "订单总价",
+        description: "在 order 域内提供入口 OrderTotal：\
+                      订单总价由单项小计加运费得到；单项小计等于 unit_price（单价）乘以 \
+                      quantity（数量）。入口接收整数 unit_price、quantity、shipping（运费），\
+                      返回订单总价。",
         acceptance: &[
-            "存在 action LineSubtotal，输入 unit_price 与 quantity（Int），输出单价乘数量的 Int",
-            "存在 action OrderTotal，输入 unit_price、quantity、shipping（Int）",
-            "OrderTotal 调用 LineSubtotal 得到小计，再加 shipping，输出订单总价 Int",
+            "入口名为 OrderTotal",
+            "接收整数 unit_price、quantity、shipping",
+            "返回 unit_price 乘以 quantity 后再加 shipping 的整数",
         ],
         entry_action: "OrderTotal",
         // 单价 7 × 数量 5 = 35，加运费 7 = 42。
         args: vec![Value::Int(7), Value::Int(5), Value::Int(7)],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
-        max_repairs: 0,
+        expected_file_content: None,
+        max_repairs: 2,
         broken_seed: None,
     }
 }
@@ -57,26 +56,25 @@ fn g4_02() -> Case {
         id: "G4-02",
         group: "g4",
         kind: CaseKind::DesignImplement,
-        title: "提现校验（error algebra）",
-        description: "在 wallet 域内：\
-                      ① 定义一个名为 WalletError 的 error，含一个 variant InsufficientFunds，\
-                      该 variant 带一个 Int 字段 shortfall（缺口金额）；\
-                      ② 定义一个名为 Withdraw 的 action，输入两个整数 balance（余额）与 \
-                      amount（提现金额），在 errors 中声明 InsufficientFunds。\
-                      若 amount 大于 balance，则 raise InsufficientFunds（shortfall = amount 减 \
-                      balance）；否则返回提现后的余额（balance 减 amount）的 Int。\
-                      error 与 action 各放一个文件。",
+        title: "提现校验",
+        description: "在 wallet 域内提供入口 Withdraw：\
+                      接收整数 balance（余额）与 amount（提现金额）。若 amount 大于 balance，\
+                      操作以中断式领域失败结束；对外可观察失败名称必须是 InsufficientFunds，\
+                      并携带整数 shortfall（缺口金额，amount 减 balance）。否则返回提现后的余额\
+                      （balance 减 amount）。",
         acceptance: &[
-            "存在名为 WalletError 的 error，含 variant InsufficientFunds，带 Int 字段 shortfall",
-            "存在名为 Withdraw 的 action，输入 balance 与 amount（Int），errors 声明 InsufficientFunds",
-            "amount > balance 时 raise InsufficientFunds，否则返回 balance 减 amount 的 Int",
+            "入口名为 Withdraw",
+            "接收整数 balance 与 amount",
+            "amount 大于 balance 时以中断式失败结束，对外失败名称为 InsufficientFunds，并携带 shortfall",
+            "否则返回 balance 减 amount 的整数",
         ],
         entry_action: "Withdraw",
         // 余额 30，提现 50 → 超额，期望 raise InsufficientFunds。
         args: vec![Value::Int(30), Value::Int(50)],
         expect: Expect::Raises("InsufficientFunds"),
         expected_console: None,
-        max_repairs: 0,
+        expected_file_content: None,
+        max_repairs: 2,
         broken_seed: None,
     }
 }
@@ -93,19 +91,16 @@ fn g4_03() -> Case {
         id: "G4-03",
         group: "g4",
         kind: CaseKind::DesignImplement,
-        title: "受限取值（可失败返回 one of）",
-        description: "在 validation 域内：\
-                      ① 定义一个名为 RangeError 的 error，含一个 variant OutOfRange，该 variant \
-                      带一个 Int 字段 value（越界的取值）；\
-                      ② 定义一个名为 ClampOrReject 的 action，输入两个整数 n 与 limit，\
-                      返回 one of { Int, OutOfRange }：若 n 落在 0 到 limit（含两端）之间，\
-                      返回 n 本身；否则**返回** OutOfRange（value = n）。\
-                      注意：越界时把该 error 作为**返回结局**返回，**不要 raise**。\
-                      error 与 action 各放一个文件。",
+        title: "受限取值",
+        description: "在 validation 域内提供入口 ClampOrReject：\
+                      接收整数 n 与 limit。若 n 落在 0 到 limit（含两端）之间，返回 n 本身；\
+                      否则返回可恢复失败结局 OutOfRange，并携带整数 value（即 n）。\
+                      越界是返回结局，不是中断式失败。",
         acceptance: &[
-            "存在名为 RangeError 的 error，含 variant OutOfRange，带 Int 字段 value",
-            "存在名为 ClampOrReject 的 action，输入 n 与 limit（Int），返回 one of { Int, OutOfRange }",
-            "n 在 0..=limit 内返回 n 本身；否则返回 OutOfRange（value = n），不得 raise",
+            "入口名为 ClampOrReject",
+            "接收整数 n 与 limit",
+            "n 在 0..=limit 内返回 n 本身",
+            "否则返回 OutOfRange 结局并携带 value = n，不以中断式失败结束",
         ],
         entry_action: "ClampOrReject",
         // n=15 > limit=10 → 越界，期望返回失败成员 OutOfRange{value:15}（非 raise）。
@@ -115,7 +110,8 @@ fn g4_03() -> Case {
             fields: BTreeMap::from([("value".to_string(), Value::Int(15))]),
         }),
         expected_console: None,
-        max_repairs: 0,
+        expected_file_content: None,
+        max_repairs: 2,
         broken_seed: None,
     }
 }

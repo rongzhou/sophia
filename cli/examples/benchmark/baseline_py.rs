@@ -121,12 +121,11 @@ fn baseline_request(model: &str, brief: &PublicBrief<'_>) -> CompletionRequest {
         "任务：{}\n\n题面：{}\n\n入口契约：\n- {contract}\n\n禁止事项：\n{forbidden}",
         brief.title, brief.prompt_goal
     );
-    // 可失败返回（one of { T, SomeError }）的输出对齐：成功返回值本身；失败返回
-    // {"variant": "<变体名>", "fields": {<字段>}} dict（与 sophia 的 ErrorValue 规约一致）。
-    let one_of_clause = "- 若题面要求返回「one of { 成功类型, 某错误结局 }」这样的互斥结局，\
-         则成功时直接 return 成功值本身；失败时 return 一个 dict \
-         {\"variant\": \"<变体名>\", \"fields\": {<字段名>: <值>}}（变体名取题面给出的具体名）。\
-         这是返回结局而非抛异常——不要 raise。\n";
+    // 可恢复失败返回的输出对齐：成功返回值本身；失败返回约定形状的 dict。
+    let recoverable_failure_clause =
+        "- 只有题面明确要求「可恢复失败结局」或「返回结局」时，才按返回值处理：成功时直接 return 成功值本身；\
+         失败时 return 一个 dict {\"variant\": \"<失败名称>\", \"fields\": {<字段名>: <值>}}。\
+         这是返回结局而非抛异常。若题面说「中断式领域失败」，不要返回该 dict。\n";
     let system = format!(
         "你是一个 Python 基线实现者。只输出一个 JSON 对象，含恰好一个字段 code（完整的 \
          Python 模块源码字符串）。要求：\n\
@@ -134,13 +133,9 @@ fn baseline_request(model: &str, brief: &PublicBrief<'_>) -> CompletionRequest {
            键为入口契约里列出的参数名；函数直接 return 结果值。\n\
          - 结果值用 Python 原生类型表达（int / bool / str / list / dict）。状态类输出返回\
            其取值名字符串。\n\
-         {one_of_clause}\
-         - 若题面要求在非法输入时报错，则**抛出一个异常**。题面若把错误描述为「某 error 含某 \
-           variant」这样的两级结构，**异常类名必须取最具体的那一级，即 variant 名**（举一个与任何\
-           任务无关的中立例子：若题面说「error PaymentError 含 variant CardDeclined」、要求某情形\
-           报错，则 `raise CardDeclined(...)` 而非 `PaymentError`）；题面只给单一错误名时就用该名。\
-           可临时 `class <variant名>(Exception): pass`。这样判定按你抛出的**具体失败身份**比对，\
-           与题面给定的 variant 名一致。\n\
+         {recoverable_failure_clause}\
+         - 若题面要求在非法输入时以中断式领域失败结束，则**抛出一个异常**。异常类名取题面给出的具体失败名称。\
+           可临时定义同名 Exception 子类。这样判定按你抛出的具体失败身份比对。\n\
          - 禁止读取文件 / 环境变量 / 时间 / 随机 / 进程状态 / 测试数据；\
            禁止针对具体输入特判或硬编码答案（只实现题面要求的通用逻辑）。\n\
          - 不要输出 markdown 围栏或额外说明，只输出 JSON 对象。"

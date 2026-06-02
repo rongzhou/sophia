@@ -29,18 +29,19 @@ fn g3_01() -> Case {
         group: "g3",
         kind: CaseKind::Scheduler,
         title: "库存扣减",
-        description: "在 inventory 域内实现一个名为 DeductStock 的 action：\
+        description: "在 inventory 域内提供入口 DeductStock：\
                       输入两个整数 on_hand（当前库存）与 purchased（本次购买量），\
-                      输出扣减后的剩余库存（on_hand 减 purchased）的 Int。",
+                      输出扣减后的剩余库存（on_hand 减 purchased）。",
         acceptance: &[
-            "存在名为 DeductStock 的 action",
-            "输入两个 Int 参数 on_hand 与 purchased",
-            "输出是 on_hand 减 purchased 的 Int",
+            "入口名为 DeductStock",
+            "接收整数 on_hand 与 purchased",
+            "返回 on_hand 减 purchased 的整数",
         ],
         entry_action: "DeductStock",
         args: vec![Value::Int(50), Value::Int(8)],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
+        expected_file_content: None,
         // 调度器场景：给修复预算（implement-loop 内部用），但仍期望顺利推进。
         max_repairs: 2,
         broken_seed: None,

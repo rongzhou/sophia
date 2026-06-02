@@ -26,8 +26,8 @@ use sophia_runtime::{run_hidden_cases, VerificationResult};
 use crate::problem::Problem;
 use crate::report::{CaseOutcome, RunRecord};
 
-/// sophia mode 的修复预算（与 e2e 的 R 类一致量级；benchmark 关心"能否在合理预算内做对"）。
-const MAX_REPAIRS: u32 = 2;
+/// sophia mode 的修复预算。复杂组合题偶尔需要多轮确定性诊断才能收敛；题面仍不注入语法。
+const MAX_REPAIRS: u32 = 4;
 
 /// 运行一道题的 sophia mode，返回结构化记录。计时口径见设计 §五：只计工作流（design +
 /// implement + repair + check）的墙钟，**不计** hidden case 判定执行本身。

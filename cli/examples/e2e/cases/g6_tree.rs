@@ -22,38 +22,35 @@ pub fn cases() -> Vec<Case> {
     vec![g6_01()]
 }
 
-/// G6-01：温控面板的两个独立读数转换（根目标拆成两个具名 action 子目标）。
+/// G6-01：温控面板的两个独立读数转换。
 ///
-/// 业务：一个温控面板需要两个相互独立的纯逻辑换算 action：
+/// 业务：一个温控面板需要两个相互独立的纯逻辑换算入口：
 /// ① CelsiusToScaled：把摄氏温度按固定倍率换算为内部刻度值；
 /// ② FahrenheitOffset：把华氏读数减去固定基准偏移。
-/// 两者互不调用、各自独立——天然适合 decompose 成两个子目标分别实现。
+/// 两者互不依赖、各自独立。
 ///
-/// 入口取其中之一 `CelsiusToScaled(21)`：按倍率 2 换算 → 42。harness 合并两个子目标的候选
-/// 文件为一个程序，再执行入口 action 对照期望。
+/// 入口取其中之一 `CelsiusToScaled(21)`：按倍率 2 换算 → 42。
 fn g6_01() -> Case {
     Case {
         id: "G6-01",
         group: "g6",
         kind: CaseKind::Tree,
         title: "温控面板的两个独立读数换算",
-        description: "在 climate 域内实现两个相互独立、互不调用的纯逻辑 action（适合拆成两个\
-                      子目标分别实现）：\
-                      ① 名为 CelsiusToScaled 的 action，输入一个整数 celsius（摄氏温度），\
-                      输出 celsius 乘以固定倍率 2 后的内部刻度值（Int）；\
-                      ② 名为 FahrenheitOffset 的 action，输入一个整数 fahrenheit（华氏读数），\
-                      输出 fahrenheit 减去固定基准偏移 32 后的值（Int）。\
-                      每个 action 放一个文件。",
+        description: "在 climate 域内提供两个彼此独立的换算入口：CelsiusToScaled 接收整数 \
+                      celsius（摄氏温度），返回 celsius 乘以固定倍率 2 后的内部刻度值；\
+                      FahrenheitOffset 接收整数 fahrenheit（华氏读数），返回 fahrenheit 减去\
+                      固定基准偏移 32 后的值。两个换算互不依赖。",
         acceptance: &[
-            "存在名为 CelsiusToScaled 的 action，输入 Int celsius，输出 celsius 乘以 2 的 Int",
-            "存在名为 FahrenheitOffset 的 action，输入 Int fahrenheit，输出 fahrenheit 减 32 的 Int",
-            "两个 action 相互独立、互不调用",
+            "存在入口 CelsiusToScaled，接收整数 celsius，返回 celsius 乘以 2 的整数",
+            "存在入口 FahrenheitOffset，接收整数 fahrenheit，返回 fahrenheit 减 32 的整数",
+            "两个换算互不依赖",
         ],
         entry_action: "CelsiusToScaled",
         // 21 × 2 = 42。
         args: vec![Value::Int(21)],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
+        expected_file_content: None,
         // 子目标各自一次过；不设修复预算（spine 内部默认预算仍在）。
         max_repairs: 0,
         broken_seed: None,

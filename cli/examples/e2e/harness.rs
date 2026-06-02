@@ -200,7 +200,8 @@ impl sophia_engine::StepPrompts for HarnessPrompts<'_> {
         req.system = Some(
             "你是 Sophia 工作流的拆解者。只输出严格符合 decompose_result schema 的 JSON 对象，\
              含两个字段：rationale（字符串）、children（至少 2 个对象的数组，每个含 title 与 \
-             description 两个字符串字段）。每个子目标应是一个可独立实现的具名 action 需求。\
+             description 两个字符串字段）。每个子目标应是一个可独立推进、可观察验收的业务目标。\
+             不要提前指定 Sophia 语法、语言构件或文件布局。\
              不要输出 markdown 围栏或额外说明。"
                 .to_string(),
         );
@@ -343,6 +344,9 @@ pub struct Case {
     /// 可选：期望的 console 输出行（按顺序）。`None` 表示不校验 console。
     /// 用于 G2 等需要验证 effect 真正执行的用例（非 LLM 输入）。
     pub expected_console: Option<Vec<String>>,
+    /// 可选：执行后检查第一个实参指向的真实文件内容。用于 File e2e 的 hidden verifier，
+    /// 不喂给 LLM。
+    pub expected_file_content: Option<String>,
     /// 修复预算：0 = 要求一次过（G1/G2）；>0 = 修复闭环（R）。
     pub max_repairs: u32,
     /// 可选：待修的坏候选（path, content）。给定则跳过 design/implement，直接从它起步跑
@@ -360,6 +364,7 @@ struct ExecutionSpec {
     args: Vec<Value>,
     expect: Expect,
     expected_console: Option<Vec<String>>,
+    expected_file_content: Option<String>,
 }
 
 impl ExecutionSpec {
@@ -369,6 +374,7 @@ impl ExecutionSpec {
             args: case.args.clone(),
             expect: case.expect.clone(),
             expected_console: case.expected_console.clone(),
+            expected_file_content: case.expected_file_content.clone(),
         }
     }
 }
@@ -871,7 +877,32 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
                         ok
                     }
                 };
-                Ok(value_ok && console_ok)
+                let file_ok = match &spec.expected_file_content {
+                    None => true,
+                    Some(expected) => {
+                        let Some(Value::Text(path)) = spec.args.first() else {
+                            println!("    文件内容：缺少 Text 路径实参 → 不匹配");
+                            return Ok(false);
+                        };
+                        match std::fs::read_to_string(path) {
+                            Ok(actual) => {
+                                let ok = &actual == expected;
+                                println!(
+                                    "    文件内容：{:?}（期望 {:?}）→ {}",
+                                    actual,
+                                    expected,
+                                    if ok { "匹配" } else { "不匹配" }
+                                );
+                                ok
+                            }
+                            Err(e) => {
+                                println!("    文件内容：读取失败 {e} → 不匹配");
+                                false
+                            }
+                        }
+                    }
+                };
+                Ok(value_ok && console_ok && file_ok)
             }
             Expect::Raises(variant) => {
                 println!("    返回值：{v}（但期望 raise `{variant}`）→ 不匹配");
@@ -927,7 +958,7 @@ pub fn real_check(files: &[(String, String)]) -> DiagnosticPayload {
 /// 用例）额外说明可选 decompose——引导而不替 LLM 决策（design 10.8）。
 fn decision_system_prompt(offer_decompose: bool) -> String {
     let extra = if offer_decompose {
-        "若目标明显由多个相互独立的具名 action 需求组成、单步实现过大，可选 decompose 把它\
+        "若目标明显由多个相互独立的业务子目标组成、单步实现过大，可选 decompose 把它\
          拆成若干子目标（每个子目标随后各自 design→implement）；否则直接 design_solution。"
     } else {
         "若尚无伪代码，selected_action 选 design_solution；"

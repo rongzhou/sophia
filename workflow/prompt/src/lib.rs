@@ -161,8 +161,8 @@ pub fn preamble(name: &str) -> Option<&'static str> {
 pub fn design_system_prompt() -> String {
     "你是 Sophia 工作流的设计者。只输出一个 JSON 对象，严格符合 design_result schema：\
      purpose（字符串）、pseudocode（字符串）、libraries（字符串数组，从库目录选用的标准库名；\
-     不用库则空数组）。pseudocode 是**单个**结构化伪代码文档（可在其中用文字描述多个 node），\
-     **不是**文件数组。不要输出 markdown 围栏。"
+     不用库则空数组）。pseudocode 是**单个**结构化伪代码文档（可在其中用文字描述多个业务部分），\
+     **不是**文件数组，也不是 Sophia 源码或文件布局。不要输出 markdown 围栏。"
         .to_string()
 }
 

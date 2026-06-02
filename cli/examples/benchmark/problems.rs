@@ -72,8 +72,8 @@ fn l1_abs_difference() -> Problem {
         id: "abs_difference",
         level: Level::L1,
         title: "两数之差的绝对值",
-        prompt_goal: "实现一个动作：输入两个整数 left 与 right，输出它们之差的绝对值\
-                      （即 left 减 right 的结果，若为负则取其相反数）。",
+        prompt_goal: "给定两个整数 left 与 right，返回二者差值的绝对值；也就是当 left 减 \
+                      right 的结果为负时返回其相反数，否则返回该差值。",
         entry: EntrySig {
             name: "AbsDifference",
             inputs: vec![
@@ -121,9 +121,8 @@ fn l1_within_budget() -> Problem {
         id: "within_budget",
         level: Level::L1,
         title: "预算判定",
-        prompt_goal:
-            "实现一个动作：输入两个整数 spent（已花费）与 budget（预算上限），当 spent 不超过 \
-             budget 时输出 true（未超支），否则输出 false。",
+        prompt_goal: "给定两个整数 spent（已花费）与 budget（预算上限），当 spent 不超过 budget 时\
+             返回 true（未超支），否则返回 false。",
         entry: EntrySig {
             name: "WithinBudget",
             inputs: vec![
@@ -180,9 +179,9 @@ fn l2_rectangle_area() -> Problem {
         id: "rectangle_area",
         level: Level::L2,
         title: "矩形面积",
-        prompt_goal: "在 geometry 域内：① 定义一个名为 Rectangle 的 entity，含两个 Int 字段 \
-                      width（宽）与 height（高）；② 定义一个名为 RectangleArea 的动作，输入一个 \
-                      Rectangle，输出其面积（宽乘以高）的整数。",
+        prompt_goal: "在 geometry 域中，Rectangle 表示矩形，包含整数 width（宽）与 \
+                      height（高）。入口 RectangleArea 接收一个 Rectangle，返回其面积：\
+                      width 乘以 height。",
         entry: EntrySig {
             name: "RectangleArea",
             inputs: vec![Param {
@@ -231,10 +230,9 @@ fn l2_traffic_next() -> Problem {
         id: "traffic_next",
         level: Level::L2,
         title: "信号灯下一状态",
-        prompt_goal: "在 traffic 域内：① 定义一个名为 TrafficLight 的 state，含三个状态值 \
-                      Red、Green、Yellow；② 定义一个名为 NextLight 的动作，输入一个 \
-                      TrafficLight 状态，输出按交通灯循环的下一状态：Red 之后是 Green，\
-                      Green 之后是 Yellow，Yellow 之后回到 Red。",
+        prompt_goal: "在 traffic 域中，TrafficLight 有 Red、Green、Yellow 三个取值。入口 \
+                      NextLight 接收当前信号灯取值，返回交通灯循环中的下一个取值：Red 之后是 \
+                      Green，Green 之后是 Yellow，Yellow 之后回到 Red。",
         entry: EntrySig {
             name: "NextLight",
             inputs: vec![Param {
@@ -283,12 +281,10 @@ fn l3_discounted_total() -> Problem {
     Problem {
         id: "discounted_total",
         level: Level::L3,
-        title: "折后总价（跨动作调用）",
-        prompt_goal: "在 pricing 域内实现两个动作：\
-                      ① GrossTotal：输入两个整数 unit_price（单价）与 quantity（数量），\
-                      输出毛总价（单价乘以数量）；\
-                      ② NetTotal：输入三个整数 unit_price、quantity、discount（折扣金额），\
-                      它必须**调用** GrossTotal 得到毛总价，再减去 discount，输出折后总价。",
+        title: "折后总价",
+        prompt_goal: "在 pricing 域中，入口 NetTotal 接收整数 unit_price（单价）、quantity\
+                      （数量）与 discount（折扣金额）。折后总价等于 unit_price 乘以 quantity \
+                      得到的毛总价，再减去 discount。",
         entry: EntrySig {
             name: "NetTotal",
             inputs: vec![
@@ -309,7 +305,6 @@ fn l3_discounted_total() -> Problem {
         },
         public_forbidden: vec![
             "不得使用存储 / 网络 / 时间 / 随机 / 文件系统 / 外部服务。",
-            "NetTotal 必须调用 GrossTotal，不得把乘法逻辑直接内联在 NetTotal 里。",
             "不得针对具体输入特判或硬编码答案。",
         ],
         hidden_cases: vec![
@@ -344,13 +339,10 @@ fn l4_checked_subtract() -> Problem {
     Problem {
         id: "checked_subtract",
         level: Level::L4,
-        title: "受限扣减（错误代数）",
-        prompt_goal: "在 inventory 域内：\
-                      ① 定义一个名为 StockError 的 error，含一个 variant Insufficient，\
-                      该 variant 带一个 Int 字段 shortfall（缺口数量）；\
-                      ② 定义一个名为 RemoveStock 的动作，输入两个整数 available（现有库存）与 \
-                      requested（请求扣减量），在 errors 中声明 Insufficient。\
-                      若 requested 大于 available，则 raise Insufficient（shortfall = requested 减 \
+        title: "受限扣减",
+        prompt_goal: "在 inventory 域中，入口 RemoveStock 接收整数 available（现有库存）与 \
+                      requested（请求扣减量）。若 requested 大于 available，操作以中断式领域失败\
+                      结束；对外可观察失败名称必须是 Insufficient，并携带 shortfall（缺口数量，等于 requested 减 \
                       available）；否则返回扣减后的剩余库存（available 减 requested）。",
         entry: EntrySig {
             name: "RemoveStock",
@@ -412,17 +404,11 @@ fn l5_checkout_limit() -> Problem {
         id: "checkout_limit",
         level: Level::L5,
         title: "结账额度校验（组合）",
-        prompt_goal:
-            "在 checkout 域内实现一套结账校验：\
-             ① 定义一个名为 OrderLine 的 entity，含两个 Int 字段 unit_price（单价）与 \
-             quantity（数量）；\
-             ② 定义一个名为 LineAmount 的动作，输入一个 OrderLine，输出该行金额（单价乘以数量）；\
-             ③ 定义一个名为 CreditError 的 error，含一个 variant OverLimit，该 variant 带一个 Int \
-             字段 excess（超出额度的金额）；\
-             ④ 定义一个名为 Checkout 的动作，输入一个 OrderLine 与一个 Int credit_limit（信用额度），\
-             在 errors 中声明 OverLimit。Checkout 必须**调用** LineAmount 得到行金额：\
-             若行金额大于 credit_limit，则 raise OverLimit（excess = 行金额减 credit_limit）；\
-             否则返回行金额。",
+        prompt_goal: "在 checkout 域中，OrderLine 表示订单行，包含整数 unit_price（单价）与 \
+             quantity（数量）。入口 Checkout 接收一个 OrderLine 与整数 credit_limit（信用额度）。\
+             行金额等于 unit_price 乘以 quantity；若行金额大于 credit_limit，操作以中断式领域失败\
+             结束；对外可观察失败名称必须是 OverLimit，并携带 excess（超出额度的金额，等于行金额减 credit_limit）；否则\
+             返回行金额。",
         entry: EntrySig {
             name: "Checkout",
             inputs: vec![
@@ -442,7 +428,6 @@ fn l5_checkout_limit() -> Problem {
         },
         public_forbidden: vec![
             "不得使用存储 / 网络 / 时间 / 随机 / 文件系统 / 外部服务。",
-            "Checkout 必须调用 LineAmount，不得把乘法逻辑直接内联在 Checkout 里。",
             "不得针对具体输入特判或硬编码答案。",
         ],
         hidden_cases: vec![
@@ -497,13 +482,10 @@ fn l6_clamp_or_reject() -> Problem {
     Problem {
         id: "clamp_or_reject",
         level: Level::L6,
-        title: "受限取值（可失败返回）",
-        prompt_goal: "在 validation 域内：\
-             ① 定义一个名为 RangeError 的 error，含一个 variant OutOfRange，该 variant 带一个 \
-             Int 字段 value（越界的取值）；\
-             ② 定义一个名为 ClampOrReject 的动作，输入两个整数 n 与 limit，\
-             返回 one of { Int, OutOfRange }：若 n 落在 0 到 limit（含两端）之间，返回 n 本身；\
-             否则返回 OutOfRange（value = n）。注意：失败时**返回**该 error 结局，**不要 raise**。",
+        title: "受限取值",
+        prompt_goal: "在 validation 域中，入口 ClampOrReject 接收两个整数 n 与 limit。若 n \
+             落在 0 到 limit（含两端）之间，返回 n 本身；否则返回可恢复失败结局 OutOfRange，\
+             并携带 value（越界的取值，等于 n）。越界是返回结局，不是中断式失败。",
         entry: EntrySig {
             name: "ClampOrReject",
             inputs: vec![
@@ -526,7 +508,7 @@ fn l6_clamp_or_reject() -> Problem {
         },
         public_forbidden: vec![
             "不得使用存储 / 网络 / 时间 / 随机 / 文件系统 / 外部服务。",
-            "越界必须作为返回结局（返回 OutOfRange），不得用 raise 中断。",
+            "越界必须作为返回结局，不得用中断式失败结束。",
             "不得针对具体输入特判或硬编码答案。",
         ],
         hidden_cases: vec![

@@ -1,11 +1,12 @@
 ---
 source: workflow/prompt/tests/render.rs
+assertion_line: 63
 expression: out
 ---
-# 设计方案：编写结构化 .pseudo
+# 设计方案：编写语义伪代码
 
-为目标域编写 paper 风格的结构化伪代码（`.pseudo`），稳定算法意图。
-**不要**直接写 Sophia-Core 源码、完整类型签名或 formal effect 名。
+为目标域编写语义层伪代码，稳定业务意图与可观察行为。
+**不要**直接写 Sophia-Core 源码、语言级声明、库操作签名、文件路径或文件布局。
 
 ## 目标
 实现 CompleteTodo
@@ -26,7 +27,7 @@ expression: out
 - `example_lib` — 中立示例库
 
 ## 输出要求
-输出包含六个固定 heading 的 Markdown：Purpose / Inputs / Outputs / Algorithm /
-Constraints / Forbidden。首行写 `<!-- sophia-pseudo: v1 -->`。
 若本方案要用到上面列出的标准库，在结构化输出的 `libraries` 字段列出所选库名（不用则空数组）；
-伪代码正文用业务语言描述意图即可，**不必**写出库的具体操作签名（那是实现阶段的事）。
+伪代码正文用业务语言描述意图、输入含义、输出含义、关键业务规则和禁止事项即可。
+**不必也不应该**写出 Sophia 语法、库的具体操作签名、语言级声明或文件组织；
+这些都是实现阶段的事。

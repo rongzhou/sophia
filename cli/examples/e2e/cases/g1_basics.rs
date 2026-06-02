@@ -24,17 +24,18 @@ fn g1_01() -> Case {
         group: "g1",
         kind: CaseKind::DesignImplement,
         title: "整数计数器加一",
-        description: "在 counter 域内实现一个名为 IncrementCounter 的 action：\
-                      输入一个整数 current，输出 current 加一后的整数。",
+        description: "在 counter 域内提供入口 IncrementCounter：\
+                      接收整数 current，返回 current 加一后的整数。",
         acceptance: &[
-            "存在名为 IncrementCounter 的 action",
-            "输入是一个 Int 参数 current",
-            "输出是 current 加一的 Int",
+            "入口名为 IncrementCounter",
+            "接收整数 current",
+            "返回 current 加一后的整数",
         ],
         entry_action: "IncrementCounter",
         args: vec![Value::Int(41)],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
+        expected_file_content: None,
         max_repairs: 0,
         broken_seed: None,
     }
@@ -47,14 +48,13 @@ fn g1_02() -> Case {
         group: "g1",
         kind: CaseKind::DesignImplement,
         title: "待办状态置为完成",
-        description: "在 todo 域内：① 定义一个名为 TodoStatus 的 state，含两个状态值 \
-                      Pending（未完成）与 Done（已完成）；② 定义一个名为 CompleteTodo 的 action，\
-                      输入一个 TodoStatus 状态，语义是把待办标记为完成，因此输出 Done 状态。\
-                      state 与 action 各放一个文件。",
+        description: "在 todo 域内提供入口 CompleteTodo：\
+                      待办状态 TodoStatus 只有 Pending（未完成）与 Done（已完成）两种取值。\
+                      接收一个 TodoStatus，返回表示已完成的 Done 状态。",
         acceptance: &[
-            "存在名为 TodoStatus 的 state，含 value Pending 与 value Done",
-            "存在名为 CompleteTodo 的 action，输入一个 TodoStatus 状态",
-            "CompleteTodo 的输出为 Done 状态",
+            "保留状态名 TodoStatus 以及取值 Pending、Done",
+            "入口名为 CompleteTodo，接收一个 TodoStatus",
+            "返回 Done 状态",
         ],
         entry_action: "CompleteTodo",
         args: vec![Value::State {
@@ -66,6 +66,7 @@ fn g1_02() -> Case {
             value: "Done".into(),
         }),
         expected_console: None,
+        expected_file_content: None,
         max_repairs: 0,
         broken_seed: None,
     }
@@ -86,19 +87,19 @@ fn g1_03() -> Case {
         group: "g1",
         kind: CaseKind::DesignImplement,
         title: "购物车单项金额合计",
-        description: "在 cart 域内：① 定义一个名为 CartItem 的 entity，含两个 Int 字段 \
-                      unit_price（单价）与 quantity（数量）；② 定义一个名为 LineTotal 的 action，\
-                      输入一个 CartItem，输出该条目的金额合计（单价乘以数量）的 Int。\
-                      entity 与 action 各放一个文件。",
+        description: "在 cart 域内提供入口 LineTotal：\
+                      购物车条目 CartItem 包含整数单价 unit_price 与整数数量 quantity。\
+                      接收一个 CartItem，返回该条目的金额合计。",
         acceptance: &[
-            "存在名为 CartItem 的 entity，含 Int 字段 unit_price 与 quantity",
-            "存在名为 LineTotal 的 action，输入一个 CartItem，输出 Int",
-            "输出等于 unit_price 乘以 quantity",
+            "保留数据名 CartItem 以及字段 unit_price、quantity",
+            "入口名为 LineTotal，接收一个 CartItem",
+            "返回 unit_price 乘以 quantity 的整数",
         ],
         entry_action: "LineTotal",
         args: vec![item],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
+        expected_file_content: None,
         max_repairs: 0,
         broken_seed: None,
     }
@@ -111,18 +112,19 @@ fn g1_04() -> Case {
         group: "g1",
         kind: CaseKind::DesignImplement,
         title: "免邮资格判定",
-        description: "在 shipping 域内实现一个名为 QualifiesForFreeShipping 的 action：\
+        description: "在 shipping 域内提供入口 QualifiesForFreeShipping：\
                       输入一个整数 order_amount（订单金额），当金额达到或超过 100 时返回 \
                       true（享受免邮），否则返回 false。输出是一个 Bool。",
         acceptance: &[
-            "存在名为 QualifiesForFreeShipping 的 action",
-            "输入是一个 Int 参数 order_amount",
-            "输出是 Bool：金额 >= 100 为 true，否则 false",
+            "入口名为 QualifiesForFreeShipping",
+            "接收整数 order_amount",
+            "金额达到或超过 100 返回 true，否则返回 false",
         ],
         entry_action: "QualifiesForFreeShipping",
         args: vec![Value::Int(150)],
         expect: Expect::Returns(Value::Bool(true)),
         expected_console: None,
+        expected_file_content: None,
         max_repairs: 0,
         broken_seed: None,
     }
@@ -137,18 +139,20 @@ fn r_01() -> Case {
         id: "R-01",
         group: "r",
         kind: CaseKind::RepairSeed,
-        title: "修复加一 action 的坏候选",
-        description: "在 counter 域内实现 IncrementCounter：输入整数 current，输出 current 加一。\
+        title: "修复加一坏候选",
+        description:
+            "在 counter 域内提供入口 IncrementCounter：输入整数 current，输出 current 加一。\
                       （起点候选有缺陷，需据诊断修复。）",
         acceptance: &[
-            "存在名为 IncrementCounter 的 action",
-            "输入是一个 Int 参数 current",
-            "输出是 current 加一的 Int",
+            "入口名为 IncrementCounter",
+            "接收整数 current",
+            "返回 current 加一后的整数",
         ],
         entry_action: "IncrementCounter",
         args: vec![Value::Int(41)],
         expect: Expect::Returns(Value::Int(42)),
         expected_console: None,
+        expected_file_content: None,
         max_repairs: 3,
         broken_seed: Some((
             "counter/actions/IncrementCounter.sophia",
