@@ -1,113 +1,113 @@
 # Sophia
 
-> 一门面向 LLM-native / Agent-native 系统的**确定性语义编程语言**，为无人监管下的 LLM 自动编程而设计。
+> A **deterministic semantic programming language** for LLM-native / Agent-native systems, designed for unsupervised LLM automatic programming.
 
-Sophia 要回答的核心问题是：如果一个 LLM 不擅长传统语法与惯例，但具备较强的自然语言语义理解能力，能否通过专为它设计的语言、检查器与工作流，让它在没有人工审查兜底的条件下稳定完成自主编程？
+Sophia’s core question is: if an LLM is not good at traditional syntax and conventions, but has strong natural-language semantic understanding, can a language, checker, and workflow designed specifically for it let it perform autonomous programming reliably without human review as a fallback?
 
-Sophia 的回答是分工：
+Sophia’s answer is a division of labor:
 
-- **LLM 负责**语义理解、任务分解、结构化表达与修复建议；
-- **语言、编译器与工具链负责**确定性、边界、类型、副作用、错误与能力约束。
+- **The LLM is responsible for** semantic understanding, task decomposition, structured expression, and repair suggestions.
+- **The language, compiler, and toolchain are responsible for** determinism, boundaries, types, side effects, errors, and capability constraints.
 
-LLM 可以生成源码，但源码的行为只能由形式语言与编译器决定。Sophia 不是自然语言编程，也不是 prompt DSL，而是一门可编译语言。
+The LLM may generate source code, but the source code’s behavior can only be determined by the formal language and compiler. Sophia is not natural-language programming and not a prompt DSL; it is a compilable language.
 
-> ⚠️ 项目处于早期阶段（`v0.1.0`）。当前为 **v0 解释执行**（已完成）+ **v1 WASM codegen 工作流 A 已落地**：源码经完整编译管线后既可由进程内解释器执行，也可经 `sophia build` emit 为 WASM artifact（与解释器逐 case 等价，差测试守护；起步子集全覆盖）。v1 余下为语言 / 标准库按需扩充与增量查询架构，路线见 `docs/engineering_architecture.md` §14.2、`docs/wasm_codegen.md`。API 与语言表面仍可能变化。
+> ⚠️ The project is in an early stage (`v0.1.0`). Current status: **v0 interpreter execution** (completed) + **v1 WASM codegen Workflow A has landed**. After the full compilation pipeline, source can be executed by the in-process interpreter or emitted by `sophia build` as a WASM artifact (equivalent to the interpreter per case, guarded by differential tests; full coverage of the starter subset). Remaining v1 work is demand-driven language / standard-library expansion and incremental query architecture. See `docs/en/engineering_architecture.md` §14.2 and `docs/en/wasm_codegen.md` for the roadmap. APIs and language surface may still change.
 
-## 两层系统
+## Two-Layer System
 
-| 层 | 性质 | 职责 |
+| Layer | Nature | Responsibility |
 | --- | --- | --- |
-| **启发式探索层** | 非确定、可分叉、可失败 | 让 LLM 在受控的 Development Graph 上提出候选方案，保留版本与失败路径 |
-| **确定性编译层** | 确定、可复现、可测试 | 解析、检查、审计、物化与运行正式 `.sophia` 源码 |
+| **Heuristic exploration layer** | Nondeterministic, forkable, fallible | Let the LLM propose candidates on a controlled Development Graph while preserving versions and failure paths |
+| **Deterministic compilation layer** | Deterministic, reproducible, testable | Parse, check, audit, materialize, and run formal `.sophia` source |
 
-两个铁律：
+Two iron laws:
 
-1. 探索过程可以非确定，**正式源码与编译结果必须确定**；
-2. **编译器不调用 LLM**——所有 LLM 调用只发生在工作流层，语言核心保持纯确定性。
+1. The exploration process may be nondeterministic, but **formal source and compilation results must be deterministic**.
+2. **The compiler never calls LLMs** — all LLM calls happen only in the workflow layer, and the language core remains purely deterministic.
 
-## 编译管线（v0）
+## Compilation Pipeline (v0)
 
 ```
-源码 (.sophia)
-  → AST            (core/syntax，Tree-sitter)
-  → HIR            (core/hir，名称解析 / 模块解析 / Task Closure)
-  → Semantic IR    (core/semantic，type / effect / contract 三层)
+Source (.sophia)
+  → AST            (core/syntax, Tree-sitter)
+  → HIR            (core/hir, name resolution / module resolution / Task Closure)
+  → Semantic IR    (core/semantic, type / effect / contract layers)
   → Execution Graph IR (core/exec-ir)
-  → 解释器          (runtime，v0 唯一执行后端)
+  → Interpreter    (runtime, the only v0 execution backend)
 ```
 
-## 工作区结构
+## Workspace Structure
 
-严格分层：`core/*` 零 IO、不依赖 `workflow/*`。
+Strict layering: `core/*` is zero-I/O and does not depend on `workflow/*`.
 
-| 路径 | 职责 |
+| Path | Responsibility |
 | --- | --- |
-| `core/syntax` | Tree-sitter grammar、CST、AST、span |
-| `core/hir` | 名称解析、ASG index、Task Closure / Semantic Paging |
-| `core/semantic` | type / effect / contract 三层语义分析 |
+| `core/syntax` | Tree-sitter grammar, CST, AST, span |
+| `core/hir` | Name resolution, ASG index, Task Closure / Semantic Paging |
+| `core/semantic` | Three-layer type / effect / contract semantic analysis |
 | `core/exec-ir` | Execution Graph IR |
-| `runtime` | 解释器、EffectHost、input/output validation、执行 Trace |
-| `tools/check` | 静态检查器（语法 + 语义 + strip-assist 等价门禁） |
-| `tools/audit` | 约束审计 / regression gate |
-| `tools/materialize` | Materialize Gate 类型状态链 + 原子写盘 |
-| `workflow/graph-db` | Development Graph 持久化（SQLite + 事件溯源） |
-| `workflow/llm` | LLM 后端抽象（OpenAI 兼容 / Ollama）+ 结构化输出 |
-| `workflow/prompt` | Prompt 模板与 JSON Schema 管理 |
-| `workflow/engine` | 工作流编排（调度器 spine + 目标树遍历层） |
-| `lsp` | Language Server（hover / diagnostics / goto definition） |
-| `cli` | `sophia` 命令行入口（IO 与呈现的归属层） |
+| `runtime` | Interpreter, EffectHost, input/output validation, Execution Trace |
+| `tools/check` | Static checker (syntax + semantics + strip-assist equivalence gate) |
+| `tools/audit` | Constraint audit / regression gate |
+| `tools/materialize` | Materialize Gate type-state chain + atomic writes |
+| `workflow/graph-db` | Development Graph persistence (SQLite + event sourcing) |
+| `workflow/llm` | LLM backend abstraction (OpenAI-compatible / Ollama) + structured outputs |
+| `workflow/prompt` | Prompt template and JSON Schema management |
+| `workflow/engine` | Workflow orchestration (scheduler spine + goal-tree traversal layer) |
+| `lsp` | Language Server (hover / diagnostics / goto definition) |
+| `cli` | `sophia` command-line entry point (the layer that owns I/O and presentation) |
 
-## 快速上手
+## Quick Start
 
-前置条件与详细步骤见 [INSTALL.md](INSTALL.md)。
+For prerequisites and detailed steps, see [INSTALL.md](INSTALL.md).
 
 ```bash
-# 构建并运行测试
+# Build and run tests
 cargo build --workspace
 cargo test --workspace
 
-# 创建一个项目骨架
+# Create a project skeleton
 cargo run -p sophia-cli -- init my-project
 
-# 静态检查与解释执行
+# Static check and interpreter execution
 cargo run -p sophia-cli -- check --root my-project
 cargo run -p sophia-cli -- run <ActionName> --root my-project --arg int:41
 ```
 
-### 常用 CLI 命令
+### Common CLI Commands
 
-确定性命令（不调用 LLM）：`init` / `parse` / `index` / `check` / `build` / `run`（含 `--trace`）/ `context` / `smoke` / `repair-context` / `graph`（工作流子命令）/ `lsp`。
+Deterministic commands (no LLM calls): `init` / `parse` / `index` / `check` / `build` / `run` (with `--trace`) / `context` / `smoke` / `repair-context` / `graph` (workflow subcommands) / `lsp`.
 
-LLM 命令（经 `--model` / `--mode` 构造后端）：`graph design` / `graph implement-loop`。
+LLM commands (backend constructed through `--model` / `--mode`): `graph design` / `graph implement-loop`.
 
-完整命令表见 `docs/engineering_architecture.md` 第九节。
+For the full command table, see section IX of `docs/en/engineering_architecture.md`.
 
-### 真实 LLM 测试与基准（可选）
+### Real LLM Tests and Benchmarks (Optional)
 
-两套真实 LLM 入口都是 `example`（**不进** `cargo test` 门禁，无 API key 时干净跳过）：
+Both real-LLM entry points are `example`s (they do **not** enter the `cargo test` gate and skip cleanly without an API key):
 
-- **e2e**（`cargo run -p sophia-cli --example e2e`）：验证 Sophia v0 闭环端到端可用。见 `docs/e2e_test.md`。
-- **benchmark**（`cargo run -p sophia-cli --example benchmark`）：横向对比「LLM 直接写 Python」与「Sophia 工作流」在多组小题上的**成功率 + 耗时**。`baseline` mode 需 `python3`（缺失则只跑 `sophia`，`python3` 仅运行期外部工具、不进 Cargo 依赖树）。见 `docs/benchmark_test.md`。
+- **e2e** (`cargo run -p sophia-cli --example e2e`): verifies that the Sophia v0 loop works end-to-end. See `docs/en/e2e_test.md`.
+- **benchmark** (`cargo run -p sophia-cli --example benchmark`): compares “LLM writes Python directly” vs “Sophia workflow” by **success rate + elapsed time** on small tasks. `baseline` mode requires `python3` (if missing, only `sophia` runs; `python3` is a runtime external tool only and does not enter the Cargo dependency tree). See `docs/en/benchmark_test.md`.
 
-## 文档
+## Documentation
 
-新读者建议从概念导览开始：
+New readers should start with the concept guide:
 
-- **`docs/concepts.md` — 概念导览（先读这篇）**：用图表讲清两层系统、三个"graph"、`.pseudo`/`.sophia` 两阶段、action/transition/effect/capability 的关系
-- `docs/language_design.md` — 语言与工作流概念、设计决策（面向 LLM 的"大语言"层）
-- `docs/language_implementation.md` — 编译器 / 运行时实现（AST、IR、类型推导、检查器流水线）
-- `docs/engineering_architecture.md` — 工具链、目录结构、CLI
-- `docs/workflow_graph_spec.md` — Development Graph schema 与不变量（SSOT）
-- `docs/dev_checklist_v1.md` — 工程进展（当前 SSOT，v1）；含 v1 需求 / 语言 / 标准库扩展计划。`docs/dev_checklist_v0.md` — v0 阶段归档（只读）
-- `docs/engineering_notes.md` — 工程决策日志
-- 测试指南（三类测试）：`docs/unit_test.md`（单元测试：进 `cargo test` 门禁、确定性、唯一可 mock）、`docs/e2e_test.md`（端到端：真实 LLM + 真实 IO、禁 mock）、`docs/benchmark_test.md`（基准：Sophia 工作流 vs 直接写 Python 的成功率 / 耗时对比、禁 mock）
-- v1 特性设计文档：`docs/type_system.md`（F1 类型语法统一 `one of` / `list of`）、`docs/wasm_codegen.md`（工作流 A：WASM codegen 设计门）
-- 库文档：`docs/stdlib_design.md`（库设计：清单驱动插件模型 / 标准库 + 三方库统一 / 「I/O = 库」边界 / 提示词脚手架）、`docs/stdlib_implementation.md`（库实现：`sophia-library` 注册表 + `sophia-stdlib` 内容 + 路线 B host 注入）、`docs/http_lib.md`（`Http` 库）、`docs/file_lib.md`（`File` 库）
+- **`docs/en/concepts.md` — Concept Guide (read this first)**: uses diagrams to explain the two-layer system, the three “graphs,” the `.pseudo`/`.sophia` two-stage flow, and the relationship between actions/transitions/effects/capabilities.
+- `docs/en/language_design.md` — Language and workflow concepts, design decisions (the LLM-facing “big language” layer).
+- `docs/en/language_implementation.md` — Compiler / runtime implementation (AST, IR, type inference, checker pipeline).
+- `docs/en/engineering_architecture.md` — Toolchain, directory structure, CLI.
+- `docs/en/workflow_graph_spec.md` — Development Graph schema and invariants (SSOT).
+- `docs/en/dev_checklist_v1.md` — Engineering progress (current SSOT, v1), including v1 requirements / language / standard-library expansion plan. `docs/en/dev_checklist_v0.md` — v0 phase archive (read-only).
+- `docs/en/engineering_notes.md` — Engineering decision log.
+- Testing guides (three categories): `docs/en/unit_test.md` (unit tests: enter `cargo test`, deterministic, the only place mocks are allowed), `docs/en/e2e_test.md` (end-to-end: real LLM + real I/O, no mocks), `docs/en/benchmark_test.md` (benchmark: success-rate / elapsed-time comparison between Sophia workflow and direct Python generation, no mocks).
+- v1 feature design docs: `docs/en/type_system.md` (F1 type-syntax unification with `one of` / `list of`), `docs/en/wasm_codegen.md` (Workflow A: WASM codegen design gate).
+- Library docs: `docs/en/stdlib_design.md` (library design: manifest-driven plugin model / unified standard + third-party libraries / “I/O = library” boundary / prompt scaffolding), `docs/en/stdlib_implementation.md` (library implementation: `sophia-library` registry + `sophia-stdlib` content + route-B host injection), `docs/en/http_lib.md` (`Http` library), `docs/en/file_lib.md` (`File` library).
 
-贡献流程与代码规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+For the contribution workflow and code conventions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 许可
+## License
 
-本项目以 MIT License 授权，见 [LICENSE](LICENSE)。
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
-除非另有明确声明，你有意提交并被纳入本项目的贡献将以 MIT License 授权，无附加条款。
+Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in this project are licensed under the MIT License, with no additional terms.

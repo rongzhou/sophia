@@ -1,23 +1,23 @@
-# 贡献指南
+# Contributing Guide
 
-感谢有意参与 Sophia。本文档说明开发流程与代码规范。构建与测试见 [INSTALL.md](INSTALL.md)。
+Thank you for your interest in Sophia. This document explains the development workflow and code conventions. For building and testing, see [INSTALL.md](INSTALL.md).
 
-## 核心原则
+## Core Principles
 
-- **单一路线**：任何层面不允许多路径 / 双栈 / 向后兼容负担 / 功能性 fallback。设计变更直接迁移、移除旧路径。占位须位于唯一代码路径内、清晰返回未实现错误，而非伪造 fallback。
-- **诚实性**：绝不伪造成功；硬错误如实阻断（"待接入"诚实标注）。
-- **分层纪律**：`core/*` 零 IO、不依赖 `workflow/*`；`tools/*` 确定性、不依赖工作流图；编译器不调用 LLM。
-- **注释与文档统一中文**，英文术语采用「中文（英文术语）」形式首次出现时注明。
+- **Single path**: no multi-path / dual-stack / backward-compatibility burden / functional fallback at any layer. Design changes migrate directly and remove old paths. Placeholders must live in the single code path and clearly return unimplemented errors, rather than fabricating fallback behavior.
+- **Honesty**: never fabricate success; hard errors must block honestly (“pending integration” must be labeled honestly).
+- **Layering discipline**: `core/*` is zero-I/O and does not depend on `workflow/*`; `tools/*` is deterministic and does not depend on the workflow graph; the compiler never calls LLMs.
+- **Comments and docs are unified in Chinese**, and English terms are introduced in the form “Chinese (English term)” on first use.
 
-详见 `docs/engineering_notes.md`（决策日志，含上述原则的完整表述）。
+See `docs/en/engineering_notes.md` for the decision log and the complete statement of these principles.
 
-## 每次改动的流程
+## Workflow for Every Change
 
-1. **先读后写**：改动前读相关代码与设计文档（`docs/`），理解设计意图。
-2. **实现**：以最理想设计落地，不打补丁、不折中。
-3. **加回归测试**：新功能 / 修 bug 都应带测试。
-4. **同步文档**：更新 `docs/dev_checklist_v1.md`（当前进展 SSOT + 变更记录）；涉及决策时在 `docs/engineering_notes.md` 新增条目；涉及图 schema 时更新 `docs/workflow_graph_spec.md`。
-5. **验证**（必须全绿）：
+1. **Read before writing**: before changing code, read the relevant code and design docs (`docs/`) to understand the design intent.
+2. **Implement**: land the ideal design; do not patch around the issue or compromise.
+3. **Add regression tests**: new features / bug fixes should include tests.
+4. **Sync docs**: update `docs/en/dev_checklist_v1.md` (current progress SSOT + change log); add an entry to `docs/en/engineering_notes.md` for decisions; update `docs/en/workflow_graph_spec.md` for graph schema changes.
+5. **Verify** (must be all green):
 
    ```bash
    cargo fmt --all -- --check
@@ -25,24 +25,24 @@
    cargo test --workspace
    ```
 
-## 提交规范
+## Commit Conventions
 
-- 提交信息用中文，首行简明概括，正文说明「做了什么 / 为什么 / 验证状态」。
-- 仅在改动逻辑完整、测试通过后提交；避免围绕同一文件的碎片化小步反复提交。
-- 不提交临时 / 调试代码与生成产物（`target/`、`sophia-runs/` 生成物、`*.sqlite` 等已在 `.gitignore`）。
-- 不提交密钥：API key 仅经环境变量（如 `SOPHIA_LLM_API_KEY`）读取，不得落盘或入库。
+- Commit messages are in Chinese. The first line should summarize concisely; the body should explain “what changed / why / verification status.”
+- Commit only after the logical change is complete and tests pass; avoid many fragmented small commits around the same file.
+- Do not commit temporary / debug code or generated artifacts (`target/`, generated files under `sophia-runs/`, `*.sqlite`, etc. are already in `.gitignore`).
+- Do not commit secrets: API keys are read only through environment variables such as `SOPHIA_LLM_API_KEY`; they must not be written to disk or committed.
 
-## 测试约定
+## Testing Conventions
 
-- 单元 / 集成测试是确定性的，进 `cargo test` 门禁。
-- 真实 LLM 的端到端测试是 `example`，**不进** CI，按需手动运行（见 `docs/e2e_test_design.md`）。
-- 快照测试用 [`insta`](https://insta.rs/)：新增 / 变更后用 `cargo insta review` 审阅并接受 `.snap.new`。
-- 防答案泄漏是 e2e 的第一原则：任务答案不得进入共享脚手架（语法基线 / system prompt）。
+- Unit / integration tests are deterministic and enter the `cargo test` gate.
+- Real-LLM end-to-end tests are `example`s and do **not** enter CI; run them manually as needed (see `docs/en/e2e_test.md`).
+- Snapshot tests use [`insta`](https://insta.rs/): after adding / changing snapshots, review and accept `.snap.new` with `cargo insta review`.
+- Anti-answer-leakage is the first principle for e2e: task answers must not enter shared scaffolding (syntax baseline / system prompt).
 
-## 修改语法
+## Changing Syntax
 
-改动 `core/syntax/grammar.js` 须用对齐版本的 Tree-sitter CLI 重新生成 `parser.c`（见 INSTALL.md「修改语法」）。版本对齐（crate / CLI / ABI 三者一致）是硬约束。
+Changes to `core/syntax/grammar.js` must regenerate `parser.c` with the aligned Tree-sitter CLI version (see “Changing Syntax” in INSTALL.md). Version alignment among the crate / CLI / ABI is a hard constraint.
 
-## 许可
+## License
 
-提交贡献即表示同意以本项目的 MIT License 授权你的贡献，无附加条款。
+By submitting a contribution, you agree to license your contribution under this project’s MIT License, with no additional terms.
