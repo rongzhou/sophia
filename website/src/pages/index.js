@@ -20,15 +20,16 @@ const copy = {
   },
   "zh-Hans": {
     title: "Sophia",
-    description: "面向 LLM-native 系统的确定性语义编程语言。",
+    description: "面向 LLM 原生系统的确定性语义编程语言。",
+    kicker: "LLM 原生 / Agent 原生",
     subtitle:
-      "浏览 Sophia 的中英文文档：语言设计、编译管线、工作流图、WASM codegen、标准库与测试策略。",
+      "浏览 Sophia 的中英文文档：语言设计、编译管线、工作流图、WASM 代码生成、标准库与测试策略。",
     docs: "阅读文档",
     concepts: "从概念导览开始",
     features: [
       ["两层系统", "把非确定的 LLM 探索与确定性的源码、检查和执行分离。"],
-      ["工作流图", "以 append-only 图状态保留目标、决策、产物、诊断、选择与物化过程。"],
-      ["编译器核心", "解析、语义分析、effect、contract、运行时验证与 codegen 均保持确定性。"],
+      ["工作流图", "以追加式图状态保留目标、决策、产物、诊断、选择与物化过程。"],
+      ["编译器核心", "解析、语义分析、效应、契约、运行时验证与代码生成均保持确定性。"],
     ],
   },
 };
@@ -42,7 +43,7 @@ export default function Home() {
       <main>
         <section className={styles.hero}>
           <div className={styles.heroInner}>
-            <p className={styles.kicker}>LLM-native / Agent-native</p>
+            <p className={styles.kicker}>{text.kicker || "LLM-native / Agent-native"}</p>
             <Heading as="h1" className={styles.title}>
               {text.title}
             </Heading>

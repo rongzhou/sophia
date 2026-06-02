@@ -14,7 +14,7 @@ const config = {
     locales: ["en", "zh-Hans"],
     localeConfigs: {
       en: {
-        label: "English",
+        label: "英文",
       },
       "zh-Hans": {
         label: "简体中文",

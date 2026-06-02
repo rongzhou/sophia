@@ -1,0 +1,26 @@
+{
+  "version.label": {
+    "message": "当前",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.Start": {
+    "message": "开始",
+    "description": "The label for category 'Start' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Concepts": {
+    "message": "概念",
+    "description": "The label for category 'Concepts' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Implementation": {
+    "message": "实现",
+    "description": "The label for category 'Implementation' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Libraries": {
+    "message": "库",
+    "description": "The label for category 'Libraries' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Testing": {
+    "message": "测试",
+    "description": "The label for category 'Testing' in sidebar 'docsSidebar'"
+  }
+}
