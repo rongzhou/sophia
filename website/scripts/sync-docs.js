@@ -41,6 +41,14 @@ const rootLinkMap = new Map([
   ["CHANGELOG-CN.md", "changelog"],
 ]);
 
+const docLinkMap = new Map(rootLinkMap);
+for (const id of docPages) {
+  docLinkMap.set(`${id}.md`, id);
+  docLinkMap.set(`docs/${id}.md`, id);
+  docLinkMap.set(`docs/en/${id}.md`, id);
+  docLinkMap.set(`docs/cn/${id}.md`, id);
+}
+
 function resetDir(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
@@ -51,7 +59,7 @@ function readSource(relativePath) {
 }
 
 function writeDoc(outDir, id, title, source, sourcePath, position) {
-  const body = escapeMdxAngles(rewriteLinks(source, sourcePath)).replace(/^# .+\n/, "");
+  const body = prepareMdx(source, sourcePath).replace(/^# .+\n/, "");
   const frontMatter = [
     "---",
     `title: ${JSON.stringify(title)}`,
@@ -67,6 +75,10 @@ function titleFromMarkdown(source, fallback) {
   return match ? match[1].trim() : fallback;
 }
 
+function prepareMdx(source, sourcePath) {
+  return escapeMdxAngles(linkifyBareDocRefs(rewriteLinks(source, sourcePath)));
+}
+
 function rewriteLinks(source, sourcePath) {
   return source.replace(/\]\(([^)]+)\)/g, (match, rawTarget) => {
     if (
@@ -78,12 +90,13 @@ function rewriteLinks(source, sourcePath) {
     }
 
     const [target, hash = ""] = rawTarget.split("#");
-    const base = path.basename(target);
+    const normalizedTarget = target.replace(/^\.\//, "");
+    const base = path.basename(normalizedTarget);
     if (rootLinkMap.has(base)) {
       return `](./${rootLinkMap.get(base)}${hash ? `#${hash}` : ""})`;
     }
 
-    const docMatch = target.match(/^docs\/(?:en|cn)\/(.+)\.md$/);
+    const docMatch = normalizedTarget.match(/^docs\/(?:en|cn)\/(.+)\.md$/);
     if (docMatch) {
       const docId = docMatch[1].replaceAll("/", "-");
       return `](./${docId}${hash ? `#${hash}` : ""})`;
@@ -97,8 +110,96 @@ function rewriteLinks(source, sourcePath) {
   });
 }
 
+function linkifyBareDocRefs(source) {
+  return transformNonFenceLines(source, linkifyBareDocRefsInLine);
+}
+
+function linkifyBareDocRefsInLine(line) {
+  const withBacktickLinks = line.replace(/`([^`\n]+\.md)`/g, (match, target) => {
+    const docId = docIdForBareTarget(target);
+    return docId ? `[${target}](./${docId})` : match;
+  });
+
+  return withBacktickLinks.replace(
+    /(^|[^\w/.\[\](`-])((?:docs\/(?:en|cn)\/|docs\/)?[A-Za-z0-9_-]+\.md|(?:README|INSTALL|CONTRIBUTING|CHANGELOG)(?:-CN)?\.md)\b/g,
+    (match, prefix, target) => {
+      const docId = docIdForBareTarget(target);
+      return docId ? `${prefix}[${target}](./${docId})` : match;
+    },
+  );
+}
+
+function docIdForBareTarget(target) {
+  const normalizedTarget = target.replace(/^\.\//, "");
+  return docLinkMap.get(normalizedTarget) || docLinkMap.get(path.basename(normalizedTarget));
+}
+
 function escapeMdxAngles(source) {
-  return source.replace(/<([A-Za-z][A-Za-z0-9_.,: /-]*)>/g, "&lt;$1&gt;");
+  return transformNonFenceChunks(source, escapeMdxAnglesInChunk);
+}
+
+function escapeMdxAnglesInChunk(chunk) {
+  let result = "";
+  let cursor = 0;
+  const codeSpan = /(`+)([\s\S]*?)\1/g;
+  let match;
+
+  while ((match = codeSpan.exec(chunk)) !== null) {
+    result += escapeMdxAnglesInText(chunk.slice(cursor, match.index));
+    result += match[0];
+    cursor = match.index + match[0].length;
+  }
+
+  return result + escapeMdxAnglesInText(chunk.slice(cursor));
+}
+
+function escapeMdxAnglesInText(text) {
+  return text.replace(/<([A-Za-z][A-Za-z0-9_.,: /-]*)>/g, "&lt;$1&gt;");
+}
+
+function transformNonFenceLines(source, transformLine) {
+  const lines = source.split("\n");
+  let inFence = false;
+
+  return lines
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+
+      return inFence ? line : transformLine(line);
+    })
+    .join("\n");
+}
+
+function transformNonFenceChunks(source, transformChunk) {
+  const lines = source.split("\n");
+  const output = [];
+  let chunk = [];
+  let inFence = false;
+
+  function flushChunk() {
+    if (chunk.length > 0) {
+      output.push(transformChunk(chunk.join("\n")));
+      chunk = [];
+    }
+  }
+
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      flushChunk();
+      output.push(line);
+      inFence = !inFence;
+    } else if (inFence) {
+      output.push(line);
+    } else {
+      chunk.push(line);
+    }
+  }
+
+  flushChunk();
+  return output.join("\n");
 }
 
 function syncLocale(outDir, locale) {
