@@ -19,6 +19,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
       output { <参数名>: <类型> }
       body { <语句> }
     }
+- `input { ... }` / `output { ... }` / `effects { ... }` / `errors { ... }` / `allow { ... }`
+  这类声明块里若有多个条目，条目之间必须用分号 `;` 分隔；换行本身不是声明分隔符。
 - state 的形状（每个 value 后必须跟花括号块，块内至少有一个 meaning 字段）：
     state <名字> {
       value <值名> { meaning: "<说明>" }
@@ -47,6 +49,9 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
   entity / state，或 error variant。
 - 成员**直接构造、直接返回**，没有任何包装子（没有 `Ok`/`Err`/`Some`/`None`）：
   返回成功值就直接 `return <值>`，返回失败就直接 `return <Variant { 字段 = ... }>`。
+- 只有题面明确说失败是"返回结局"、"可恢复结局"或输出类型是 `one of { ... }` 时，才把失败
+  variant 当返回值 `return Variant { ... }`。若题面说"中断式领域失败"、"抛出/raise 失败"或
+  入口输出是普通类型，则失败必须用 `raise Variant { ... }`，不要把它塞进 `one of` 返回值。
 - 取值用 `match`，按成员**类型 / variant 名**分派（见下「body 子语言」的 match 模式）。
 - 成员必须两两可区分（标量按类型名、entity/state 按名、error variant 按名、`Null` 唯一）。
 
@@ -59,8 +64,10 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 - 表达式子集：整数算术 + - *、一元取负 `-x`、比较 == != < <= > >=、and / or / not、Text + Text、
   list + [item]、list.append(item)、字段访问 a.b、entity 构造 E { f = expr }、to_text(Int)、
   `Null` 字面、**调用其它 action：`<ActionName>(实参, ...)`**（实参按被调用 action 的 input 顺序）。
+- `if` / `match` 是语句，不是表达式；不要写 `return if ...` 或 `let x = if ...`。
+  需要条件返回时写成 `if cond { return a } else { return b }`。
 - **没有除法 `/` 与取模 `%`**（不在起步子集）；需要"取较大/较小/绝对值"等用比较 + 算术表达
-  （如绝对值：`if d < 0 { -d } else { d }`）。
+  （如绝对值：`if d < 0 { return -d } else { return d }`）。
 - 内置伪字段：`<text>.length`（Text 的字符数，结果 Int）。`to_text(Int)` 仅把 Int 转 Text
   （不接受其它类型）。判断一个 `one of { T, Null }` 是否有值：在谓词（require / ensures / where）里用
   `<表达式> != Null`；在 body 里用 `match` 的 `Null` 分支。
@@ -81,8 +88,15 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
     error <名字> {
       variant <VariantName> { <字段名>: <类型> }
     }
+- error 容器名只是分组名，不是对外失败身份；容器名不要与任何 variant 名相同。若公开失败名称是
+  `WidgetRejected`，variant 必须叫 `WidgetRejected`，error 容器应取不同名称（如中立的 `<Domain>Error` 形状）。
 - action 若可能抛出领域错误，必须在 `errors { <VariantName>; ... }` 中声明会抛出的 variant；
   在 body 中用 `raise <VariantName> { <字段名> = expr }` 抛出。
+- `raise` 会中断 action；这种 action 的 `output` 仍写正常成功返回类型，不要为了中断式失败把
+  output 改成 `one of { Success, Variant }`。
+- error variant 的引用只写 variant 名本身：`errors { NotAllowed }`、
+  `raise NotAllowed { ... }`、`return NotAllowed { ... }`。不要写成
+  `ErrorType.NotAllowed` 或其它带错误类型前缀的限定名。
 - 被调用 action 声明的 errors，调用方必须继续在自己的 `errors` 中声明（错误向上传播）。
 
 ## effect 与 capability
@@ -90,6 +104,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 - 纯逻辑 action 无需 effects / capability。
 - 有副作用（如 `print` 产生 `Console.Write`）的 action 必须：声明 `effects { Console.Write }`，
   并用 `capability: <能力名>` 绑定一个 allow 了该 effect 的 capability。
+- `print expr` 触发 `Console.Write`。`expr` 只能是字面量文本、`Sanitized<T>` 或 `Redacted<T>`；
+  不要直接打印普通 `Text`、`Raw<T>` 或其它未标记为可安全写出的值。
 - capability 是一个顶层 node，形状：
     capability <名字> {
       allow { Console.Write }
@@ -118,8 +134,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 
     action Announce {
       capability: ExampleCapability
-      input { text: Text }
-      output { echoed: Text }
+      input { text: Sanitized<Text> }
+      output { echoed: Sanitized<Text> }
       effects { Console.Write }
       body {
         print text

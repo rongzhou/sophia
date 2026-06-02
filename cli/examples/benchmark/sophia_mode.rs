@@ -254,11 +254,13 @@ struct BenchPrompts<'a> {
 impl<'a> BenchPrompts<'a> {
     fn new(prompt: &'a PromptRegistry, model: &str, problem: &Problem) -> Self {
         let brief = problem.public_brief();
+        let mut acceptance = brief.entry_contract_lines();
+        acceptance.extend(brief.public_forbidden.iter().map(|s| s.to_string()));
         BenchPrompts {
             prompt,
             model: model.to_string(),
             objective_text: format!("{}：{}", problem.title, problem.prompt_goal),
-            acceptance: brief.entry_contract_lines(),
+            acceptance,
         }
     }
 }
@@ -284,7 +286,7 @@ impl StepPrompts for BenchPrompts<'_> {
                 "design_solution",
                 serde_json::json!({
                     "objective": self.objective_text,
-                    "constraints": Vec::<String>::new(),
+                    "constraints": self.acceptance,
                     "acceptance_criteria": self.acceptance,
                     "context_files": Vec::<String>::new(),
                     "stdlib_catalog": sophia_stdlib::standard_registry().catalog(),
