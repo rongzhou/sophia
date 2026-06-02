@@ -1,0 +1,22 @@
+:root {
+  --ifm-color-primary: #0f766e;
+  --ifm-color-primary-dark: #0d6861;
+  --ifm-color-primary-darker: #0b5d57;
+  --ifm-color-primary-darkest: #084b46;
+  --ifm-color-primary-light: #149184;
+  --ifm-color-primary-lighter: #19a99a;
+  --ifm-color-primary-lightest: #58c9bd;
+  --ifm-code-font-size: 95%;
+  --ifm-heading-letter-spacing: 0;
+}
+
+html[data-theme="dark"] {
+  --ifm-background-color: #0b1120;
+  --ifm-background-surface-color: #111827;
+}
+
+.markdown img {
+  border-radius: 8px;
+  max-width: 100%;
+  height: auto;
+}

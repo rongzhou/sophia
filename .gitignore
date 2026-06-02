@@ -5,6 +5,10 @@ Cargo.lock.orig
 
 # Tree-sitter CLI 生成的本地缓存（保留 vendor 的 grammar 源与生成的 parser.c）
 node_modules/
+website/.docusaurus/
+website/build/
+website/docs/
+website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/
 
 # 编辑器与系统
 .DS_Store
