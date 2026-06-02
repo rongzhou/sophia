@@ -1,5 +1,7 @@
 # Sophia 工程架构
 
+![Sophia 工程架构](images/engineering_architecture.png)
+
 > 本文档定义 Sophia 的工具链组装、工程目录结构、依赖分层、CLI 规范和外围基础设施。
 > 语言概念和工作流概念见 `language_design.md`。
 > 编译器内部实现（AST、IR、类型系统）见 `language_implementation.md`。

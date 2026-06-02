@@ -1,5 +1,7 @@
 # Sophia Engineering Architecture
 
+![Sophia engineering architecture](images/engineering_architecture.png)
+
 > This document defines Sophia’s toolchain composition, project directory structure, dependency layering, CLI specification, and surrounding infrastructure.
 > Language and workflow concepts are in `language_design.md`.
 > Compiler internals (AST, IR, type system) are in `language_implementation.md`.

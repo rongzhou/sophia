@@ -1,5 +1,7 @@
 # Sophia v1 工作流 A · WASM codegen 设计门
 
+![Sophia WASM codegen](images/wasm_codegen.png)
+
 > **状态：设计门已定稿 + 实现 W1–W5 全部落地（A1–A5 达成，2026-05-31）。** 本文档定义 v1 **工作流 A
 > （WASM codegen）**的实现计划与落地记录：把 Sophia 的语义投影为可部署的 WASM artifact，使执行后端从
 > 「仅 Rust 进程内解释器」扩展到「可被 Node / Python / 浏览器 / 边缘 runtime 嵌入运行」。它对应

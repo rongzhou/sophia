@@ -1,5 +1,7 @@
 # Sophia 概念导览
 
+![Sophia 概念导览](images/concept.png)
+
 > 这是一份**面向读者的概念地图**，帮你建立 Sophia 的心智模型——先读这篇，再按需深入各权威文档。
 > 它**不**重复细节，每节都链接到 source of truth（SSOT）。
 >

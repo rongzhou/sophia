@@ -54,6 +54,14 @@ function resetDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function copyDirIfExists(from, to) {
+  if (!fs.existsSync(from)) {
+    return;
+  }
+
+  fs.cpSync(from, to, { recursive: true });
+}
+
 function readSource(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
@@ -203,6 +211,8 @@ function transformNonFenceChunks(source, transformChunk) {
 }
 
 function syncLocale(outDir, locale) {
+  copyDirIfExists(path.join(repoRoot, `docs/${locale === "en" ? "en" : "cn"}/images`), path.join(outDir, "images"));
+
   let position = 1;
   for (const doc of rootDocs) {
     const sourcePath = locale === "en" ? doc.en : doc.zh;

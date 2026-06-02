@@ -1,5 +1,7 @@
 # Sophia 工作流图规范
 
+![Sophia 工作流图规范](images/workflow_graph.png)
+
 > 本文档是工作流图（Development Graph）的**规范层**：节点 payload 严格 schema、边的 `(from.role, to.role, type)` 校验集合、Append-only 不变量、Active Context 推导算法。
 > 节点本体的概念（四维度模型、节点角色目录、动作选择原则、预算与评分、Materialize Gate）见 `language_design.md` 第十节。
 > Rust 端实现细节、GraphStore 接口约束见 `language_implementation.md`、`engineering_architecture.md`。

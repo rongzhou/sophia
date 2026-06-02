@@ -1,5 +1,7 @@
 # Sophia 语言设计
 
+![Sophia 语言设计](images/language_design.png)
+
 > 本文档定义 Sophia 的语言概念和工作流概念，是面向 LLM 的"大语言"层设计。
 > 实现细节（AST、IR、类型推导算法、检查器流水线）见 `language_implementation.md`。
 > 工具链、目录结构、CLI 见 `engineering_architecture.md`。

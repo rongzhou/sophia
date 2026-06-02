@@ -1,5 +1,7 @@
 # Sophia Concepts Overview
 
+![Sophia concepts overview](images/concept.png)
+
 > This is a reader-oriented concept map to help you form a mental model of Sophia—read this first, then dive into the authoritative docs as needed. It does not repeat details; each section links to a single source of truth (SSOT).
 >
 > Authoritative docs: concepts and design decisions in `language_design.md`; compiler/runtime implementation in `language_implementation.md`; tooling/layout/CLI in `engineering_architecture.md`; graph schema and invariants in `workflow_graph_spec.md`.

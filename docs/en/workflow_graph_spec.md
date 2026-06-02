@@ -1,5 +1,7 @@
 # Sophia Workflow Graph Specification
 
+![Sophia workflow graph specification](images/workflow_graph.png)
+
 > This document is the normative specification for the Development Graph: strict node payload schemas, the allowed `(from.role, to.role, type)` edge set, append-only invariants, and the Active Context derivation algorithm. Conceptual background (four-dimension model, role catalog, action-choice principles, budget and scoring, Materialize Gate) is in `language_design.md` §10. Rust-side implementation details and GraphStore constraints are in `language_implementation.md` and `engineering_architecture.md`.
 >
 > This spec is the single source of truth for schema-validation code, JSON shapes embedded in prompt templates, and CI invariant tests. Design docs do not repeat schema fields; this spec does not repeat design explanations.

@@ -1,5 +1,7 @@
 # Sophia v1 Workflow A · WASM codegen Design Gate
 
+![Sophia WASM codegen](images/wasm_codegen.png)
+
 > Status: design gate finalized + implementation W1–W5 landed (A1–A5 achieved, 2026-05-31). This document defines the implementation plan and landing record of v1 Workflow A (WASM codegen): project Sophia’s semantics into deployable WASM artifacts so the execution backend expands from “Rust in-process interpreter only” to “embeddable by Node/Python/browsers/edge runtimes.” It corresponds to `dev_checklist_v1.md` Workflow A (A1–A6), `language_implementation.md` §12.2 (emit shape), and `engineering_architecture.md` §14.2. A1–A5 have landed (contract freeze / emit / differential tests / effect host imports / artifact gate + `sophia build`); A6 (incremental queries, decoupled from codegen) awaits its own design gate.
 >
 > Three-step discipline (user-established methodology): this is the design gate for codegen—first fix the input contracts / value ABI / function ABI / effect ABI / toolchain / diff-test and gate locations; after confirmation, implement in phases. §10’s seven decision points are confirmed and adopted; proceed per §9 W1→W5. This document contains no implementation code.

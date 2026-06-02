@@ -1,5 +1,7 @@
 # Sophia Language Design
 
+![Sophia language design](images/language_design.png)
+
 > This document defines Sophia’s language concepts and workflow concepts—the “big language” layer oriented to LLMs.
 > Implementation details (AST, IR, type inference algorithms, checker pipeline) are in `language_implementation.md`.
 > Tooling, directory layout, and CLI are in `engineering_architecture.md`.

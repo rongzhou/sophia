@@ -1,5 +1,7 @@
 # Sophia Standard Library and Library Plugin Design
 
+![Sophia standard library and library plugin design](images/stdlib_design.png)
+
 > This document mirrors `language_design.md`: while `language_design` defines the language itself, this document defines libraries—what a library is, its boundaries, how to organize them, how to unify the standard library and third-party libraries, and how LLMs discover and use them. The specific language contract of a library (e.g., `Http`) is documented separately (see §VIII Library Catalog). Implementation details are in `stdlib_implementation.md`.
 >
 > Status: living document. Libraries grow incrementally with demo needs. Current: the library-plugin model has landed (manifest-driven + `LibraryRegistry` + Plan B host registry); standard libraries `Http` / `File` (landed; see `http_lib.md` / `file_lib.md`).
