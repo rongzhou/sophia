@@ -1,6 +1,5 @@
 ---
 source: workflow/prompt/tests/render.rs
-assertion_line: 74
 expression: out
 ---
 # 拆解：把过大的目标拆成子目标
@@ -9,10 +8,10 @@ expression: out
 把它拆成若干**互相独立、各自可单独推进**的业务子目标。
 
 ## 当前目标
-实现完整的待办系统
+实现完整的示例工作流
 
 ## 必须遵守的约束
-- 不得访问 Users 表
+- 不得访问 ExternalStore
 
 
 ## 输出要求

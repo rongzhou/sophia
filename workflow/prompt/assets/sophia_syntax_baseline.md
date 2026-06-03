@@ -1,14 +1,12 @@
 Sophia-Core 起步子集语法基线（标准语法规则，务必严格遵守）。
 
-下列示例仅演示**语法形状**，与任何具体任务无关，请勿照抄其中的名字或逻辑——
-你必须把规则应用到当前任务，而不是复制示例。
+下列示例仅演示**语法形状**，与任何具体任务无关；不要复制示例名或示例逻辑。
 
 **命名保真（务必遵守）**：任务题面 / 验收条件里**显式给出的名字**——node 名（action / entity /
 state / error / capability 等）、字段名、状态取值名、error variant 名——必须**逐字照用**，
 不得改名、翻译、缩写或换大小写（举一个与任何任务无关的中立例子：若题面要求名为 `WidgetKind` 的
 state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些名字是需求规格的一部分，下游会按
-原名调用 / 校验。注意区分：上面"勿照抄"针对的是本基线里**中立示例**的名字（如 `Light` / `Toggle`），
-那些与任务无关、不可借用；而题面**给定**的名字则相反，必须原样保留。
+原名调用 / 校验。中立示例名（如 `Light` / `Toggle`）不可借用；题面给定名必须原样保留。
 
 ## 顶层结构
 
@@ -43,15 +41,16 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
     - 联合：`one of { 成员A, 成员B, ... }`——值在运行时恰是其中一个成员（见下「one of 联合类型」）。
 - `Null` 是表达"无 / 缺席"的内置单值类型，字面值写作 `Null`，典型用在 `one of { T, Null }` 里表达可空。
 
-## one of 联合类型
+## 失败建模与 one of 联合
 
 - `one of { M1, M2, ... }` 表示一个值是若干**互斥结局**之一。成员可以是标量、`Null`、已声明的
   entity / state，或 error variant。
 - 成员**直接构造、直接返回**，没有任何包装子（没有 `Ok`/`Err`/`Some`/`None`）：
   返回成功值就直接 `return <值>`，返回失败就直接 `return <Variant { 字段 = ... }>`。
-- 只有题面明确说失败是"返回结局"、"可恢复结局"或输出类型是 `one of { ... }` 时，才把失败
-  variant 当返回值 `return Variant { ... }`。若题面说"中断式领域失败"、"抛出/raise 失败"或
-  入口输出是普通类型，则失败必须用 `raise Variant { ... }`，不要把它塞进 `one of` 返回值。
+- 失败形态由题面 / 验收决定：
+    - "返回结局"、"可恢复结局"或输出类型为 `one of { ... }`：用 `return Variant { ... }`。
+    - "中断式领域失败"、"抛出/raise 失败"或输出为普通成功类型：用 `raise Variant { ... }`，
+      action 的 `output` 仍写成功返回类型，不要改成 `one of { Success, Variant }`。
 - 取值用 `match`，按成员**类型 / variant 名**分派（见下「body 子语言」的 match 模式）。
 - 成员必须两两可区分（标量按类型名、entity/state 按名、error variant 按名、`Null` 唯一）。
 
@@ -66,6 +65,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
   `Null` 字面、**调用其它 action：`<ActionName>(实参, ...)`**（实参按被调用 action 的 input 顺序）。
 - `if` / `match` 是语句，不是表达式；不要写 `return if ...` 或 `let x = if ...`。
   需要条件返回时写成 `if cond { return a } else { return b }`。
+- 有限 Bool / state / `one of` 分派优先直接写 `match`；不要为固定映射构造列表、索引或循环。
+- 没有空列表字面量 `[]`；只在已有列表值上使用 `list + [item]` 或 `list.append(item)`。
 - **没有除法 `/` 与取模 `%`**（不在起步子集）；需要"取较大/较小/绝对值"等用比较 + 算术表达
   （如绝对值：`if d < 0 { return -d } else { return d }`）。
 - 内置伪字段：`<text>.length`（Text 的字符数，结果 Int）。`to_text(Int)` 仅把 Int 转 Text
@@ -74,7 +75,7 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 - body 中只能引用 input 声明的参数或本地 let 绑定的变量；引用未声明的名字是错误。
 - **match 模式**（必须穷尽，**禁止** `_` 通配分支）：
     - 类型模式 `<类型名> <绑定名> => ...`：匹配 `one of` 的标量 / entity / state 成员，把值绑定到该名字
-      （例：`Int n => return n`、`Todo t => return t.status`）。
+      （例：`Int n => return n`、`SampleRecord r => return r.status`）。
     - variant 模式 `<VariantName> { 字段, ... } => ...`：匹配 error variant 成员，按字段名绑定。
     - `Null => ...`：匹配 `Null` 成员。
     - 状态值模式 `<state 名>.<值名> => ...`：当 match 主语是 state 时按取值分派。
@@ -92,8 +93,6 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
   `WidgetRejected`，variant 必须叫 `WidgetRejected`，error 容器应取不同名称（如中立的 `<Domain>Error` 形状）。
 - action 若可能抛出领域错误，必须在 `errors { <VariantName>; ... }` 中声明会抛出的 variant；
   在 body 中用 `raise <VariantName> { <字段名> = expr }` 抛出。
-- `raise` 会中断 action；这种 action 的 `output` 仍写正常成功返回类型，不要为了中断式失败把
-  output 改成 `one of { Success, Variant }`。
 - error variant 的引用只写 variant 名本身：`errors { NotAllowed }`、
   `raise NotAllowed { ... }`、`return NotAllowed { ... }`。不要写成
   `ErrorType.NotAllowed` 或其它带错误类型前缀的限定名。

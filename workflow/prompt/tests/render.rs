@@ -33,7 +33,7 @@ fn unknown_template_errors() {
 fn decision_template_renders_stable() {
     let reg = PromptRegistry::new();
     let ctx = json!({
-        "focus_summary": "Objective N0001: 实现 CompleteTodo",
+        "focus_summary": "Objective N0001: 实现 ProcessWidget",
         "bound_objective_count": 2,
         "active_milestone": "M1: 起步切片",
         "outstanding_questions": 0,
@@ -52,10 +52,10 @@ fn decision_template_renders_stable() {
 fn design_solution_template_renders_stable() {
     let reg = PromptRegistry::new();
     let ctx = json!({
-        "objective": "实现 CompleteTodo",
-        "constraints": ["不得访问 Users 表"],
-        "acceptance_criteria": ["完成后 status == Done"],
-        "context_files": ["domains/TodoDomain/entities/Todo.sophia"],
+        "objective": "实现 ProcessWidget",
+        "constraints": ["不得访问 ExternalStore"],
+        "acceptance_criteria": ["处理后 state == WidgetReady"],
+        "context_files": ["domains/WidgetDomain/entities/WidgetRecord.sophia"],
         // 库目录由库注册表提供（sophia-stdlib），prompt crate 不持库内容；此处用固定串测模板渲染。
         "stdlib_catalog": "- `example_lib` — 中立示例库"
     });
@@ -67,8 +67,8 @@ fn design_solution_template_renders_stable() {
 fn decompose_template_renders_stable() {
     let reg = PromptRegistry::new();
     let ctx = json!({
-        "objective": "实现完整的待办系统",
-        "constraints": ["不得访问 Users 表"]
+        "objective": "实现完整的示例工作流",
+        "constraints": ["不得访问 ExternalStore"]
     });
     let out = reg.render("decompose", &ctx).expect("render");
     insta::assert_snapshot!("decompose_render", out);
@@ -119,15 +119,32 @@ fn syntax_baseline_preamble_is_stable() {
 }
 
 #[test]
-fn syntax_baseline_carries_no_task_answer_tokens() {
-    // 防答案泄漏（架构 8.3 硬约束①）：语法基线只含可泛化规则 + 中立示例，
+fn core_prompts_carry_no_task_answer_tokens() {
+    // 防答案泄漏（架构 8.3 硬约束①）：共享 prompt 只含可泛化规则 + 中立示例，
     // 不得出现任何具体测试任务的领域名 / 节点名 / 状态值 / 业务逻辑。
-    let baseline = sophia_prompt::preamble("sophia_syntax_baseline").unwrap();
-    for forbidden in FORBIDDEN_TASK_TOKENS {
-        assert!(
-            !baseline.contains(forbidden),
-            "语法基线泄漏了任务相关 token `{forbidden}`"
-        );
+    let prompts = [
+        (
+            "sophia_syntax_baseline",
+            sophia_prompt::preamble("sophia_syntax_baseline")
+                .unwrap()
+                .to_string(),
+        ),
+        (
+            "design_system_prompt",
+            sophia_prompt::design_system_prompt(),
+        ),
+        (
+            "implement_system_prompt",
+            sophia_prompt::implement_system_prompt(""),
+        ),
+    ];
+    for (prompt_name, prompt_text) in prompts {
+        for forbidden in FORBIDDEN_TASK_TOKENS {
+            assert!(
+                !prompt_text.contains(forbidden),
+                "{prompt_name} 泄漏了任务相关 token `{forbidden}`"
+            );
+        }
     }
 }
 

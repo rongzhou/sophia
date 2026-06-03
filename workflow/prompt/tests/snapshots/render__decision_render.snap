@@ -8,7 +8,7 @@ expression: out
 动作选择必须由你产生，不由系统替你决定。
 
 ## 当前焦点节点
-Objective N0001: 实现 CompleteTodo
+Objective N0001: 实现 ProcessWidget
 
 ## Active Context 摘要
 - 绑定目标数：2

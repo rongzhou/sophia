@@ -1,7 +1,7 @@
 # 实现设计：把 .pseudo 转换为 .sophia
 
 把已稳定的伪代码实现为可通过确定性检查的 Sophia-Core 候选源码。
-输入 / 输出必须写完整 formal type；副作用写 formal effect；错误写 error algebra variant。
+输入 / 输出写完整 formal type；副作用写 formal effect；错误写 error algebra variant。
 
 ## 伪代码
 {{ pseudocode }}
@@ -14,9 +14,7 @@
 {% for c in constraints %}- {{ c }}
 {% endfor %}
 
-若目标或验收写明“对外可观察失败名称”或“对外失败名称”，实现中的失败成员名称必须逐字一致；
-不要把错误类型名当作对外失败身份。
-错误类型只是容器；不要把错误类型容器命名成该对外失败名称，否则同名引用会被解析为错误类型而不是失败成员。
+题面、验收和约束中给出的公开名称必须逐字保留；失败形态按语法基线区分 `raise` 与 `one of` 返回结局。
 
 ## 输出要求
 输出候选 `.sophia` 文件集合。每个顶层 node 一个文件，遵循 domain-first 布局。

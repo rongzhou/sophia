@@ -1,6 +1,5 @@
 ---
 source: workflow/prompt/tests/render.rs
-assertion_line: 63
 expression: out
 ---
 # 设计方案：编写语义伪代码
@@ -9,18 +8,18 @@ expression: out
 **不要**直接写 Sophia-Core 源码、语言级声明、库操作签名、文件路径或文件布局。
 
 ## 目标
-实现 CompleteTodo
+实现 ProcessWidget
 
 ## 约束
-- 不得访问 Users 表
+- 不得访问 ExternalStore
 
 
 ## 验收条件
-- 完成后 status == Done
+- 处理后 state == WidgetReady
 
 
 ## Action-rooted 语义上下文
-- domains/TodoDomain/entities/Todo.sophia
+- domains/WidgetDomain/entities/WidgetRecord.sophia
 
 
 ## 可用标准库（如本方案需要某库功能，在 libraries 中列出其名）
