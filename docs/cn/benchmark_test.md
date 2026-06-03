@@ -1,5 +1,7 @@
 # Sophia 基准测试指南（benchmark test）
 
+![Sophia 基准测试指南](images/benchmark_test.png)
+
 > Sophia 三类测试的第三类。benchmark 在多组小规模编程题上横向对比「LLM 直接写 Python」
 > （`baseline` mode）与「Sophia 工作流」（`sophia` mode）的两个**核心指标——成功率（success
 > rate）与耗时（wall time）**。它是 `example`（**不进** `cargo test` 门禁，无 LLM key / 无

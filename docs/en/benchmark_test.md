@@ -1,5 +1,7 @@
 # Sophia Benchmark Test Guide (benchmark test)
 
+![Sophia benchmark test guide](images/benchmark_test.png)
+
 > The third of Sophia’s three test categories. Benchmarks compare, across multiple small programming tasks, “LLM directly writes Python” (`baseline` mode) versus the “Sophia workflow” (`sophia` mode) on two core metrics—success rate and wall time. They are examples (do not enter the `cargo test` gate; cleanly skip without an LLM key or without `python3`). This is a test guide: it clarifies what benchmarks measure, how to run them, how to organize them with discipline, and what tasks are included.
 
 ---

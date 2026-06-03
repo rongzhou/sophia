@@ -1,5 +1,7 @@
 # Sophia Unit Test Guide (unit test)
 
+![Sophia unit test guide](images/unit_test.png)
+
 > The first of Sophia’s three test categories. Unit tests are a deterministic, offline-capable regression net that can be run in the `cargo test` gate, verifying the correctness of internal components (parser/checker/interpreter/graph/prompt/codegen, etc.) within each crate.
 > This is a test guide: it clarifies what unit tests cover, how to run them, how to organize them with discipline, and the existing cases.
 

@@ -1,5 +1,7 @@
 # Sophia 单元测试指南（unit test）
 
+![Sophia 单元测试指南](images/unit_test.png)
+
 > Sophia 三类测试的第一类。单元测试是**进 `cargo test` 门禁、确定性、可离线**的回归网，
 > 验证各 crate 内部构件（解析器 / 检查器 / 解释器 / 图 / 提示词 / codegen 等）的正确性。
 > 这是一份 test guide：讲清楚单元测试**测什么、怎么跑、按什么纪律组织、有哪些用例**。

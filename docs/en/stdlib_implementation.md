@@ -1,5 +1,7 @@
 # Sophia Library Implementation
 
+![Sophia library implementation](images/stdlib_implementation.png)
+
 > This document mirrors `language_implementation.md`: it defines the implementation mechanics and roadmap of library plugins—manifest parsing and registries, how each layer consumes registries, `HostRegistry` injection, crate layering, and test boundaries. For motivations and boundaries, see `stdlib_design.md`; for a library’s language contract, see its specific doc (e.g., `http_lib.md`).
 >
 > Status: authoritative implementation document. The current implementation uses the manifest-driven library-plugin model: `LibraryRegistry` is the single source for library contracts, `HostRegistry` is the runtime host-injection seam, and standard-library contents are provided by `sophia-stdlib`. Future expansion follows the checklist in §V.
