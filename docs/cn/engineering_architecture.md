@@ -73,7 +73,7 @@ sophia/
 ├── stdlib/             ← 标准库内容（sophia-stdlib）：libs/<lib>/ 清单 + 资产 + native host；依赖 core+runtime
 ├── lsp/                ← Language Server，依赖 core + tools
 ├── cli/                ← 入口，依赖所有上层 crate
-└── runtime/            ← 解释器 + Tokio substrate + HostRegistry（路线 B host 注册表）
+└── runtime/            ← 同步解释器 + HostRegistry（路线 B host 注册表）
 ```
 
 ### 3.1 核心约束
@@ -82,22 +82,25 @@ sophia/
 
 - 编译器的可测试性（无需构造异步测试运行时）；
 - 编译器的可推理性（无竞态条件）；
-- 未来编译到 WASM 的可能性（WASM 的 async 支持有限）。
+- 未来编译到 WASM 的可能性（当前 Sophia / WASM 路线均按同步确定性 artifact 推进）。
 
-### 3.2 异步边界
+### 3.2 同步执行语义与 Rust async IO 边界
 
-**同步**（不引入 Tokio）：
+Sophia 语言 / runtime / WASM codegen 当前均为**同步确定性执行**；async / await / 并发 / checkpoint
+等只作为远期愿景保留，不是 v1/v2 近期补齐项。Rust 实现中出现 async 属于工具链 IO 的工程选择，
+不代表 Sophia runtime 有异步执行语义。
+
+**同步执行 / 确定性分析**（不引入 Tokio）：
 
 - 全部 `core`
 - `tools`（check / audit 的核心分析逻辑）
+- `runtime`（解释器 + HostRegistry；库 host 以同步 `HostFn` 委派）
 
-**异步**（使用 Tokio）：
+**Rust async IO 外壳**（可使用 Tokio）：
 
 - `llm`（LLM API 网络请求）
-- `graph-db`（SQLite 操作）
-- `materialize`（文件写入）
-- `cli`（协调层）
-- `runtime`（execution graph 调度）
+- `lsp`（tower-lsp stdio 服务）
+- `cli` / examples 中驱动 LLM 调用的协调层入口
 
 ### 3.3 编排层 `workflow/engine` 与「注入报告」分层模式
 

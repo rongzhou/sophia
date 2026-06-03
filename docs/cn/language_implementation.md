@@ -1,5 +1,7 @@
 # Sophia 语言实现
 
+![Sophia 语言实现](images/language_implementation.png)
+
 > 本文档定义 Sophia 编译器和运行时的实现层（AST、IR、类型系统实现、检查管线、运行时模型等）。
 > 语言概念和工作流概念见 `language_design.md`。
 > 工程目录、CLI、工具链组装见 `engineering_architecture.md`。
@@ -252,7 +254,9 @@ Intent assignability 使用**严格相等**：
 
 ### 8.1 职责
 
-Execution Graph IR 显式描述运行时执行结构：
+Execution Graph IR 显式描述运行时执行结构。**当前实现只承载同步确定性执行**：
+每个 action / transition 一个执行节点，body 中的 callable 调用形成 `Control` 边，供解释器 / WASM
+后端校验调用关系与 Trace 投影。下列更丰富能力属于远期愿景，不是 v1/v2 近期目标：
 
 - execution DAG
 - task dependencies
@@ -271,11 +275,13 @@ Task A
   └── Task E
 ```
 
-Execution Graph IR 是 Semantic IR 与 Runtime 之间的桥梁。
+Execution Graph IR 是 Semantic IR 与 Runtime 之间的桥梁。没有表层语法和演示需求触发前，不为
+await / 并发 / checkpoint 等远期语义实现调度器。
 
 ### 8.2 边的类型系统
 
-边的类型是 Execution Graph IR 的**一等概念**，不是隐含在 retry/cancellation 语义里的附属物：
+边的类型是 Execution Graph IR 的**一等概念**，不是隐含在 retry/cancellation 语义里的附属物。
+当前仅产出 `ControlEdge`；其余边类型是远期词汇表，需等语言层出现可生成它们的表层构造后再进入设计门：
 
 ```rust
 DataEdge<T>        // 携带类型化数据
@@ -285,7 +291,7 @@ ConditionalEdge    // 带谓词的路由边
 FallbackEdge       // 节点执行失败时触发
 ```
 
-`schema of T` 类型不匹配触发 `FallbackEdge`，而不是 runtime panic。
+`schema of T` 类型不匹配触发 `FallbackEdge` 是远期执行图语义；当前起步子集不生成 fallback 边。
 
 ---
 
@@ -295,25 +301,20 @@ FallbackEdge       // 节点执行失败时触发
 
 ```text
 Sophia Runtime
-    └── Tokio Runtime Substrate
+    └── 同步解释器 / WASM 后端
 ```
 
-Tokio 提供：
+当前 Sophia Runtime 提供：
 
-- async scheduling
-- task execution
-- IO runtime
+- 同步 execution graph 执行（callable 级 Control 调用边）；
+- runtime validation；
+- effect tracking；
+- tracing；
+- runtime inspection。
 
-Sophia Runtime 提供：
-
-- execution graph 执行
-- context propagation
-- effect tracking
-- tracing
-- cancellation
-- retries
-- checkpointing
-- runtime inspection
+Tokio / async 只出现在 LLM 调用、LSP 协议服务等工具链 / 协调层 IO 中；这不是 Sophia 语言或 runtime
+的异步执行语义。cancellation / retries / checkpointing 等属于远期愿景，需要语言表层构造、
+Execution Graph 边语义和 host/WASM ABI 同时明确后重新设计。
 
 ### 9.2 Interpreter
 
@@ -338,25 +339,25 @@ v0 没有 codegen；v1 起的 codegen 路线见第十二节。
 
 ### 9.3 异步边界划分
 
-明确区分同步和异步代码：
+明确区分 **Sophia 执行语义的同步模型** 与 **Rust 工具链实现中的 async IO**：
 
 **同步（纯函数，不引入 Tokio）**：
 
 - 全部 `core`（parser、HIR、Semantic IR、Execution Graph IR）
 - `check` 和 `audit` 的核心分析逻辑
 
-**异步（IO 相关，使用 Tokio）**：
+**Rust async（工具链 / 协调层 IO，可使用 Tokio；不进入 Sophia runtime 语义）**：
 
 - `llm`（LLM API 网络请求）
-- `graph-db`（SQLite 操作）
-- `materialize`（文件写入）
-- `cli`（协调层）
+- `lsp`（tower-lsp 协议服务）
+- e2e / benchmark harness 中的 LLM 驱动
 
 编译器核心保持同步的好处：
 
 - 便于单元测试，无需构造异步测试运行时；
 - 便于推理，无竞态条件；
-- 为未来 WASM 编译保留可能性（WASM 的 async 支持有限）。
+- 与当前 WASM codegen 的同步确定性 artifact 模型一致。WASM 的异步机制演进可作为远期输入观察，
+  但不是当前 Sophia v1/v2 的设计目标。
 
 ### 9.4 执行 Trace 与 Execution Graph 的映射
 

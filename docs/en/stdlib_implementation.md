@@ -1,8 +1,8 @@
 # Sophia Library Implementation
 
-> This document mirrors `language_implementation.md`: it defines the implementation mechanics of library plugins—manifest parsing and registries, how each layer consumes registries, host-injection seams (Plan B), crate layering, and test boundaries. For motivations and boundaries, see `stdlib_design.md`; for a library’s language contract, see its specific doc (e.g., `http_lib.md`).
+> This document mirrors `language_implementation.md`: it defines the implementation mechanics and roadmap of library plugins—manifest parsing and registries, how each layer consumes registries, `HostRegistry` injection, crate layering, and test boundaries. For motivations and boundaries, see `stdlib_design.md`; for a library’s language contract, see its specific doc (e.g., `http_lib.md`).
 >
-> Status: living document. Currently landed: library plugin P1 (manifest-driven + `LibraryRegistry` + Plan B host + standard-library crate).
+> Status: authoritative implementation document. The current implementation uses the manifest-driven library-plugin model: `LibraryRegistry` is the single source for library contracts, `HostRegistry` is the runtime host-injection seam, and standard-library contents are provided by `sophia-stdlib`. Future expansion follows the checklist in §V.
 
 ---
 
@@ -24,7 +24,7 @@ sophia-stdlib   (content layer)
   —— depends on sophia-library + sophia-runtime; above core/below coordination (may do I/O)
 
 sophia-runtime  (host registry home)
-  src/host.rs   HostFn trait + HostRegistry (Plan B: (family,op) → Box<dyn HostFn>)
+  src/host.rs   HostFn trait + HostRegistry: `(family,op) → Box<dyn HostFn>`
 ```
 
 Dependencies (acyclic): `sophia-library ← core/hir, core/semantic, sophia-runtime`; `sophia-runtime, sophia-library ← sophia-stdlib`; `sophia-stdlib ← cli / tools/check / tools/codegen / lsp`.
@@ -46,7 +46,7 @@ Dependencies (acyclic): `sophia-library ← core/hir, core/semantic, sophia-runt
 | HIR effect symbol table + special roots | `AsgIndex::with_libraries(registry)` populates `effect_ops` (arity=0 for effectful ops), `library_families`, and `library_ops` (all `#[serde(skip)]`-derived symbol tables) |
 | HIR special-root allowance | resolver calls `index.is_library_family(family)` (replacing `File`/`Http` literal whitelists) |
 | Semantic signature checks | `type_layer::infer_effect_op` queries `index.library_op(family, op)` for `OpContract` and turns TypeDesc into `Ty` (`typedesc_to_ty`) to perform table-driven argument/return checks (intent strictness via existing `assignable_to`) |
-| Runtime dispatch | interpreter `try_effect_op` calls `host.has_op(family, op)` and `host.call(family, op, args)` for Plan B delegation |
+| Runtime dispatch | interpreter `try_effect_op` calls `host.has_op(family, op)` and `host.call(family, op, args)` for host delegation |
 | Codegen | `CodegenInput` holds `lib_index` (`AsgIndex::new().with_libraries(registry)`) to recompute the TypeTable; host import names from `host_fn` |
 | Prompts | `registry.catalog()` (design) / `registry.preamble(libs)` (implement) |
 
@@ -67,7 +67,7 @@ Library Sophia nodes are registered under domains equal to library names (isolat
 
 ---
 
-## III. Host-injection seams (Plan B)
+## III. Host-injection seams
 
 `runtime::HostRegistry` is a registry mapping `(family, op)` to `Box<dyn HostFn>`, plus a console capture. `HostFn::call(&[Value]) -> Result<Value, String>`; closures register via `HostRegistry::register_fn`, wrapped internally as `HostFn` objects.
 
@@ -103,6 +103,6 @@ Zero changes to the language core: all steps above do not touch `core/*` or `run
 ## VI. Change log
 
 - 2026-05-31 — Establish library-implementation doc: prompt asset layout/API; two-stage, on-demand selection; host injection seam; test boundaries.
-- 2026-05-31 — Library plugin P1 landed (absorbing former `library_plugin.md`). Rewrote implementation view as manifest → registry → layer consumption: added `sophia-library` (contract types + manifest parsing) and `sophia-stdlib` (contents + native/mock hosts) crates; `AsgIndex::with_libraries` injecting library effects/special roots/op contracts; table-driven `type_layer::infer_effect_op` (TypeDesc → Ty); host dispatch switched to Plan B (`HostRegistry: (family,op) → Box<dyn HostFn>`; `runtime` does not embed specific libraries); `File`/`Http` moved from hardcoded `core` into `sophia-stdlib/libs/`; prompt crate sheds stdlib content (catalog/assets now provided by the registry); CLI’s `CliHost` removed, replaced by `register_native_hosts`. Core tests use inline-manifest fixtures and do not depend on stdlib. Pure refactor; zero behavior change (File/Http end-to-end semantics unchanged); all workspace tests green. Adding a library requires zero changes to the language core.
+- 2026-05-31 — Library plugin P1 landed (absorbing former `library_plugin.md`). Rewrote implementation view as manifest → registry → layer consumption: added `sophia-library` (contract types + manifest parsing) and `sophia-stdlib` (contents + native/mock hosts) crates; `AsgIndex::with_libraries` injecting library effects/special roots/op contracts; table-driven `type_layer::infer_effect_op` (TypeDesc → Ty); host dispatch uses `HostRegistry: (family,op) → Box<dyn HostFn>` (`runtime` does not embed specific libraries); `File`/`Http` moved from hardcoded `core` into `sophia-stdlib/libs/`; prompt crate sheds stdlib content (catalog/assets now provided by the registry); CLI’s `CliHost` removed, replaced by `register_native_hosts`. Core tests use inline-manifest fixtures and do not depend on stdlib. Pure refactor; zero behavior change (File/Http end-to-end semantics unchanged); all workspace tests green. Adding a library requires zero changes to the language core.
 - 2026-05-31 — Library plugin P2 landed (third-party dynamic discovery + two demo libs; absorbing former `library_plugin_p2.md`). Added `sophia-stdlib::discover` (`full_registry_for` / `full_registry_from` / `project_roots` / `DiscoverError`) that scans agreed roots → reads manifests/assets/`.sophia`/`host.wasm` → merges registry with deterministic ordering; added `hir::LibrarySources::from_registry` (parse library `.sophia` into owned AST and merge into index/model/execution) + `HirError::LibrarySourceParse`; added `AsgIndex.library_domains`/`is_library_domain` + resolver cross-domain exemption; added `runtime::WasmHostFn` (`wasmi` loads `host.wasm`; `(i64,i64)->i64`; `wasmi` promoted to runtime dependency + `wasm-encoder` dev-dep). Two fixtures (`stdlib/tests/fixtures/sophia_libs/hash_sophia`, `hash_wasm`) + integration test `stdlib/tests/library_demo.rs` (build `host.wasm` at test time via wasm-encoder; gitignored). Acceptance covers discovery + registry merge + cross-domain exemption + pure-Sophia execution + WASM via `WasmHostFn` with equal digests. CLI production wiring (`full_registry_for(root)` + merging library sources into command inputs + `sophia run` registering third-party WASM hosts) deferred.
 - 2026-05-31 — CLI production wiring landed (P2 wrap-up). `discover` adds `project_roots(root)` / `full_registry_for(root)` (resolve `<root>/sophia_libs/` relative to project root rather than process CWD; CLI commands use `--root` to locate the project). `native_host` adds `register_wasm_library_hosts(host, registry)` (iterate registry; register `WasmHostFn` for libraries with `host.wasm`; ABI subset `(Int,Int)->Int` validated; honest `Err` on failure). CLI `commands` `library_registry(root) -> Result<LibraryRegistry>` now returns `Result` (uses `full_registry_for`); new `library_context(root)` returns `(registry, LibrarySources)`. `check`/`run`/`index`/`graph`/`context`/`repair-context` discover third-party libs and merge library `.sophia` into inputs/ASTs; `run_with_host` unifies WASM-host registration (always) + native-host registration (on-demand by entry effects), replacing `run_with_default_host`/`run_with_real_host`. `tools/check` `check_strip_assist_equivalence(sources, registry, index)` becomes registry-aware (both sides merge library sources symmetrically); `check_program` merges library sources. Graph gate/design/implement-loop and LSP/codegen still use `standard_registry` (deterministic sub-gates). Manual smoke verifies that pure-Sophia + WASM demo libs via CLI `check`/`run` produce the same digest. 372 passed (+3 WASM host-registration tests) / 0 failed; clippy 0 warnings; fmt clean.

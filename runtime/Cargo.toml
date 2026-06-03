@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "解释器（v0 唯一执行后端）。起步子集为同步纯逻辑；Tokio substrate 随异步 effect 接入"
+description = "同步解释器与 HostRegistry；Sophia runtime 语义不含 async/await"
 
 [dependencies]
 sophia-semantic.workspace = true

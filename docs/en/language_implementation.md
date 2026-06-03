@@ -1,5 +1,7 @@
 # Sophia Language Implementation
 
+![Sophia language implementation](images/language_implementation.png)
+
 > This document defines the implementation layers of the Sophia compiler and runtime (AST, IR, type system implementation, checking pipeline, runtime model, etc.).
 > Language and workflow concepts are in `language_design.md`.
 > Engineering directories, CLI, and toolchain wiring are in `engineering_architecture.md`.

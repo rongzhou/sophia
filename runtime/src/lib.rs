@@ -7,9 +7,9 @@
 //! runtime input/output validation 直接消费 entity / state / error metadata
 //! （Semantic 声明模型），不经过任何中间语言（step 5）。
 //!
-//! 异步边界（9.3）：起步子集 body 子语言无 await / 并发 / 共享可变状态，解释核心
-//! 是同步纯逻辑；IO 副作用经 [`EffectHost`] 委派给宿主。Tokio substrate 在引入
-//! 真实异步 effect（网络 / 文件）时接入，不在起步子集伪造并发。
+//! 异步边界（9.3）：Sophia 当前语言 / runtime 语义无 await / 并发 / 共享可变状态，
+//! 解释核心是同步纯逻辑；IO 副作用经 [`HostRegistry`] 以同步 host 调用委派给宿主。
+//! Rust async 只属于 LLM / LSP 等工具链 IO 外壳，不代表 runtime 有异步执行目标。
 
 #![forbid(unsafe_code)]
 

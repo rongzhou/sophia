@@ -266,9 +266,12 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
       解释器 + WASM 后端比对（`sophia_mode.rs::verify_candidate` 等），在真实模型产物上守 codegen 等价。
       仅在有 API key 时跑（example，不进确定性 CI）。A3 的确定性核心（手写程序覆盖全形态）已完成。
 - [ ] **LSP 扩展**：rename / autocomplete / semantic navigation（增量分析见 A6）。结转自 v0 §2.3。
-- [ ] **Execution Graph IR 调度扩展**：并发 / await / retry / cancellation / checkpoint 边语义
-      （起步子集仅 Control 调用边；其余边为枚举占位、无表层来源）。结转自 v0 §2.3。
-- [ ] **Tokio substrate 接入**：引入网络 / 文件等真实异步 effect 时。结转自 v0 §2.3。
+- [ ] **Execution Graph IR 远期调度愿景**：并发 / await / retry / cancellation / checkpoint 边语义
+      仅作为 v4/v5 级远期方向保留；当前 Sophia 语言 / runtime / WASM codegen 均为**同步确定性执行**
+      （起步子集仅 Control 调用边；其余边无表层来源，不是 v1/v2 近期补齐项）。结转自 v0 §2.3。
+- [ ] **Tokio substrate 远期愿景**：仅在未来语言层明确引入异步执行语义、Execution Graph 可生成对应边、
+      且 WASM/host ABI 有明确路线时重新进入设计门；当前 Rust async 只属于 LLM / LSP 等工具链 IO 实现细节，
+      不代表 Sophia runtime 有异步执行目标。结转自 v0 §2.3。
 
 
 

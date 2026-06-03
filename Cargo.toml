@@ -3,7 +3,7 @@
 # 分层纪律（见 docs/engineering_architecture.md 第三节）：
 #   core/*    纯语言语义，禁止 IO，禁止依赖 workflow/*
 #   tools/*   确定性工具链，依赖 core
-#   workflow/* 启发式工作流引擎，依赖 core（异步）
+#   workflow/* 启发式工作流引擎，依赖 core（LLM IO 可异步；不进入 Sophia runtime 语义）
 #   lsp / runtime / cli 为上层
 #
 # 版本对齐（见 docs/engineering_notes.md 2026-05-28 版本与依赖策略）：
@@ -54,7 +54,7 @@ serde_json = "1.0"
 tree-sitter = "0.26"
 cc = "1.0"
 
-# 异步运行时（仅工作流 / 运行时 / 协调层）
+# 异步运行时（仅 LLM / LSP / examples 等工具链 IO 外壳；Sophia runtime 语义保持同步）
 tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
 
