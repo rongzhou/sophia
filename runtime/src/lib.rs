@@ -34,45 +34,12 @@ pub use wasm_host::WasmHostFn;
 
 use sophia_syntax::Ast;
 
-/// 一次顶层执行的完整结果：执行结局 + effect 宿主 + 执行图 Trace 投影。
-///
-/// `trace` 是 Execution Graph 执行的投影（见 docs/language_implementation.md 9.4）：
-/// 每次 callable 进入一条 span，携带其 `ExecNodeId` 与触发它的调用边 `ExecEdgeId`。
-#[derive(Debug)]
-pub struct Execution {
-    /// 执行结局（正常返回 / 领域错误）。
-    pub outcome: Outcome,
-    /// effect 宿主注册表（含捕获的 console 输出 + 库 host）。
-    pub host: HostRegistry,
-    /// Execution Graph 执行的 Trace 投影（9.4）。
-    pub trace: Trace,
-}
-
-/// 执行某 action / transition 的便捷入口（**空 host 注册表**：仅支持 Console / 纯逻辑）。
-///
-/// 用到库 effect（`File` / `Http` / 三方）的程序须用 [`run_action_with_host`] 注入注册了对应库
-/// host 的 [`HostRegistry`]（标准库见 `sophia-stdlib`）。返回 [`Execution`]（结局 + 宿主 + Trace）。
-pub fn run_action(
-    model: &sophia_semantic::SemanticModel,
-    asts: &[&Ast],
-    name: &str,
-    args: Vec<Value>,
-) -> RuntimeResult<Execution> {
-    let mut host = HostRegistry::new();
-    let (outcome, trace) = run_action_with_host(model, asts, name, args, &mut host)?;
-    Ok(Execution {
-        outcome,
-        host,
-        trace,
-    })
-}
-
 /// 用调用方提供的 effect 宿主注册表执行某 action / transition。
 ///
-/// 供需要**注入库 host**（标准库 native / mock、三方 WASM，见 docs/stdlib_design.md）的协调层
-/// 使用——`runtime` 自身不内置任何具体库。返回执行结局 + Trace 投影；宿主由调用方持有（其内部
-/// 状态如 console / 文件桶 / 网络响应均在调用方手中）。
-pub fn run_action_with_host(
+/// 调用方必须显式提供 host：纯逻辑 / Console 程序传空 [`HostRegistry`]，需要库 effect 的程序先注册
+/// 标准库 native / mock 或三方 WASM host（见 docs/stdlib_design.md）。返回执行结局 + Trace 投影；
+/// 宿主由调用方持有（其内部状态如 console / 文件桶 / 网络响应均在调用方手中）。
+pub fn run_action(
     model: &sophia_semantic::SemanticModel,
     asts: &[&Ast],
     name: &str,

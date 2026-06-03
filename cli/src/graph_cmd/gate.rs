@@ -305,8 +305,7 @@ fn run_hidden_verifiers(
         .zip(&domains)
         .map(|(((path, _), ast), domain)| sophia_hir::ProgramInput { domain, path, ast })
         .collect();
-    let Ok((index, _)) =
-        sophia_hir::resolve_program_with_libraries(&inputs, &sophia_stdlib::standard_registry())
+    let Ok((index, _)) = sophia_hir::resolve_program(&inputs, &sophia_stdlib::standard_registry())
     else {
         return Vec::new();
     };

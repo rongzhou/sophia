@@ -1,8 +1,8 @@
 //! HIR 名称解析与 scope 分析的集成测试。
 
 use sophia_hir::{
-    resolve_program, resolve_program_with_libraries, HirDiagnosticKind, HirError, LibraryContent,
-    LibraryRegistry, NodeKind, ProgramInput,
+    resolve_program, HirDiagnosticKind, HirError, LibraryContent, LibraryRegistry, NodeKind,
+    ProgramInput,
 };
 use sophia_syntax::{parse_ast, Ast};
 
@@ -126,7 +126,8 @@ fn inputs<'a>(parsed: &'a [(String, String, Ast)]) -> Vec<ProgramInput<'a>> {
 fn well_formed_program_resolves_clean() {
     let sources = todo_program_sources();
     let parsed = asts(&sources);
-    let (index, diags) = resolve_program(&inputs(&parsed)).expect("build");
+    let (index, diags) =
+        resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).expect("build");
 
     assert_eq!(index.kind_of("Todo"), Some(NodeKind::Entity));
     assert_eq!(index.kind_of("CompleteTodo"), Some(NodeKind::Action));
@@ -153,7 +154,7 @@ fn duplicate_node_name_is_hard_error() {
             b,
         ),
     ];
-    let err = resolve_program(&inputs(&parsed)).unwrap_err();
+    let err = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap_err();
     assert!(matches!(err, HirError::DuplicateNode { .. }));
 }
 
@@ -168,7 +169,7 @@ fn multiple_top_level_nodes_in_one_file_is_error() {
         "domains/D/entities/AB.sophia".to_string(),
         two,
     )];
-    let err = resolve_program(&inputs(&parsed)).unwrap_err();
+    let err = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap_err();
     assert!(matches!(
         err,
         HirError::MultipleTopLevelNodes { count: 2, .. }
@@ -184,7 +185,7 @@ fn unresolved_type_reference_reported() {
         "domains/D/entities/Todo.sophia".to_string(),
         entity,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::UnresolvedReference && d.name == "Ghost"));
@@ -201,7 +202,7 @@ fn unknown_capability_binding_reported() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::UnresolvedReference && d.name == "NoSuchCap"));
@@ -218,7 +219,7 @@ fn shadowing_local_variable_is_forbidden() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::Shadowing && d.name == "v"));
@@ -234,7 +235,7 @@ fn shadowing_input_param_is_forbidden() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::Shadowing && d.name == "x"));
@@ -251,7 +252,7 @@ fn set_immutable_variable_reported() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::AssignToImmutable && d.name == "v"));
@@ -268,7 +269,7 @@ fn set_mutable_variable_is_ok() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(
         !diags
             .iter()
@@ -288,7 +289,7 @@ fn set_undeclared_variable_reported() {
         "domains/D/actions/A.sophia".to_string(),
         action,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::UnresolvedVariable && d.name == "ghost"));
@@ -306,7 +307,7 @@ fn match_binding_scoped_to_arm() {
         "domains/D/actions/A.sophia".to_string(),
         ok,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(
         !diags
             .iter()
@@ -327,7 +328,7 @@ fn unknown_type_in_match_pattern_reported() {
         "domains/D/actions/A.sophia".to_string(),
         ok,
     )];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(
         diags
             .iter()
@@ -354,7 +355,7 @@ fn cross_domain_implicit_reference_reported() {
             act,
         ),
     ];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::ImplicitCrossDomain && d.name == "Foo"));
@@ -379,7 +380,7 @@ fn raise_unknown_variant_reported() {
             err,
         ),
     ];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::UnresolvedReference && d.name == "Ghost"));
@@ -404,7 +405,7 @@ fn errors_referencing_error_node_instead_of_variant_reported() {
             err,
         ),
     ];
-    let (_idx, diags) = resolve_program(&inputs(&parsed)).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).unwrap();
     assert!(diags
         .iter()
         .any(|d| d.kind == HirDiagnosticKind::UnresolvedReference && d.name == "E"));
@@ -414,7 +415,8 @@ fn errors_referencing_error_node_instead_of_variant_reported() {
 fn asg_index_json_is_stable_and_sorted() {
     let sources = todo_program_sources();
     let parsed = asts(&sources);
-    let (index, _diags) = resolve_program(&inputs(&parsed)).expect("build");
+    let (index, _diags) =
+        resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).expect("build");
     let json = index.to_json().expect("json");
     // BTreeMap 保证 key 升序；CompleteTodo 应排在 Todo 前。
     let pos_complete = json.find("CompleteTodo").unwrap();
@@ -429,7 +431,8 @@ fn asg_index_json_is_stable_and_sorted() {
 fn asg_index_json_snapshot() {
     let sources = todo_program_sources();
     let parsed = asts(&sources);
-    let (index, _diags) = resolve_program(&inputs(&parsed)).expect("build");
+    let (index, _diags) =
+        resolve_program(&inputs(&parsed), &LibraryRegistry::empty()).expect("build");
     let json = index.to_json().expect("json");
     insta::assert_snapshot!("asg_index_todo_domain", json);
 }
@@ -447,7 +450,7 @@ fn http_special_root_resolves_clean() {
         "domains/D/actions/Fetch.sophia".to_string(),
         ok,
     )];
-    let (_idx, diags) = resolve_program_with_libraries(&inputs(&parsed), &http_registry()).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &http_registry()).unwrap();
     assert!(
         !diags
             .iter()
@@ -474,7 +477,7 @@ fn http_get_capability_allow_resolves_clean() {
         "domains/D/capabilities/NetCap.sophia".to_string(),
         cap,
     )];
-    let (_idx, diags) = resolve_program_with_libraries(&inputs(&parsed), &http_registry()).unwrap();
+    let (_idx, diags) = resolve_program(&inputs(&parsed), &http_registry()).unwrap();
     assert!(
         !diags
             .iter()

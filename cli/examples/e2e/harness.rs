@@ -802,9 +802,8 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
             ast,
         })
         .collect();
-    let index = AsgIndex::build(inputs)
-        .map_err(|e| anyhow::anyhow!("构建 index 失败：{e:?}"))?
-        .with_libraries(&sophia_stdlib::standard_registry());
+    let index = AsgIndex::build(inputs, &sophia_stdlib::standard_registry())
+        .map_err(|e| anyhow::anyhow!("构建 index 失败：{e:?}"))?;
     let refs: Vec<&Ast> = asts.iter().collect();
     let analysis = analyze_program(&refs, &index);
     if !analysis.diagnostics.is_empty() {
@@ -833,7 +832,7 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
     let (outcome, console): (sophia_runtime::Outcome, Vec<String>) = if entry_uses_real_io {
         let mut host = sophia_runtime::HostRegistry::new();
         sophia_stdlib::register_native_hosts(&mut host);
-        let (outcome, _trace) = sophia_runtime::run_action_with_host(
+        let (outcome, _trace) = sophia_runtime::run_action(
             &analysis.model,
             &refs,
             &spec.entry_action,
@@ -844,11 +843,13 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
         let console = host.console.clone();
         (outcome, console)
     } else {
-        let sophia_runtime::Execution { outcome, host, .. } = sophia_runtime::run_action(
+        let mut host = sophia_runtime::HostRegistry::new();
+        let (outcome, _trace) = sophia_runtime::run_action(
             &analysis.model,
             &refs,
             &spec.entry_action,
             spec.args.clone(),
+            &mut host,
         )
         .map_err(|e| anyhow::anyhow!("解释执行失败：{e}"))?;
         (outcome, host.console)

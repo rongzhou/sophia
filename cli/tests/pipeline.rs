@@ -505,6 +505,51 @@ fn build_emits_wasm_artifact() {
 }
 
 #[test]
+fn build_uses_project_library_sources() {
+    let dir = temp_project("build_lib_source");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "sophia_libs/math_sophia/library.toml",
+        r#"[library]
+name = "math_sophia"
+summary = "测试用纯 Sophia 数学库"
+abi_version = 1
+
+[surface]
+sophia_sources = ["src/double.sophia"]
+
+[prompt]
+asset = "math_sophia.md"
+"#,
+    );
+    write_file(&dir, "sophia_libs/math_sophia/math_sophia.md", "测试资产");
+    write_file(
+        &dir,
+        "sophia_libs/math_sophia/src/double.sophia",
+        "action LibDouble { input { n: Int } output { y: Int } body { return n + n } }",
+    );
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/UseLib.sophia",
+        "action UseLib { input { n: Int } output { y: Int } body { return LibDouble(n) } }",
+    );
+
+    let out = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        out.status.success(),
+        "build 应并入项目三方 Sophia 库源码，stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let wasm = dir.join("sophia-runs/build/program.wasm");
+    assert!(wasm.exists(), "应产出 program.wasm");
+    let bytes = std::fs::read(&wasm).unwrap();
+    assert_eq!(&bytes[0..4], b"\0asm", "应是合法 WASM 魔数");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn build_reports_uncovered_construct_honestly() {
     // codegen 尚未覆盖的构造（list）：build 诚实报告，不伪造产出（解释执行仍可用）。
     let dir = temp_project("build_uncovered");

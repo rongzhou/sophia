@@ -1,6 +1,6 @@
 //! Sophia → WASM codegen（工作流 A）。
 //!
-//! 见 docs/wasm_codegen.md（设计门，已定稿）。把 Sophia 的语义投影为可部署的 WASM artifact，
+//! 见 docs/wasm_codegen.md（设计评审，已定稿）。把 Sophia 的语义投影为可部署的 WASM artifact，
 //! 使执行后端从「仅 Rust 进程内解释器」扩展到「可被 Node / Python / 浏览器 / 边缘 runtime 嵌入
 //! 运行」。本 crate 属 **tools 层**：确定性、**零 IO**（emit 出的字节由 CLI 协调层落盘）、
 //! **不调用 LLM**、**不修改 IR**。

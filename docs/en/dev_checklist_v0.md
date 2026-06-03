@@ -263,7 +263,7 @@ Milestones from language_implementation.md §19:
 
 #### Execution Trace projection (core/exec-ir + runtime, impl §9.4)
 - [x] Stable `ExecEdgeId(u32)`: introduce stable IDs for exec-graph edges in `core/exec-ir` (`add_edge` returns ID; `call_edge_id` / `edge` queries) — prerequisite for trace projection
-- [x] `runtime/trace`: `Trace` / `ExecutionSpan` / `SpanOutcome`; interpreter opens a span upon entering each callable (pre-order) and writes back the outcome; `run_action` returns `Execution { outcome, host, trace }`. Span carries `node_id` / triggering `edge_id` (top-level None) / `depth` / `outcome`. Determinism first: no wall-clock durations; only graph projection and entry sequence `seq`. LLM metering (tokens/cost) awaits LLM execution nodes
+- [x] `runtime/trace`: `Trace` / `ExecutionSpan` / `SpanOutcome`; interpreter opens a span upon entering each callable (pre-order) and writes back the outcome; `run_action` takes an explicit HostRegistry and returns `(Outcome, Trace)`. Span carries `node_id` / triggering `edge_id` (top-level None) / `depth` / `outcome`. Determinism first: no wall-clock durations; only graph projection and entry sequence `seq`. LLM metering (tokens/cost) awaits LLM execution nodes
 - [x] CLI `sophia run --trace`: render projection (indent by depth + node/edge IDs + outcome). 4 trace tests + 1 CLI `--trace` integration test
 
 #### Constraint audit verifier execution + hidden-case storage (runtime + tools/audit + cli, spec V.A)

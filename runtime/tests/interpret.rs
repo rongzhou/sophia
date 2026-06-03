@@ -5,23 +5,22 @@
 //! （后者反向依赖 runtime），故用中性库测分派机制，不测具体标准库语义（那归 stdlib 的测试）。
 
 use sophia_hir::{AsgIndex, IndexInput, LibraryContent, LibraryRegistry};
-use sophia_runtime::{
-    run_action as run_exec, Execution, HostRegistry, Outcome, RuntimeError, Value,
-};
+use sophia_runtime::{run_action as run_exec, HostRegistry, Outcome, RuntimeError, Value};
 use sophia_semantic::{analyze_program, SemanticModel};
 use sophia_syntax::{parse_ast, Ast};
 
-/// 测试便捷封装：执行并把 [`Execution`] 拆为 `(Outcome, HostRegistry)`。
+/// 测试便捷封装：执行并返回 `(Outcome, HostRegistry)`。
 ///
 /// trace 投影由专门的 trace 测试覆盖；多数解释器测试只关心结局与宿主，故在测试层
-/// 保留旧形态签名（非生产并行路径——`run_action` 唯一入口仍返回 `Execution`）。
+/// 保留测试内常用返回形态；公共 `run_action` 仍要求显式 host。
 fn run_action(
     model: &SemanticModel,
     asts: &[&Ast],
     name: &str,
     args: Vec<Value>,
 ) -> Result<(Outcome, HostRegistry), RuntimeError> {
-    let Execution { outcome, host, .. } = run_exec(model, asts, name, args)?;
+    let mut host = HostRegistry::new();
+    let (outcome, _trace) = run_exec(model, asts, name, args, &mut host)?;
     Ok((outcome, host))
 }
 
@@ -130,9 +129,7 @@ impl Program {
                 ast: a,
             })
             .collect();
-        let index = AsgIndex::build(inputs)
-            .expect("index")
-            .with_libraries(registry);
+        let index = AsgIndex::build(inputs, registry).expect("index");
         let refs: Vec<&Ast> = self.asts.iter().collect();
         let analysis = analyze_program(&refs, &index);
         assert!(
@@ -627,9 +624,9 @@ fn lib_op_dispatches_to_registered_host() {
 }
 
 #[test]
-fn run_action_with_host_injects_registered_host() {
-    // 注入接缝：run_action_with_host 接受调用方持有的 host（此处注册 Vault host）。
-    use sophia_runtime::run_action_with_host;
+fn run_action_injects_registered_host() {
+    // 注入接缝：run_action 接受调用方持有的 host（此处注册 Vault host）。
+    use sophia_runtime::run_action;
     let prog = Program::new(&[
         r#"capability C { allow { Vault.Read } }"#,
         r#"action Fetch {
@@ -644,7 +641,7 @@ fn run_action_with_host_injects_registered_host() {
     let refs = prog.refs();
     let mut host = vault_host();
     seed_vault(&mut host, "seam", "injected-body");
-    let (outcome, _trace) = run_action_with_host(
+    let (outcome, _trace) = run_action(
         &model,
         &refs,
         "Fetch",

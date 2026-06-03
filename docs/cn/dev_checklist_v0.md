@@ -483,7 +483,7 @@ boundary / 合约证明，支撑更复杂的"严肃程序"与基准阶梯 L6+）
 - [x] **稳定 `ExecEdgeId(u32)`**：`core/exec-ir` 为执行图边引入稳定 ID（`add_edge` 返回 ID，
       `call_edge_id` / `edge` 查询）——trace 投影的前置条件
 - [x] **`runtime/trace`**：`Trace` / `ExecutionSpan` / `SpanOutcome`，解释器每次 callable 进入开一条
-      span（pre-order）、执行完写回结局，`run_action` 返回 `Execution { outcome, host, trace }`。span 携带
+      span（pre-order）、执行完写回结局，`run_action` 返回 `run_action(..., host) -> (Outcome, Trace)`。span 携带
       `node_id` /（触发它的）`edge_id`（顶层入口 None）/ `depth` / `outcome`。确定性优先：不记墙钟时长
       （破坏可复现），只记图结构投影与进入序 `seq`；LLM 计量（tokens/cost）待 LLM 执行节点引入
 - [x] **CLI `sophia run --trace`**：呈现投影（按 depth 缩进 + 节点 / 边 ID + 结局）。4 项 trace 测试 +
@@ -992,7 +992,7 @@ boundary / 合约证明，支撑更复杂的"严肃程序"与基准阶梯 L6+）
   新增 `ExecEdgeId(u32)`（按构建序分配，`add_edge` 返回 ID，新增 `call_edge_id` / `edge` 查询）。
   `runtime/trace` 新增 `Trace` / `ExecutionSpan` / `SpanOutcome`：解释器每次 callable 进入开一条 span
   （pre-order，携带 `node_id` + 触发它的 `edge_id`（顶层 None）+ `depth`），执行完写回 `outcome`；
-  `run_action` 返回值由 `(Outcome, InMemoryHost)` 改为 `Execution { outcome, host, trace }`（单一路径，
+  `run_action` 返回值由 `(Outcome, InMemoryHost)` 改为 `run_action(..., host) -> (Outcome, Trace)`（单一路径，
   所有调用点同步迁移）。确定性优先：span 不记墙钟时长（破坏可复现），只记图结构投影 + 进入序 `seq`；
   LLM 计量（tokens/cost）待 LLM 执行节点引入。4 项 trace 测试（单节点 / 跨调用投影边 / raise 结局 /
   重复调用有序）。

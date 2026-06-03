@@ -1,8 +1,8 @@
 //! Task Closure / action-rooted semantic context 的集成测试（语言设计第八节）。
 
 use sophia_hir::{
-    action_context, resolve_program, task_context, ClosureError, ContextEdgeKind, NodeKind,
-    ProgramInput,
+    action_context, resolve_program, task_context, ClosureError, ContextEdgeKind, LibraryRegistry,
+    NodeKind, ProgramInput,
 };
 use sophia_syntax::{parse_ast, Ast};
 
@@ -97,7 +97,7 @@ fn build() -> (Vec<Ast>, sophia_hir::AsgIndex) {
         .zip(&asts)
         .map(|((domain, path, _), ast)| ProgramInput { domain, path, ast })
         .collect();
-    let (index, diags) = resolve_program(&inputs).unwrap();
+    let (index, diags) = resolve_program(&inputs, &LibraryRegistry::empty()).unwrap();
     assert!(diags.is_empty(), "规范程序应无诊断：{diags:?}");
     (asts, index)
 }
@@ -227,8 +227,7 @@ fn task_closure_excluded_effect_no_longer_blocks() {
 
 mod effect_resolution {
     use sophia_hir::{
-        resolve_program, resolve_program_with_libraries, HirDiagnosticKind, LibraryContent,
-        LibraryRegistry, ProgramInput,
+        resolve_program, HirDiagnosticKind, LibraryContent, LibraryRegistry, ProgramInput,
     };
     use sophia_syntax::{parse_ast, Ast};
 
@@ -296,9 +295,7 @@ asset = "http.md"
             ast: &ast,
         }];
         // 注入库注册表（File / Http），与生产路径（CLI 经 sophia-stdlib 注入）同源。
-        resolve_program_with_libraries(&inputs, &lib_registry())
-            .unwrap()
-            .1
+        resolve_program(&inputs, &lib_registry()).unwrap().1
     }
 
     /// 无库版本（仅语言内置 Console）。
@@ -313,7 +310,9 @@ asset = "http.md"
             path,
             ast: &ast,
         }];
-        resolve_program(&inputs).unwrap().1
+        resolve_program(&inputs, &LibraryRegistry::empty())
+            .unwrap()
+            .1
     }
 
     #[test]
@@ -392,7 +391,7 @@ asset = "http.md"
                 ast: &cap,
             },
         ];
-        let (index, diags) = resolve_program(&inputs).unwrap();
+        let (index, diags) = resolve_program(&inputs, &LibraryRegistry::empty()).unwrap();
         assert!(diags.is_empty(), "声明的 effect 引用应解析通过：{diags:?}");
         // effect 进入 index 作为 Effect kind。
         assert_eq!(index.kind_of("Payment"), Some(sophia_hir::NodeKind::Effect));

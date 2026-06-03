@@ -101,7 +101,7 @@ New readers should start with the concept guide:
 - `docs/en/dev_checklist_v1.md` — Engineering progress (current SSOT, v1), including v1 requirements / language / standard-library expansion plan. `docs/en/dev_checklist_v0.md` — v0 phase archive (read-only).
 - `docs/en/engineering_notes.md` — Engineering decision log.
 - Testing guides (three categories): `docs/en/unit_test.md` (unit tests: enter `cargo test`, deterministic, the only place mocks are allowed), `docs/en/e2e_test.md` (end-to-end: real LLM + real I/O, no mocks), `docs/en/benchmark_test.md` (benchmark: success-rate / elapsed-time comparison between Sophia workflow and direct Python generation, no mocks).
-- v1 feature design docs: `docs/en/type_system.md` (F1 type-syntax unification with `one of` / `list of`), `docs/en/wasm_codegen.md` (Workflow A: WASM codegen design gate).
+- v1 feature design docs: `docs/en/type_system.md` (F1 type-syntax unification with `one of` / `list of`), `docs/en/wasm_codegen.md` (Workflow A: WASM codegen design review).
 - Library docs: `docs/en/stdlib_design.md` (library design: manifest-driven plugin model / unified standard + third-party libraries / “I/O = library” boundary / prompt scaffolding), `docs/en/stdlib_implementation.md` (library implementation: `sophia-library` registry + `sophia-stdlib` content + route-B host injection), `docs/en/http_lib.md` (`Http` library), `docs/en/file_lib.md` (`File` library).
 
 For the contribution workflow and code conventions, see [CONTRIBUTING.md](CONTRIBUTING.md).

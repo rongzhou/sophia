@@ -9,7 +9,7 @@
 //! ```
 //!
 //! 故意**不支持**：库自定义 entity/state/error 作参/返、泛型、`one of`、`list of`。将来某库需要
-//! 更复杂签名时，扩此 DSL 并过设计门（YAGNI，不预先开放）。
+//! 更复杂签名时，扩此 DSL 并完成相应设计评审（YAGNI，不预先开放）。
 
 use serde::{Deserialize, Serialize};
 

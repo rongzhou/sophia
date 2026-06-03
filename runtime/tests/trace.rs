@@ -4,8 +4,8 @@
 //! 一条 span，携带其 `ExecNodeId` 与触发它的调用边 `ExecEdgeId`（顶层入口无入边）。
 
 use sophia_exec_ir::ExecGraph;
-use sophia_hir::{AsgIndex, IndexInput};
-use sophia_runtime::{run_action, Execution, SpanOutcome, Value};
+use sophia_hir::{AsgIndex, IndexInput, LibraryRegistry};
+use sophia_runtime::{run_action, HostRegistry, SpanOutcome, Value};
 use sophia_semantic::{analyze_program, SemanticModel};
 use sophia_syntax::{parse_ast, Ast};
 
@@ -34,7 +34,7 @@ impl Program {
                 ast: a,
             })
             .collect();
-        let index = AsgIndex::build(inputs).expect("index");
+        let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).expect("index");
         let refs: Vec<&Ast> = self.asts.iter().collect();
         let analysis = analyze_program(&refs, &index);
         assert!(
@@ -59,8 +59,15 @@ fn single_action_trace_has_one_top_level_span() {
 }"#]);
     let model = prog.analyze();
     let refs = prog.refs();
-    let Execution { trace, .. } =
-        run_action(&model, &refs, "Add", vec![Value::Int(3), Value::Int(4)]).unwrap();
+    let mut host = HostRegistry::new();
+    let (_outcome, trace) = run_action(
+        &model,
+        &refs,
+        "Add",
+        vec![Value::Int(3), Value::Int(4)],
+        &mut host,
+    )
+    .unwrap();
 
     assert_eq!(trace.len(), 1, "单 action 应只有一条 span");
     let span = &trace.spans()[0];
@@ -95,8 +102,9 @@ fn cross_call_trace_projects_call_edge() {
     ]);
     let model = prog.analyze();
     let refs = prog.refs();
-    let Execution { outcome, trace, .. } =
-        run_action(&model, &refs, "Outer", vec![Value::Int(5)]).unwrap();
+    let mut host = HostRegistry::new();
+    let (outcome, trace) =
+        run_action(&model, &refs, "Outer", vec![Value::Int(5)], &mut host).unwrap();
     assert_eq!(outcome, sophia_runtime::Outcome::Returned(Value::Int(16)));
 
     assert_eq!(trace.len(), 2, "Outer + Inner 两条 span");
@@ -146,7 +154,9 @@ fn trace_records_raise_outcome() {
     ]);
     let model = prog.analyze();
     let refs = prog.refs();
-    let Execution { trace, .. } = run_action(&model, &refs, "Outer", vec![Value::Int(1)]).unwrap();
+    let mut host = HostRegistry::new();
+    let (_outcome, trace) =
+        run_action(&model, &refs, "Outer", vec![Value::Int(1)], &mut host).unwrap();
 
     assert_eq!(trace.len(), 2);
     // 两条 span 都因领域错误冒泡而结局为 Raised（Inner raise，Outer 在边界物化为 Raised）。
@@ -181,8 +191,9 @@ fn repeated_calls_produce_distinct_ordered_spans() {
     ]);
     let model = prog.analyze();
     let refs = prog.refs();
-    let Execution { outcome, trace, .. } =
-        run_action(&model, &refs, "Outer", vec![Value::Int(0)]).unwrap();
+    let mut host = HostRegistry::new();
+    let (outcome, trace) =
+        run_action(&model, &refs, "Outer", vec![Value::Int(0)], &mut host).unwrap();
     assert_eq!(outcome, sophia_runtime::Outcome::Returned(Value::Int(2)));
 
     assert_eq!(trace.len(), 3, "Outer + 两次 Inner");

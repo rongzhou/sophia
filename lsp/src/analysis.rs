@@ -7,7 +7,7 @@
 //!
 //! 本模块不依赖 tower-lsp，便于单元测试；协议投影见 `convert` 与 `server`。
 
-use sophia_hir::{resolve_item, resolve_program_with_libraries, AsgIndex, NodeKind, ProgramInput};
+use sophia_hir::{resolve_item, resolve_program, AsgIndex, NodeKind, ProgramInput};
 use sophia_semantic::{analyze_one_callable, SemanticModel};
 use sophia_syntax::{parse_str, Ast, Item, Span, SyntaxDiagnostic, SyntaxTree};
 use std::collections::BTreeMap;
@@ -140,9 +140,9 @@ impl Workspace {
             })
             .collect();
         let registry = sophia_stdlib::standard_registry();
-        let index = match resolve_program_with_libraries(&inputs, &registry) {
+        let index = match resolve_program(&inputs, &registry) {
             Ok((index, _)) => index,
-            Err(_) => AsgIndex::new().with_libraries(&registry),
+            Err(_) => AsgIndex::new(&registry),
         };
 
         let mut out = Vec::new();

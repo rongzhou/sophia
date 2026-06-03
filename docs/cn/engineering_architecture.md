@@ -137,7 +137,7 @@ Sophia 语言 / runtime / WASM codegen 当前均为**同步确定性执行**；a
 `builtins::BUILTIN_EFFECT_OPS`（`(family, op, 参数个数)`）承载——这是「机制 vs 能力族」边界里的例外
 （语言内置输出原语）。文件 / 网络等 I/O 的 effect 族由**库**提供（`File` / `Http`，见 `stdlib_design.md`），
 **不在** `BUILTIN_EFFECT_OPS`：它们由库清单（`library.toml`）声明，经 `LibraryRegistry` 注入
-`AsgIndex`（`with_libraries`）——**核心不硬编码任何具体库**。
+`AsgIndex`（`AsgIndex::new`/`AsgIndex::build` 的 registry 参数）——**核心不硬编码任何具体库**。
 
 ```
 Console.Write          ← 标准输出（print 触发，语言内置，BUILTIN_EFFECT_OPS）
@@ -754,7 +754,7 @@ v1 是"把玩具语言变成严肃语言"的阶段（见 `language_design.md` §
 
 **工作流 B — 语言能力 / 标准库扩充（需求驱动，支撑更复杂的程序与更有说服力的基准）**
 - 目的：v0 起步子集只够跑最小语言面；要写出"严肃程序"和更复杂的基准，需要补齐语言能力。但扩充
-  **需求驱动**——由具体演示需求触发、逐项过设计门，**不预先铺特征清单**（详见 `dev_checklist_v1.md`
+  **需求驱动**——由具体演示需求触发、逐项完成设计评审，**不预先铺特征清单**（详见 `dev_checklist_v1.md`
   §二）。
 - 两条准入通道（`language_design.md` §1 定位原则、技术报告 §3）：① 演示需求驱动（缺什么补什么、需求
   封顶）；② 强论证的 LLM-native 特征（门槛更高，须给出"为何专门服务 LLM 自动编程"的论证 + 可度量收益）。

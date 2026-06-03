@@ -9,9 +9,7 @@
 
 use std::path::PathBuf;
 
-use sophia_hir::{
-    resolve_program_with_libraries, AsgIndex, IndexInput, LibrarySources, ProgramInput,
-};
+use sophia_hir::{resolve_program, AsgIndex, IndexInput, LibrarySources, ProgramInput};
 use sophia_runtime::{HostRegistry, Outcome, Value, WasmHostFn};
 use sophia_semantic::analyze_program;
 use sophia_stdlib::full_registry_from;
@@ -174,7 +172,7 @@ fn pure_sophia_library_resolves_and_runs_with_cross_domain_exemption() {
         .collect();
     inputs.extend(lib_srcs.program_inputs());
 
-    let (_index, diags) = resolve_program_with_libraries(&inputs, &reg).expect("resolve");
+    let (_index, diags) = resolve_program(&inputs, &reg).expect("resolve");
     // 关键:用户 domain "app" 调库 domain "hash_sophia" 的 SophiaDigest,不应报 ImplicitCrossDomain。
     assert!(
         diags.is_empty(),
@@ -206,9 +204,7 @@ fn both_libraries_compute_equal_digest() {
             ast: pi.ast,
         });
     }
-    let index = AsgIndex::build(all_inputs)
-        .expect("index")
-        .with_libraries(&reg);
+    let index = AsgIndex::build(all_inputs, &reg).expect("index");
 
     let mut refs: Vec<&Ast> = user.iter().map(|(_, a)| a).collect();
     refs.extend(lib_srcs.asts());
@@ -232,7 +228,7 @@ fn both_libraries_compute_equal_digest() {
     let want = expected_digest(seed, value);
 
     // 纯 Sophia 库路径:ViaSophia 调 SophiaDigest（库节点,解释执行,无需 host）。
-    let (out_sophia, _) = sophia_runtime::run_action_with_host(
+    let (out_sophia, _) = sophia_runtime::run_action(
         &analysis.model,
         &refs,
         "ViaSophia",
@@ -247,7 +243,7 @@ fn both_libraries_compute_equal_digest() {
     );
 
     // WASM 库路径:ViaWasm 调 WasmHash.Mix（经 WasmHostFn 调 host.wasm）。
-    let (out_wasm, _) = sophia_runtime::run_action_with_host(
+    let (out_wasm, _) = sophia_runtime::run_action(
         &analysis.model,
         &refs,
         "ViaWasm",

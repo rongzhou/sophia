@@ -115,7 +115,7 @@ A layering detail surfaced in implementation and is now codified:
 
 ### 4.1 Built-in effect families vs library effect families
 
-The only built-in effect family is `Console` (output primitive; triggered by `print`), carried by `core/hir`’s `builtins::BUILTIN_EFFECT_OPS` (the `(family, op, arity)` table). File/network I/O effect families are provided by libraries (`File`/`Http`, see `stdlib_design.md`) and are not in `BUILTIN_EFFECT_OPS`: they are declared via library manifests (`library.toml`) and injected into `AsgIndex` via `LibraryRegistry::with_libraries`—the core hardcodes no specific libraries.
+The only built-in effect family is `Console` (output primitive; triggered by `print`), carried by `core/hir`’s `builtins::BUILTIN_EFFECT_OPS` (the `(family, op, arity)` table). File/network I/O effect families are provided by libraries (`File`/`Http`, see `stdlib_design.md`) and are not in `BUILTIN_EFFECT_OPS`: they are declared via library manifests (`library.toml`) and injected into `AsgIndex` via `AsgIndex::new(registry)` / `AsgIndex::build(inputs, registry)`—the core hardcodes no specific libraries.
 
 ```
 Console.Write          ← stdout (print; built-in; BUILTIN_EFFECT_OPS)

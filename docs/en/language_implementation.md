@@ -372,7 +372,7 @@ struct ExecutionSpan {
 
 This lets trace data map directly back to the graph, supporting queries like “which node was slowest” or “which edge triggered fallback,” not just timeline strings.
 
-Status (feedback): implemented (initial subset). `core/exec-ir` introduces stable `ExecEdgeId(u32)` (assigned in build order; `call_edge_id`/`edge` queries). `runtime` adds a `trace` module: the interpreter opens a span on each callable entry (pre-order) and writes outcomes on completion; `run_action` returns `Execution { outcome, host, trace }` with full projection. Determinism first: initially spans do not record real wall-clock `start`/`duration` (Instant/Duration are non-deterministic); only graph projection and `seq` are recorded. `tokens_used`/`cost_usd` belong to LLM nodes and will be wired when LLM-execution nodes are introduced. Real timing/metrics can be optional side channels and must not pollute the deterministic core. Trace is a runtime observability concern (§9.2), not on the correctness path—v0 interpreter yields correct results even without trace.
+Status (feedback): implemented (initial subset). `core/exec-ir` introduces stable `ExecEdgeId(u32)` (assigned in build order; `call_edge_id`/`edge` queries). `runtime` adds a `trace` module: the interpreter opens a span on each callable entry (pre-order) and writes outcomes on completion; `run_action` takes an explicit HostRegistry and returns `(Outcome, Trace)` with full projection. Determinism first: initially spans do not record real wall-clock `start`/`duration` (Instant/Duration are non-deterministic); only graph projection and `seq` are recorded. `tokens_used`/`cost_usd` belong to LLM nodes and will be wired when LLM-execution nodes are introduced. Real timing/metrics can be optional side channels and must not pollute the deterministic core. Trace is a runtime observability concern (§9.2), not on the correctness path—v0 interpreter yields correct results even without trace.
 
 ---
 
@@ -802,7 +802,7 @@ Workflow A (WASM codegen)
 5. Extend strip-assist equivalence gates to WASM artifact byte-level comparison (land in `sophia build`).
 6. Incremental query architecture (Salsa-inspired) to support low-latency LSP (decoupled from codegen; can proceed in parallel).
 
-Workflow B (language/stdlib expansion; demand-driven + per-item design gates)
+Workflow B (language/stdlib expansion; demand-driven + per-item design reviews)
 
 B is not a fixed implementation sequence but a set of minimal expansions triggered by demo needs (see `dev_checklist_v1.md` §2 for D1/D2/D3 needs and per-item breakdown). v1 scope is bounded by three demos: D1 (fallible-result modeling); D2 (network fetch + intent safety; flagship LLM-native demo); D3 (serious pipeline composite), yielding the minimal expansion set:
 
@@ -812,7 +812,7 @@ B is not a fixed implementation sequence but a set of minimal expansions trigger
 10. S2 Standard-library prompt scaffolding [from D2, prompt engineering]: each standard-library function has a standardized, on-demand prompt asset (reuse §8.3 preamble + `prompt/assets/`)—LLMs have no a priori knowledge of stdlib; without this they cannot use it.
 11. Standard-library relocation + `File` library [(B) “I/O = libraries”]: assert that files/network/databases are stdlib (not language primitives); keep `Console` (`print`) as a built-in output primitive; remove the unclear `storage` top-level + built-in `DB` + `Persisted` intent; add `File` (`File.Read/Write`, isomorphic to `Http`; land in v1). See `stdlib_design.md`/`file_lib.md`; `engineering_notes.md` 2026-05-31 decision.
 
-Explicitly delayed to v2+ (no v1 demo needs): task execution entry; `entity.with`; cross-domain/library intent dataflow; `requires`/`ensures` contracts subsystem; persistent `DB` (semantics must be clarified first). Each will pass its own design gate upon demand.
+Explicitly delayed to v2+ (no v1 demo needs): task execution entry; `entity.with`; cross-domain/library intent dataflow; `requires`/`ensures` contracts subsystem; persistent `DB` (semantics must be clarified first). Each will get its own design review upon demand.
 
 Each v1 step is independently mergeable/testable; A’s diff tests and B’s expansions each add to the v0 baseline rather than rewrite it.
 

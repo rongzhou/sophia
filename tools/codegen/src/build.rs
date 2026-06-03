@@ -11,7 +11,7 @@
 use crate::contract::CodegenInput;
 use crate::emit_module;
 use crate::error::{CodegenError, CodegenResult};
-use sophia_hir::ProgramInput;
+use sophia_hir::{LibraryRegistry, LibrarySources, ProgramInput};
 use sophia_semantic::SemanticModel;
 use sophia_syntax::{parse_ast, Ast};
 
@@ -22,6 +22,7 @@ use sophia_syntax::{parse_ast, Ast};
 /// [`CodegenError::InvalidInput`] 返回（不应发生）。
 pub fn emit_from_sources(
     sources: &[(String, String, String)],
+    registry: &LibraryRegistry,
     strip: bool,
 ) -> CodegenResult<Vec<u8>> {
     let asts: Vec<Ast> = sources
@@ -36,7 +37,10 @@ pub fn emit_from_sources(
         })
         .collect::<CodegenResult<_>>()?;
 
-    let inputs: Vec<ProgramInput> = sources
+    let lib_srcs = LibrarySources::from_registry(registry)
+        .map_err(|e| CodegenError::InvalidInput(format!("解析库随附 Sophia 源码失败：{e}")))?;
+
+    let mut inputs: Vec<ProgramInput> = sources
         .iter()
         .zip(&asts)
         .map(|((domain, path, _), ast)| ProgramInput {
@@ -45,12 +49,13 @@ pub fn emit_from_sources(
             ast,
         })
         .collect();
-    let (index, _diags) =
-        sophia_hir::resolve_program_with_libraries(&inputs, &sophia_stdlib::standard_registry())
-            .map_err(|e| CodegenError::InvalidInput(format!("名称解析失败：{e}")))?;
-    let model = SemanticModel::build(&asts.iter().collect::<Vec<_>>(), &index);
-    let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs);
+    inputs.extend(lib_srcs.program_inputs());
+    let (index, _diags) = sophia_hir::resolve_program(&inputs, registry)
+        .map_err(|e| CodegenError::InvalidInput(format!("名称解析失败：{e}")))?;
+    let mut refs: Vec<&Ast> = asts.iter().collect();
+    refs.extend(lib_srcs.asts());
+    let model = SemanticModel::build(&refs, &index);
+    let input = CodegenInput::new(&model, &refs, registry);
     emit_module(&input)
 }
 
@@ -67,9 +72,10 @@ pub struct ArtifactDiffOutcome {
 /// 断言字节序列逐字节相等。
 pub fn check_artifact_strip_equivalence(
     sources: &[(String, String, String)],
+    registry: &LibraryRegistry,
 ) -> CodegenResult<ArtifactDiffOutcome> {
-    let original = emit_from_sources(sources, false)?;
-    let stripped = emit_from_sources(sources, true)?;
+    let original = emit_from_sources(sources, registry, false)?;
+    let stripped = emit_from_sources(sources, registry, true)?;
     if original == stripped {
         Ok(ArtifactDiffOutcome {
             equivalent: true,

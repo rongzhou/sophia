@@ -179,7 +179,7 @@ fn verify_candidate(
             ast,
         })
         .collect();
-    let index = match AsgIndex::build(inputs) {
+    let index = match AsgIndex::build(inputs, &sophia_stdlib::standard_registry()) {
         Ok(i) => i,
         Err(e) => return mk(false, Some(format!("构建 index 失败：{e:?}")), Vec::new()),
     };

@@ -77,7 +77,7 @@ action FetchProfile {
 | `Http.Get(url)` | `(Text) -> Raw<Text>` | `Http.Get` | GET 取回响应体，类型为不可信 `Raw<Text>` |
 
 **仅 `Http.Get`**（功能库最小集，D2 演示只需取回）。`Http.Post` / 头部 / 状态码 / JSON 解析等**不预先
-设计**——出现演示需求再按设计门增量（避免架空协议栈）。`url` 参数类型为 `Text`（起步子集标量；不引入
+设计**——出现演示需求再按设计评审增量推进（避免架空协议栈）。`url` 参数类型为 `Text`（起步子集标量；不引入
 `Url` 专类型，无需求）。
 
 > **取舍记录**：`Http.Get` 返回 `Raw<Text>` 而非 `one of { Raw<Text>, HttpError }`。理由：D2 的演示焦点
@@ -151,7 +151,7 @@ fn http_get(&mut self, url: &str) -> Result<String, String>;
 
 解释器在 `MethodCall` 求值时识别 `Http.Get` 特殊根（与 `try_storage_op` 并列的 `try_effect_op`），委派
 `host.http_get(url)`，把返回文本包成 `Value::Text(body)`（运行时不携带 intent 标签——intent 是编译期静态
-属性，运行时只留结构）。host import 的通用注入机制（`run_action_with_host` / 组合 host / 按 effect 判定
+属性，运行时只留结构）。host import 的通用注入机制（`run_action` / 组合 host / 按 effect 判定
 注入）见 `stdlib_implementation.md` §三。
 
 ### 3.2 `InMemoryHost` 确定性 mock
@@ -186,7 +186,7 @@ fn http_get(&mut self, url: &str) -> Result<String, String> {
 - **超时**：client builder 设固定超时（如 10s），避免挂死；超时 → `Err`（诚实阻断）。
 - **错误映射（本阶段）**：网络失败 / 非 2xx / 读取失败一律 → `Err(String)`，解释器物化为 `RuntimeError`
   （硬错误中止）。**不**把网络失败映射成领域 `one of {..., HttpError}` 返回值——与 §2.3 决策一致；若日后
-  演示需要可恢复网络失败，再按 F1 的 `one of` 扩展 `Http.Get` 返回类型（语言层改动，走设计门）。
+  演示需要可恢复网络失败，再按 F1 的 `one of` 扩展 `Http.Get` 返回类型（语言层改动，走设计评审流程）。
 - **注入判定**：CLI `run` 默认用 `InMemoryHost`；**当入口 action 的 `declared_effects` 含 `Http.Get`**
   才构造 `CliHost` 注入真实网络——无网络程序零开销、零行为变化（机制见 `stdlib_implementation.md` §3.2）。
 
@@ -232,6 +232,6 @@ fn http_get(&mut self, url: &str) -> Result<String, String> {
   mock host 诚实（未命中即 `Err`）。三决策点（§2.8）确认采纳，hir / semantic / runtime 全链路实现 +
   9 测试。
 - 2026-05-30 — 真实 host 落地：`CliHost` 在 CLI 协调层组合委派复用 `InMemoryHost`、只覆盖 `http_get`
-  为真实 `reqwest::blocking`（固定超时 + 诚实错误）；runtime 暴露 `run_action_with_host` 注入接缝；
+  为真实 `reqwest::blocking`（固定超时 + 诚实错误）；runtime 暴露 `run_action` 注入接缝；
   CLI `run` 据入口 effect 含 `Http.Get` 判定注入。四决策点（§3.4）确认采纳。接缝单测覆盖（委派等价 /
   注入路径 / effect 判定），真实网络不进 `cargo test`。

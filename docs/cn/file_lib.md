@@ -76,7 +76,7 @@ action LoadConfig {
 - **`File.Write` 待 §七决策点确认**：写入要求 `content` 为 `Sanitized<Text>`（不可把未经处理的 `Raw`
   直接落盘——与 `Console.Write` 的输出 intent 边界同理），体现"写出边界"。若 v1 演示只需读，可仅做
   `File.Read`，`File.Write` 随 D3 重做时一起落地。
-- 追加 / 二进制 / 目录遍历 / 删除 / 元数据等**不预先设计**——出现演示需求再按设计门增量。
+- 追加 / 二进制 / 目录遍历 / 删除 / 元数据等**不预先设计**——出现演示需求再按设计评审增量推进。
 
 ### 2.3 effect 层
 
@@ -174,7 +174,7 @@ mock 性质明确标注"非真实文件系统"。
 
 ## 六、变更记录
 
-- 2026-05-31 — 设计门草案。`File` 本地文件访问库，与 `Http` 同构（特殊根 method_call + effect/capability +
+- 2026-05-31 — 设计评审草案。`File` 本地文件访问库，与 `Http` 同构（特殊根 method_call + effect/capability +
   intent 边界，零新语法）；`File.Read(path) -> Raw<Text>`（不可信，须经 intent 转换）+ `File.Write(path,
   Sanitized<Text>)`（写出边界）；mock host（`seed_file`）+ 真实 `std::fs` host（CLI 协调层）。承接 storage
   移除后的本地持久化演示需求（D3 重做用之）。待确认 §2.6 四个决策点。

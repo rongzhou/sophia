@@ -9,8 +9,8 @@
 //! 跨调用），故差测试程序限于该子集；含 match / Text / effect 等的程序待后续增量纳入。
 
 use sophia_codegen::{emit_module, CodegenInput};
-use sophia_hir::{resolve_program_with_libraries, ProgramInput};
-use sophia_runtime::{run_action_with_host, HostRegistry, Outcome, Value};
+use sophia_hir::{resolve_program, ProgramInput};
+use sophia_runtime::{run_action, HostRegistry, Outcome, Value};
 use sophia_semantic::{analyze_program, SemanticModel};
 use sophia_stdlib::{register_mock_hosts, standard_registry, MockBuckets};
 use sophia_syntax::{parse_ast, Ast};
@@ -171,8 +171,7 @@ fn analyze(sources: &[(&str, &str)]) -> (Vec<Ast>, SemanticModel) {
             ast,
         })
         .collect();
-    let (index, _d) =
-        resolve_program_with_libraries(&inputs, &standard_registry()).expect("resolve");
+    let (index, _d) = resolve_program(&inputs, &standard_registry()).expect("resolve");
     let refs: Vec<&Ast> = asts.iter().collect();
     let analysis = analyze_program(&refs, &index);
     assert!(
@@ -200,8 +199,7 @@ fn run_interp(
     }
     let mut host = HostRegistry::new();
     register_mock_hosts(&mut host, &buckets);
-    let (outcome, _trace) =
-        run_action_with_host(model, asts, entry, args, &mut host).expect("解释执行");
+    let (outcome, _trace) = run_action(model, asts, entry, args, &mut host).expect("解释执行");
     match outcome {
         Outcome::Returned(Value::Int(i)) => ScalarOutcome::Int(i),
         Outcome::Returned(Value::Bool(b)) => ScalarOutcome::Bool(b),
@@ -240,7 +238,7 @@ fn run_wasm(
     entry_is_action: bool,
     seeds: &Seeds,
 ) -> ScalarOutcome {
-    let input = CodegenInput::new(model, asts);
+    let input = CodegenInput::new(model, asts, &sophia_stdlib::standard_registry());
     let bytes = emit_module(&input).expect("emit wasm");
 
     let engine = Engine::default();
@@ -975,6 +973,7 @@ fn diff_file_read_write_d3() {
 #[test]
 fn artifact_strip_assist_byte_identical() {
     use sophia_codegen::check_artifact_strip_equivalence;
+    use sophia_stdlib::standard_registry;
     // 带丰富 Semantic Assist（meaning / not / because）的程序：移除 assist 前后 emit 的 .wasm
     // 必须逐字节相等（assist 不参与形式核心 / 值布局 / emit）。
     let src = "action Compute {\n\
@@ -989,7 +988,8 @@ fn artifact_strip_assist_byte_identical() {
         "d/actions/Compute.sophia".to_string(),
         src.to_string(),
     )];
-    let outcome = check_artifact_strip_equivalence(&sources).expect("artifact diff");
+    let registry = standard_registry();
+    let outcome = check_artifact_strip_equivalence(&sources, &registry).expect("artifact diff");
     assert!(
         outcome.equivalent,
         "移除 assist 前后 .wasm 应逐字节相等：{:?}",
@@ -1000,6 +1000,7 @@ fn artifact_strip_assist_byte_identical() {
 #[test]
 fn artifact_emit_is_deterministic() {
     use sophia_codegen::emit_from_sources;
+    use sophia_stdlib::standard_registry;
     // 同一源码 emit 两次字节相等（确定性是 artifact 门禁的前提）。
     let src = "action Pair {\n\
        input { a: Int; b: Int }\n\
@@ -1011,8 +1012,48 @@ fn artifact_emit_is_deterministic() {
         "d/actions/Pair.sophia".to_string(),
         src.to_string(),
     )];
-    let first = emit_from_sources(&sources, false).expect("emit 1");
-    let second = emit_from_sources(&sources, false).expect("emit 2");
+    let registry = standard_registry();
+    let first = emit_from_sources(&sources, &registry, false).expect("emit 1");
+    let second = emit_from_sources(&sources, &registry, false).expect("emit 2");
     assert_eq!(first, second, "同源码两次 emit 应字节相等（确定性）");
     assert_eq!(&first[0..4], b"\0asm", "应是合法 WASM");
+}
+
+#[test]
+fn artifact_emit_uses_registry_library_sources() {
+    use sophia_codegen::emit_from_sources;
+    use sophia_library::{LibraryContent, LibraryRegistry};
+
+    let content = LibraryContent {
+        dir_name: "math_sophia".into(),
+        manifest_toml: r#"
+[library]
+name = "math_sophia"
+summary = "测试用纯 Sophia 数学库"
+abi_version = 1
+
+[surface]
+sophia_sources = ["src/double.sophia"]
+
+[prompt]
+asset = "math_sophia.md"
+"#
+        .into(),
+        asset_text: "测试资产".into(),
+        sophia_sources: vec![(
+            "src/double.sophia".into(),
+            "action LibDouble { input { n: Int } output { y: Int } body { return n + n } }".into(),
+        )],
+        host_wasm: None,
+    };
+    let registry = LibraryRegistry::build(vec![content]).expect("registry");
+    let sources = vec![(
+        "d".to_string(),
+        "d/actions/UseLib.sophia".to_string(),
+        "action UseLib { input { n: Int } output { y: Int } body { return LibDouble(n) } }"
+            .to_string(),
+    )];
+
+    let bytes = emit_from_sources(&sources, &registry, false).expect("emit with library source");
+    assert_eq!(&bytes[0..4], b"\0asm", "应是合法 WASM");
 }

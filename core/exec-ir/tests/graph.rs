@@ -1,7 +1,7 @@
 //! Execution Graph IR 构建测试。
 
 use sophia_exec_ir::{ExecGraph, ExecNodeKind};
-use sophia_hir::{AsgIndex, IndexInput};
+use sophia_hir::{AsgIndex, IndexInput, LibraryRegistry};
 use sophia_semantic::SemanticModel;
 use sophia_syntax::{parse_ast, Ast};
 
@@ -26,7 +26,7 @@ fn builds_one_node_per_callable_in_stable_order() {
             ast: &transition,
         },
     ];
-    let index = AsgIndex::build(inputs).unwrap();
+    let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).unwrap();
     let asts: Vec<&Ast> = vec![&action, &transition];
     let model = SemanticModel::build(&asts, &index);
 
@@ -67,7 +67,7 @@ fn builds_call_edges_from_body() {
             ast: &caller,
         },
     ];
-    let index = AsgIndex::build(inputs).unwrap();
+    let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).unwrap();
     let asts: Vec<&Ast> = vec![&helper, &caller];
     let model = SemanticModel::build(&asts, &index);
 
@@ -99,7 +99,7 @@ fn no_edge_to_non_callable_constructs() {
             ast: &act,
         },
     ];
-    let index = AsgIndex::build(inputs).unwrap();
+    let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).unwrap();
     let asts: Vec<&Ast> = vec![&ent, &act];
     let model = SemanticModel::build(&asts, &index);
     let graph = ExecGraph::from_model(&model, &asts);
@@ -142,7 +142,7 @@ fn exec_graph_structure_snapshot() {
             ast: &combine,
         },
     ];
-    let index = AsgIndex::build(inputs).unwrap();
+    let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).unwrap();
     let asts: Vec<&Ast> = vec![&add, &dbl, &combine];
     let model = SemanticModel::build(&asts, &index);
     let graph = ExecGraph::from_model(&model, &asts);

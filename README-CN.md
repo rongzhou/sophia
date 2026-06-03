@@ -101,7 +101,7 @@ LLM 命令（经 `--model` / `--mode` 构造后端）：`graph design` / `graph 
 - `docs/cn/dev_checklist_v1.md` — 工程进展（当前 SSOT，v1）；含 v1 需求 / 语言 / 标准库扩展计划。`docs/cn/dev_checklist_v0.md` — v0 阶段归档（只读）
 - `docs/cn/engineering_notes.md` — 工程决策日志
 - 测试指南（三类测试）：`docs/cn/unit_test.md`（单元测试：进 `cargo test` 门禁、确定性、唯一可 mock）、`docs/cn/e2e_test.md`（端到端：真实 LLM + 真实 IO、禁 mock）、`docs/cn/benchmark_test.md`（基准：Sophia 工作流 vs 直接写 Python 的成功率 / 耗时对比、禁 mock）
-- v1 特性设计文档：`docs/cn/type_system.md`（F1 类型语法统一 `one of` / `list of`）、`docs/cn/wasm_codegen.md`（工作流 A：WASM codegen 设计门）
+- v1 特性设计文档：`docs/cn/type_system.md`（F1 类型语法统一 `one of` / `list of`）、`docs/cn/wasm_codegen.md`（工作流 A：WASM codegen 设计评审）
 - 库文档：`docs/cn/stdlib_design.md`（库设计：清单驱动插件模型 / 标准库 + 三方库统一 / 「I/O = 库」边界 / 提示词脚手架）、`docs/cn/stdlib_implementation.md`（库实现：`sophia-library` 注册表 + `sophia-stdlib` 内容 + 路线 B host 注入）、`docs/cn/http_lib.md`（`Http` 库）、`docs/cn/file_lib.md`（`File` 库）
 
 贡献流程与代码规范见 [CONTRIBUTING-CN.md](CONTRIBUTING-CN.md)。

@@ -702,11 +702,14 @@ mod tests {
         // 一个 invariant：AddOne(41) 必须返回 42（hidden case 驱动 regression gate）。
         let src = "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }";
         let ast = sophia_syntax::parse_ast(src).unwrap();
-        let index = sophia_hir::AsgIndex::build(vec![sophia_hir::IndexInput {
-            domain: "D",
-            path: "domains/D/actions/AddOne.sophia",
-            ast: &ast,
-        }])
+        let index = sophia_hir::AsgIndex::build(
+            vec![sophia_hir::IndexInput {
+                domain: "D",
+                path: "domains/D/actions/AddOne.sophia",
+                ast: &ast,
+            }],
+            &sophia_hir::LibraryRegistry::empty(),
+        )
         .unwrap();
         let refs = vec![&ast];
         let model = sophia_semantic::analyze_program(&refs, &index).model;

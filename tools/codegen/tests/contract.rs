@@ -5,7 +5,7 @@
 //! （不伪造产出）。
 
 use sophia_codegen::{emit_module, CodegenError, CodegenInput};
-use sophia_hir::{resolve_program, ProgramInput};
+use sophia_hir::{resolve_program, LibraryRegistry, ProgramInput};
 use sophia_semantic::analyze_program;
 use sophia_syntax::{parse_ast, Ast};
 
@@ -24,7 +24,7 @@ fn analyzed(sources: &[(&str, &str)]) -> (Vec<Ast>, sophia_semantic::SemanticMod
             ast,
         })
         .collect();
-    let (index, _diags) = resolve_program(&inputs).expect("resolve");
+    let (index, _diags) = resolve_program(&inputs, &LibraryRegistry::empty()).expect("resolve");
     let refs: Vec<&Ast> = asts.iter().collect();
     let analysis = analyze_program(&refs, &index);
     assert!(
@@ -49,7 +49,7 @@ fn input_graph_matches_model_callables() {
         ),
     ]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs);
+    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
 
     // 模型与图一致：每个 callable 一个执行节点。
     for name in model.callables.keys() {
@@ -76,7 +76,7 @@ fn emit_supported_program_produces_wasm_bytes() {
         "action Id { input { n: Int } output { y: Int } body { return n } }",
     )]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs);
+    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
 
     let bytes = emit_module(&input).expect("W2 标量程序应 emit 出 WASM");
     assert_eq!(&bytes[0..4], b"\0asm", "应以 WASM 魔数开头");
@@ -91,7 +91,7 @@ fn emit_is_honest_not_yet_implemented_for_unsupported() {
         "action Pack { input { a: Int; b: Int } output { xs: list of Int } body { return [a, b] } }",
     )]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs);
+    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
 
     let result = emit_module(&input);
     assert!(

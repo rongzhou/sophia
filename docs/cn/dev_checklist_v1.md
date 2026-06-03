@@ -20,7 +20,7 @@
 - **工作流 A — WASM codegen**：执行后端从解释器扩展到可部署 WASM artifact；解释器**不退役**，
   转为 codegen 的**等价 oracle / 差测试基线**；strip-assist 等价扩展到 artifact 字节级比对。
 - **工作流 B — 语言 / 标准库扩充（需求驱动）**：**不是**固定特征清单，而是由具体演示需求触发、逐项
-  过设计门的最小扩展。v1 范围由三个演示需求封顶（见 §二「v1 演示需求」）：**D1** 可失败结果建模、
+  完成设计评审后推进的最小扩展。v1 范围由三个演示需求封顶（见 §二「v1 演示需求」）：**D1** 可失败结果建模、
   **D2** 网络获取 + intent 安全（旗舰 LLM-native 演示）、**D3** 严肃管线综合题；反推出最小扩展集
   **F1**（类型语法统一 + 可失败返回 `one of {...}`，**已完成**）+ **F2**（`Http` effect 族）+ **S1**
   （HTTP host 标准库）+ **S2**（标准库提示词脚手架）。其余起步子集外项（`entity.with` / 跨 domain 数据流 /
@@ -71,7 +71,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 > **WASM 仍在 v1 范围内、不可省略**（`language_design.md` §1.1 目标 1）。F1 已完成（IR 形态已含 `OneOf`/
 > `Null`/`ErrorValue`），F2/S1/S2 仍可能动 IR，故 A 仍待 B 全部完成后展开。
 >
-> **设计门（2026-05-31，已定稿）**：B 全部完成（含标准库重定位 R0–R3、D1/D2/D3）后，工作流 A 的实现
+> **设计评审（2026-05-31，已定稿）**：B 全部完成（含标准库重定位 R0–R3、D1/D2/D3）后，工作流 A 的实现
 > 计划落 `docs/wasm_codegen.md`（七个决策点全部采纳，已定稿）——定输入契约冻结 / 值 ABI / 函数 ABI /
 > effect ABI / 工具链 / 差测试与 strip-assist artifact 门禁 / W1–W5 实现阶段。**解释器为唯一 oracle**
 > 贯穿始终。
@@ -106,10 +106,10 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 - [ ] **A6 增量查询架构**（Salsa 思想）：支撑 LSP 低延迟；与 codegen 解耦，可并行推进。**尚未开始**
 
 
-### 工作流 B — 语言 / 标准库扩充（需求驱动 + 逐项设计门）
+### 工作流 B — 语言 / 标准库扩充（需求驱动 + 逐项设计评审）
 
 > **纪律**：B 不是固定的实现序列，而是**需求驱动**（见上「v1 演示需求」）——每项扩展由一个具体演示
-> 需求触发，且**先过设计门**（单独设计文档 → 讨论确认 → 再实现全链路 + 回归测试 + 文档），落地范式同
+> 需求触发，且**先完成设计评审**（单独设计文档 → 讨论确认 → 再实现全链路 + 回归测试 + 文档），落地范式同
 > `effect` / storage。不满足两条准入通道者一律 v2+，**不进 v1 边界**。
 >
 > **语法准则（`language_design.md` §3）**：不仿造泛型系统 / 模板 / 宏 / trait；语义直观、无省略、不惧
@@ -120,7 +120,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 > 不做底层协议栈**（如：D2 只需 `Http.Get` 这一**功能**，就只提供它；**不**自建 TCP/IP、TLS、socket 等
 > 底层协议——那些交给宿主语言 / host 运行时的成熟实现）。无需求不加。
 >
-> 每个 feature 三段式推进：**设计门 → 分层实现 → 演示验收**。
+> 每个 feature 三段式推进：**设计评审 → 分层实现 → 演示验收**。
 
 #### F1 — 类型语法统一（`one of` / `list of` / `<>`专属 intent）+ 可失败返回〔来源 D1/D3〕 ✅
 
@@ -133,7 +133,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 > （`list of T` / `one of { M, ... }` / `schema of T`）。废弃 `Optional<T>`/`List<T>`/`Schema<T>`/
 > `Some`/`None`/`<optional>.exists`，新增 `Null` 内置类型，match 引入类型 pattern。
 
-- [x] **F1.0 设计门**：`docs/type_system.md` 定稿（核心规则 / `one of` 语义 + distinguishability /
+- [x] **F1.0 设计评审**：`docs/type_system.md` 定稿（核心规则 / `one of` 语义 + distinguishability /
       match 类型 pattern / `Null` / storage get 类型 / 全链路落点 §六 / 决策记录 §九）。**已完成**
 - [x] **F1.1 syntax**：grammar.js `intent_type`（`<>`仅 intent）+ `list_of` / `one_of` / `schema_of` 类型
       规则；pattern 增 `type_pattern`（`<ty> <binding>`）/ `variant_pattern` / `Null`；表达式移除
@@ -179,7 +179,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 > （CLI 协调层组合委派 / sync `reqwest::blocking` + 超时 / 网络失败硬错误 / 按入口 effect 判定注入），
 > host 注入通用机制见 `docs/stdlib_implementation.md` §三。
 
-- [x] **S1.1–S1.2**：workspace `reqwest` 加 `blocking` feature；`runtime::run_action_with_host` 注入入口
+- [x] **S1.1–S1.2**：workspace `reqwest` 加 `blocking` feature；`runtime::run_action` 注入入口
       （`run_action` 仍为默认）；`cli/src/http_host.rs` `CliHost`（组合委派 + 真实 `http_get`，非 2xx /
       网络失败 / 读取失败均诚实 `Err`）；CLI `run` 据入口 effect 含 `Http.Get` 才注入。回归测试覆盖接缝
       （注入路径 mock seed / console·storage 委派等价 / 非法 URL 诚实 `Err`，均不触网络）；真实网络人工
@@ -226,10 +226,10 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 
 > 确立 **文件 / 网络 / 数据库都是标准库**（非语言原语），`Console`（`print`）保留为内置输出原语。
 > 设计见 `stdlib_design.md`（框架）/ `file_lib.md`（File 库契约）；决策见 `engineering_notes.md`
-> 2026-05-31 条目。**先修文档门、后重构代码**（用户既定执行方式）。
+> 2026-05-31 条目。**先修文档方案、后重构代码**（用户既定执行方式）。
 
-- [x] **R0 设计门（文档）**：`engineering_notes` 立移除 + File 库决策；`stdlib_design` 改写为「I/O = 库」
-      模型 + §六库清单（Http 已落地 / File 设计门 / DB 未来候选）；`file_lib.md` 设计门草案；全仓截面文档
+- [x] **R0 设计评审（文档）**：`engineering_notes` 立移除 + File 库决策；`stdlib_design` 改写为「I/O = 库」
+      模型 + §六库清单（Http 已落地 / File 设计评审 / DB 未来候选）；`file_lib.md` 设计评审草案；全仓截面文档
       （language_design / language_implementation / engineering_architecture / concepts / type_system /
       benchmark_design / e2e_test_design / integration_demos）去 storage/DB/Persisted、改 Http/File 库表述。**已完成**
 - [x] **R1 移除 `storage`/`DB`/`Persisted`（代码）**：grammar（`storage_def` + parser.c 重生成）/ AST·lower
@@ -251,7 +251,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 
 > **显式推迟到 v2+（无 v1 演示需求触发，见上「v1 演示需求」末尾的"暂不纳入 v1"）**：`entity.with`、
 > 跨 domain / library intent 数据流、`requires`/`ensures` 合约证明子系统、`task` 作为执行入口。出现
-> 对应演示需求时再各自走设计门。
+> 对应演示需求时再各自走设计评审流程。
 
 ### 从 v0 结转的开放项（非 v1 头等，但仍在视野内）
 
@@ -270,7 +270,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
       仅作为 v4/v5 级远期方向保留；当前 Sophia 语言 / runtime / WASM codegen 均为**同步确定性执行**
       （起步子集仅 Control 调用边；其余边无表层来源，不是 v1/v2 近期补齐项）。结转自 v0 §2.3。
 - [ ] **Tokio substrate 远期愿景**：仅在未来语言层明确引入异步执行语义、Execution Graph 可生成对应边、
-      且 WASM/host ABI 有明确路线时重新进入设计门；当前 Rust async 只属于 LLM / LSP 等工具链 IO 实现细节，
+      且 WASM/host ABI 有明确路线时重新进入设计评审阶段；当前 Rust async 只属于 LLM / LSP 等工具链 IO 实现细节，
       不代表 Sophia runtime 有异步执行目标。结转自 v0 §2.3。
 
 
@@ -308,16 +308,16 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   SSOT，按 `language_implementation.md` §19.1 的 v1 构建顺序（工作流 A WASM codegen + 工作流 B 语言 /
   标准库扩充）组织，并结转 v0 未竟开放项。工程决策日志继续统一在 `engineering_notes.md`（不分 v0/v1）。
   v1 尚未开始写码；起点全工作区 299 passed / 0 failed。
-- 2026-05-30 — 工作流 B 改为**需求驱动 + 逐项设计门**（审核纠偏）。原 B7–B12 是把 §16.6 的"扩展点
+- 2026-05-30 — 工作流 B 改为**需求驱动 + 逐项设计评审**（审核纠偏）。原 B7–B12 是把 §16.6 的"扩展点
   标签"当成确定的实现序列，属过度设计 / 臆造。确立需求驱动方法论：先立演示需求
   （D1 Result / D2 Http+intent 旗舰 / D3 严肃管线），再反推最小扩展集（F1 Result<T,E> + F2 Http effect
   族 + S1 HTTP host）；其余起步子集外项（entity.with / 跨 domain 数据流 / 合约证明 / task 执行）因无
   v1 演示需求触发，**显式推迟 v2+**。完成判据 2 由"能表达明显超出 v0 的程序"（无界）收紧为"D1/D2/D3
-  三演示题端到端跑通 + D2 给出一条真实 accept/reject 矩阵条目"（有界、可检查）。每项扩展先过设计门
+  三演示题端到端跑通 + D2 给出一条真实 accept/reject 矩阵条目"（有界、可检查）。每项扩展先完成设计评审
   （设计文档→确认→实现），不预写实现细节。本次纯文档。
 - 2026-05-30 — 把 v1 需求展开为可跟踪 checklist（工作流 B 任务化）。将 F1/F2/S1 从 feature 级条目
-  细化为**三段式任务**（设计门 F*.0 → 分层实现 F*.1–* → 演示验收 D1/D2/D3），每个 feature 的实现项在
-  其设计门通过前不启动；明确各项落在 syntax/hir/semantic/runtime/标准库哪一层。同步语言设计准则
+  细化为**三段式任务**（设计评审 F*.0 → 分层实现 F*.1–* → 演示验收 D1/D2/D3），每个 feature 的实现项在
+  其设计评审通过前不启动；明确各项落在 syntax/hir/semantic/runtime/标准库哪一层。同步语言设计准则
   （`language_design.md` §3 新增"语义直观·无省略·不惧繁琐"原则 + §3.2 取舍行 + §12 Non-goal）：不仿造
   泛型系统 / 模板 / 宏 / trait / 操作符重载 / 隐式转换 / 省略糖；`Result` 等为封闭内置 wrapper（非泛型
   系统），消费走显式 `match`、不设 `?`/`unwrap`。`v1_demands.md` F1 同步对齐该准则。纯文档。
@@ -325,11 +325,11 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   进本 checklist §二「v1 演示需求」，使 checklist 自包含。补两点澄清：① **标准库范围 = 功能库而非协议栈**
   （需求驱动；如只做 `Http.Get` 功能、不自建 TCP/IP / TLS / socket 底层）——写进 S1 与工作流 B 范围准则；
   ② 新增 **S2 标准库提示词脚手架**（LLM 对标准库无先验知识，必须有标准化、按需取用的库介绍 prompt 资产，
-  复用 §8.3 preamble 机制；属提示词工程，v1 必须考虑）——分解为 S2.0 设计门 / S2.1 HTTP 库资产 / S2.2 按需
+  复用 §8.3 preamble 机制；属提示词工程，v1 必须考虑）——分解为 S2.0 设计评审 / S2.1 HTTP 库资产 / S2.2 按需
   注入机制 / S2.3 回归测试。最小扩展集相应记为 F1 + F2 + S1 + S2。纯文档。
 - 2026-05-30 — 启动 v1。① **执行时序定为先 B（F1→F2→S1→S2）后 A（WASM）**：A1 要冻结 IR 输入契约，
   而 F1（Result）会动 Semantic IR / Execution Graph IR / Value，故先做 B 让语言规范稳固、再一次冻准
-  IR 契约展开 A；WASM 仍在 v1 范围内、不可省略（工作流 A 标注此时序）。② **F1.0 设计门起草**
+  IR 契约展开 A；WASM 仍在 v1 范围内、不可省略（工作流 A 标注此时序）。② **F1.0 设计评审起草**
   `docs/design/result_type.md`：基于现有 Optional/List wrapper + error algebra + match 穷尽 + RaisedError
   等既有机制，提出 `Result` 为**单参数封闭 wrapper（`Result<T>`）+ 失败侧复用 action 的 errors variant
   集**（方案 C，避免单参→多参泛型化、不造新错误体系），消费走显式 `match Ok/Err`、不设 `?`/`unwrap`
@@ -344,7 +344,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   benchmark value_json）+ 全仓测试 / snapshot / 示例 / 文档同步（见 `engineering_notes.md` 同日条目）。
   storage `get` 返回 `one of { ValueTy, Null }`、`save` 仍返回 `ValueTy`。单一路径、无兼容层、不留语法糖。
   全工作区 299 passed / 0 failed，clippy（`-D warnings`）0 警告，fmt clean；旗舰探针端到端通过。F1 关闭，
-  下一步 F2（Http effect 设计门）。
+  下一步 F2（Http effect 设计评审）。
 - 2026-05-30 — **F1 重构完整审核 + 补两处检查器缺口**。全仓审核（代码 + 文档）确认重构彻底、无遗留旧
   类型构造（`Ty::Optional`/`Value::Optional`/`Expr::Some`/`TypeRef::Generic` 全 0 命中）；清理散落旧语法
   注释（`match Some(name)`/`Optional<T>`/`Schema<T>`/`Some(/* c */ 5)` 等）。审核发现并修复**两处设计-实现
@@ -354,7 +354,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   ② match 类型 pattern 的**类型名未解析**——`match x { Bogus v => }` 此前无诊断，HIR 补 `resolve_pattern_type_name`
   （标量 / entity / state）。新增 6 个测试（4 distinguishability + 1 pattern 类型名 + 1 type-of 语法族 lowering）。
   全工作区 305 passed / 0 failed，clippy 0 警告，fmt clean。parser.c 重生成幂等校验通过。
-- 2026-05-30 — **F2 落地（`Http` 内置 effect 族）**。设计门 `docs/http_effect.md` 定稿（§八 三决策点确认：
+- 2026-05-30 — **F2 落地（`Http` 内置 effect 族）**。设计评审 `docs/http_effect.md` 定稿（§八 三决策点确认：
   ① effect 身份 `Http.Get` 不带 URL arg〔capability 粒度到"能否 GET"，URL 多为运行时绑定值〕；② 返回裸
   `Raw<Text>`，网络失败走 host 硬错误，不在 v1 建模为可恢复返回；③ `Http` 与 `storage` 同列 body 特殊根）。
   **零新语法**——`Http.Get(url)` 复用 storage 的"特殊根 method_call + host 委派"路径。落地 F2.1（hir：
@@ -368,7 +368,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   `language_design` / `language_implementation` 同步内置 `Http` 族。
 - 2026-05-30 — **S2 落地（标准库提示词脚手架）**。选 S2 先于 S1：S2 是 D2 演示的真正前置（LLM 对 `Http`
   无先验知识则写不出网络程序），而 F2 mock host 已能让全链路确定性跑通，**S1 真实网络非 D2 前置**（只
-  live demo 需要）。设计门 `docs/stdlib_prompt_scaffolding.md` 定稿（§七四决策点确认：① 按任务**显式声明
+  live demo 需要）。设计评审 `docs/stdlib_prompt_scaffolding.md` 定稿（§七四决策点确认：① 按任务**显式声明
   库集合**选取〔非文本嗅探，确定可测、符合「全部显式表达」〕；② 布局 `assets/stdlib/<lib>.md` + API
   `stdlib_asset`/`stdlib_libs`/`stdlib_preamble`；③ 库资产同防泄漏 + snapshot 纪律；④ S2 不依赖 S1）。
   核心确立**基线 vs 库资产边界**：常驻 `sophia_syntax_baseline`=核心语法（每次注入），`stdlib/<lib>`=库知识
@@ -376,13 +376,13 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   加 `libs` 字段，三处 implement-system 接缝拼入 `stdlib_preamble`，默认空集零回归）/ S2.3（snapshot +
   防泄漏断言 + 选取单测）。全工作区 319 passed / 0 failed，clippy 0 警告，fmt clean。下一步 S1（真实
   reqwest host）或 D2 演示题（benchmark L6，需真实 LLM）。
-- 2026-05-30 — **S1 落地（HTTP 客户端真实 host）**。设计门 `docs/http_host.md` 定稿（§七四决策点确认）。
+- 2026-05-30 — **S1 落地（HTTP 客户端真实 host）**。设计评审 `docs/http_host.md` 定稿（§七四决策点确认）。
   真实 host 在**协调层 CLI**（`runtime` 保持零 IO）：`cli/src/http_host.rs` `CliHost` **组合委派**——
   console/storage 复用 `InMemoryHost`，只把 `Http.Get` 覆盖为真实 `reqwest::blocking`（固定 10s 超时；
-  非 2xx / 网络失败 / 读取失败均**诚实 `Err`**、绝不伪造成功）。runtime 暴露 `run_action_with_host`
+  非 2xx / 网络失败 / 读取失败均**诚实 `Err`**、绝不伪造成功）。runtime 暴露 `run_action`
   （`run_action` 仍为默认入口，薄封装化）；CLI `run` 据入口 action 声明 effect **含 `Http.Get` 才注入
   `CliHost`**（无网络程序零开销、零行为变化）。workspace `reqwest` 加 `blocking` feature。
-  测试：runtime 注入接缝（`run_action_with_host` + mock seed）+ CLI `http_host` 单测（console/storage
+  测试：runtime 注入接缝（`run_action` + mock seed）+ CLI `http_host` 单测（console/storage
   委派等价 + 非法 URL 诚实 `Err`，均不触网络）；**真实网络不进 `cargo test`**。全工作区 322 passed /
   0 failed。至此 F1+F2+S1+S2 全部落地；下一步 D1/D2/D3 集成验收演示题（benchmark L6，需真实 LLM），
   或工作流 A（WASM codegen，IR 契约现已含 one of / Http effect，可冻结展开）。
@@ -422,7 +422,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   评估保留项（非债务）：H3（harness vs sophia_mode 闭环驱动形似）受「故意不复用 e2e harness」既有决策约束 +
   上下文不同；M1（LSP `analysis.rs` 诊断收集）与 `code_check` 同源不同层——LSP 需精确 span 供编辑器，属恰当
   分层；诊断 location 格式 `line N`（check_program 无文件归属的限制）现集中一处。详见 `engineering_notes.md`。
-- 2026-05-31 — **D1/D2/D3 集成验收演示题落地（判据 2 达成）**。设计门 `docs/integration_demos.md`
+- 2026-05-31 — **D1/D2/D3 集成验收演示题落地（判据 2 达成）**。设计评审 `docs/integration_demos.md`
   定稿（五决策点全部采纳）：三题是 F1/F2/S1/S2 的端到端集成验收（非语言扩充），落 benchmark 阶梯顶端
   **L6**——D1 `clamp_or_reject`（可失败返回 `one of`，失败是返回值非 raise）、D2 `fetch_length`
   （`Http.Get → Raw<Text>` 经 intent_conversion 转 Sanitized 后取长度，经 mock host 确定性执行）、D3
@@ -443,7 +443,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 - 2026-05-31 — **文档归拢：标准库文档体系化**。将分散的标准库相关文档归拢为与「语言设计 / 语言实现」
   对称的两份框架文档 + 一份库契约文档：① **新建 `docs/stdlib_design.md`**（标准库设计：定位 / 功能库非
   协议栈 / 无 ambient authority / 基线 vs 库资产边界 / 两阶段提示词脚手架 / 范围准则 / 库清单）——**吸收**
-  原 `stdlib_prompt_scaffolding.md`（S2 设计门）+ **集中** `language_design`·`dev_checklist`·`architecture`
+  原 `stdlib_prompt_scaffolding.md`（S2 设计评审）+ **集中** `language_design`·`dev_checklist`·`architecture`
   散落的标准库范围准则；② **新建 `docs/stdlib_implementation.md`**（标准库实现：prompt 资产布局与 API /
   两阶段全链路贯通 / host import 注入接缝 / 测试边界 / 新增库清单）——吸收 S2 实现部分 + `http_host.md`
   的通用 host 注入机制；③ **合并** `http_effect.md`（F2 语言契约）+ `http_host.md`（S1 真实 host）为
@@ -452,19 +452,19 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   指针」（不再重复设计细节、消除 arity=1 等已修正的过时描述）。更新全仓引用（README / language_design /
   language_implementation / engineering_architecture / e2e_test_design / benchmark_design /
   integration_demos）。纯文档归拢，无功能代码改动；测试基线不变（333 passed）。
-- 2026-05-31 — **标准库重定位决策（文档门 R0 完成）+ 规划 storage 移除 + File 库**。经讨论确立 (B)
+- 2026-05-31 — **标准库重定位决策（文档方案 R0 完成）+ 规划 storage 移除 + File 库**。经讨论确立 (B)
   「I/O = 库」模型：文件 / 网络 / 数据库都是标准库（多数语言传统），不是语言原语；语言核心提供
   effect/capability/intent **机制**，库提供具体 I/O **能力族**；`Console`（`print`）作为输出原语保留为
   语言内置（例外）。据此：**移除**语义不清的 `storage` 顶层节点 + `DB.Read/Write` 内置 effect +
   `Persisted<T>` intent（`storage` 在 关系DB/KV/持久化/内存 间摇摆、无后端，是 v0 起步期的四不像）；
   **新增 `File` 库**（v1 内，优先级不低于 `Http`，`File.Read`/`File.Write` 与 `Http` 同构）；**`DB`** 重
-  定位为未来候选库（需先澄清语义）；**D3** 演示题改用 `File` 库重做。本轮按"先修文档门、后重构代码"
-  完成 **R0（全部截面文档改写）**：新建 `file_lib.md` 设计门、`stdlib_design` 改为「I/O = 库」+ 库清单、
+  定位为未来候选库（需先澄清语义）；**D3** 演示题改用 `File` 库重做。本轮按"先修文档方案、后重构代码"
+  完成 **R0（全部截面文档改写）**：新建 `file_lib.md` 设计评审、`stdlib_design` 改为「I/O = 库」+ 库清单、
   `engineering_notes` 立决策；`language_design`/`language_implementation`/`engineering_architecture`/
   `concepts`/`type_system`/`benchmark_design`/`e2e_test_design`/`integration_demos` 去 storage/DB/Persisted、
   改 Http/File 库表述（规范示例 CompleteTodo 改为不依赖 storage）。代码重构（R1 移除 / R2 File 库 / R3 D3
   重做）待后续。纯文档，无代码改动（测试基线仍 333，代码尚未动）。
-- 2026-05-31 — **R1 + R2 代码重构落地（移除 storage/DB/Persisted + File 库）**。按文档门 R0 的设计，全
+- 2026-05-31 — **R1 + R2 代码重构落地（移除 storage/DB/Persisted + File 库）**。按文档方案 R0 的设计，全
   链路移除语义不清的 `storage` 顶层节点 + `DB.Read/Write` 内置 effect + `Persisted<T>` intent：grammar
   （删 `storage_def` + parser.c ABI15 重生成）、AST/lower（`Item::Storage`/`Storage`/`lower_storage`/
   `IncludeKind::Storage`）、HIR（`NodeKind::Storage`/`resolve_storage`/特殊根 `storage`/closure Reads·Writes
@@ -502,8 +502,8 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   （`-D warnings`）0 警告，fmt clean。真实文件 IO / 真实 LLM 不进 `cargo test`。至此 **R0–R3 标准库重定位
   全部完成** + **v1 完成判据 2（D1/D2/D3 端到端 + D2 accept/reject 矩阵）完整达成**；剩余 v1：工作流 A
   （WASM codegen，判据 1）+ 判据 3（strip-assist artifact 层）。
-- 2026-05-31 — **工作流 A（WASM codegen）设计门起草**。B 全部完成（F1/F2/S1/S2 + 标准库重定位 R0–R3 +
-  D1/D2/D3）后，按既定时序展开工作流 A。新建 `docs/wasm_codegen.md` 设计门草案：盘点解释器语义（值模型 /
+- 2026-05-31 — **工作流 A（WASM codegen）设计评审起草**。B 全部完成（F1/F2/S1/S2 + 标准库重定位 R0–R3 +
+  D1/D2/D3）后，按既定时序展开工作流 A。新建 `docs/wasm_codegen.md` 设计评审草案：盘点解释器语义（值模型 /
   body 子语言 / effect 委派）作为 WASM 必须复刻的**唯一 oracle**；提出 ① 输入契约冻结（A1，消费
   `SemanticModel` / `ExecGraph` / AST body，**不引入新 body IR**，避免双真相源）；② 值 ABI（标签化堆值 +
   i32 句柄 + bump-only 内存，无 GC）；③ 函数 ABI（Outcome 包装值在返回通道冒泡，复刻 raise，不用 WASM
@@ -514,7 +514,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   扩展到 artifact 字节级比对（判据 3）。列 W1–W5 实现阶段（对齐 A1–A5；A6 增量查询架构解耦推后）+ 7 个
   待确认决策点 + 拟新建 `tools/codegen` crate（确定性工具链层，依赖 core、禁 IO）。纯文档，无代码改动；
   测试基线不变（336 passed）。待讨论确认后按 W1→W5 推进。
-- 2026-05-31 — **工作流 A 设计门定稿（七个决策点全部采纳）**。`docs/wasm_codegen.md` 七个决策点全部确认
+- 2026-05-31 — **工作流 A 设计评审完成（七个决策点全部采纳）**。`docs/wasm_codegen.md` 七个决策点全部确认
   采纳（body 不引入新 IR / 值 ABI 标签化堆值 + i32 句柄 + bump 无 GC / raise 用 Outcome 包装冒泡 / 纯值
   helper 进 module、I/O 走 host import / 纯 Rust 编码库 + 解释执行器、重型 host 不进门禁 / 新 crate
   `tools/codegen` / 差测试复用 benchmark·e2e 参考解），状态从「草案」转「已定稿」。下一步进入 **W1**
@@ -584,24 +584,26 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   `alloc` + `read_copy` + `make_text`，结果运行时即 Text 值）。host 失败 trap（解释器为硬错误阻断，绝不
   伪造）。差测试新增 3 题（G2 Console / D2 Http+intent_conversion / D3 File 往返+intent），夹具加纯 Rust
   mock host（`Store<HostState>` + `Linker::func_wrap`，seed_file/seed_http 同 `InMemoryHost` 语义、未命中
-  trap），解释器 oracle 改 `run_action_with_host` 注入同一份 seed。**至此 benchmark L1–L6（D1/D2/D3）+
+  trap），解释器 oracle 改 `run_action` 注入同一份 seed。**至此 benchmark L1–L6（D1/D2/D3）+
   G2/G5 全部形态经差测试与解释器等价**——A2 emit 关闭、A4 关闭、A3 差测试覆盖完整。全工作区 **358 passed /
   0 failed**，clippy（`-D warnings`）0 警告，fmt clean。下一步 W5（strip-assist artifact 字节比对 +
   `sophia build` emit + smoke 串通），完成判据 3 + `sophia build` 落地。`to_text`/`List` 无 v1 演示需求触发，
   按需再补（YAGNI）。
 - 2026-05-31 — **工作流 A · W5 落地（A5 strip-assist artifact 层 + `sophia build` emit）**。① **artifact
-  层门禁**：`sophia-codegen` 新增 `emit_from_sources(sources, strip)` + `check_artifact_strip_equivalence`
+  层门禁**：`sophia-codegen` 新增 `emit_from_sources(sources, registry, strip)` +
+  `check_artifact_strip_equivalence(sources, registry)`
   ——移除全部 Semantic Assist 字段前后 emit 的 `.wasm` 必须**逐字节相等**（判据 3，`language_design.md`
   §5.1）；前提是 emit 确定性（值布局字典序 / 常量池稳定序 / 段顺序固定，W2 已保证）。② **`sophia build`**
   从 v0 空操作改为：check（含 IR 层 strip-assist）→ artifact 层门禁 → emit `sophia-runs/build/program.wasm`；
   codegen 未覆盖构造（`to_text`/`List`）诚实报 `NotYetImplemented`（不伪造产出，解释执行仍可用）。
   `sophia.toml` `[build] target` 改 `wasm`；`smoke` build 步随之 emit；`engineering_architecture` §9.1
   命令表更新。codegen 测试加 artifact 门禁 + 确定性 2 题，CLI pipeline 加 build emit + 未覆盖诚实报告 2 题。
-  `tools/codegen` 加 `sophia-hir` 依赖（emit_from_sources 需 resolve）、CLI 加 `sophia-codegen` 依赖。全工作区
+  `tools/codegen` 加 `sophia-hir` 依赖（emit_from_sources 需 resolve）、CLI 加 `sophia-codegen` 依赖。后续
+  build 上下文一致性修正已把 codegen artifact API 直接迁移为显式接收 `LibraryRegistry` 的单一路径。全工作区
   **362 passed / 0 failed**，clippy（`-D warnings`）0 警告，fmt clean。**至此工作流 A 的 W1–W5 全部落地**：
   A1 契约冻结 / A2 emit / A3 差测试 / A4 effect host import / A5 artifact 门禁 + build——**v1 完成判据 1
   （WASM 与解释器逐 case 等价，起步子集全覆盖）+ 判据 3（strip-assist artifact 层）达成**。剩余 A6（增量
-  查询架构，Salsa 思想，与 codegen 解耦）待独立设计门；真实部署 host（wasmtime / 浏览器）随实际部署需求接入。
+  查询架构，Salsa 思想，与 codegen 解耦）待独立设计评审；真实部署 host（wasmtime / 浏览器）随实际部署需求接入。
 - 2026-05-31 — **CI 流水线接入 + 修正失真的 MSRV**。`.github/workflows/ci.yml`（此前已有 fmt/clippy/test/
   release build 雏形）增强为两 job：① **主门禁**（stable）fmt + clippy + test + release build，全部 `--locked`
   可复现——`cargo test --workspace` 已含工作流 A 的 A3 差测试（`tools/codegen/tests/diff.rs` 逐 hidden case
@@ -645,11 +647,11 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   真实 LLM / 真实 IO 不进 `cargo test`（e2e/benchmark example，无 key 干净跳过）。
 - 2026-05-31 — **库插件模型重构（P1：标准库样板化 + 清单驱动 + 路线 B host + 标准库 crate）**。把「库」
   从散落 6 个 crate 9 处硬编码切片，重构为**清单 = 单一真相源 + `LibraryRegistry` = 各层只读数据源**
-  （倒转索引方向）。设计门 `library_plugin.md` 经讨论全部确认采纳后**消化并入** `stdlib_design.md`（设计）
+  （倒转索引方向）。设计评审 `library_plugin.md` 经讨论全部确认采纳后**消化并入** `stdlib_design.md`（设计）
   + `stdlib_implementation.md`（实现），原文档安全删除。**新增两 crate**：`sophia-library`（core 层契约
   类型：`LibraryRegistry`/`OpContract`/`TypeDesc` + 清单解析，无 `Value`、零 IO）+ `sophia-stdlib`（内容
   层：`libs/http/`、`libs/file/` 清单 + 资产 + native/mock host）。**核心改动**：① `File`/`Http` 从
-  `hir::builtins::BUILTIN_EFFECT_OPS` 迁出（仅留 `Console`），改由 `AsgIndex::with_libraries(registry)`
+  `hir::builtins::BUILTIN_EFFECT_OPS` 迁出（仅留 `Console`），改由 `AsgIndex::new(registry)/AsgIndex::build(inputs, registry)`
   注入；② `resolve` 特殊根放行用 `index.is_library_family`（去 `File`/`Http` 字面量）；③ `type_layer::
   infer_effect_op` 表驱动化（`index.library_op` 的 TypeDesc → Ty，替代命令式 match）；④ host 改**路线 B**
   ——`runtime::HostRegistry`（`(family,op) → Box<dyn HostFn>`）替代固定方法集 `EffectHost` trait + 删
@@ -663,7 +665,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   不依赖 stdlib；runtime 分派测试用中性 `Vault` 库。纯重构、**零行为变化**（标准库 File/Http 端到端语义
   不变）。**新增库零改语言核心**。全工作区 **366 passed / 0 failed**，clippy（`-D warnings`）0 警告，fmt
   clean，`--locked` 一致。P2（三方动态发现 + 解释器内嵌 wasmi 执行三方 WASM host）待真实三方需求触发。
-- 2026-05-31 — **库插件 P2 落地（三方动态发现 + 两个演示库）**。设计门 `library_plugin_p2.md` 经讨论
+- 2026-05-31 — **库插件 P2 落地（三方动态发现 + 两个演示库）**。设计评审 `library_plugin_p2.md` 经讨论
   全部确认后消化并入 `stdlib_design` / `stdlib_implementation`，原文删除。**三方发现**:`sophia-stdlib`
   新增 `discover`（`full_registry` / `full_registry_from` / `third_party_roots` / `DiscoverError`——扫约定
   根 `./sophia_libs/` + `$SOPHIA_LIB_PATH` → 读清单 + 资产 + `.sophia` 源码 + `host.wasm` → 合并注册表,
@@ -685,7 +687,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   经新增 `library_context(root)` 把库随附 Sophia 源码（`LibrarySources`）并入 program inputs + asts——纯
   Sophia 库节点（如 `SophiaDigest`）须建模才可解析/执行;owned AST 在命令函数作用域持有,活到 resolve+analyze+run
   全程。③ `native_host` 新增 `register_wasm_library_hosts(host, registry)`(遍历注册表 `host.wasm` 库注册
-  `WasmHostFn`,ABI 子集 `(Int,Int)->Int` 校验 + 装载失败诚实 `Err`);`sophia run` 的 `run_with_host` 统一
+  `WasmHostFn`,ABI 子集 `(Int,Int)->Int` 校验 + 装载失败诚实 `Err`);`sophia run` 的 `run_interpreter_action` 统一
   注册三方 WASM host（无条件,据 registry.host_wasm）+ 标准库 native host（按入口 effect 按需）,替换原
   `run_with_default_host`/`run_with_real_host`。④ `tools/check::check_strip_assist_equivalence` 改 registry-aware
   （`(sources, registry, index)`,两侧对称并入库源码 + 同一 registry,否则用户引用库节点会让 strip 前后名称

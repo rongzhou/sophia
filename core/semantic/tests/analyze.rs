@@ -78,9 +78,8 @@ fn analyze(parsed: &[(String, String, Ast)]) -> Vec<K> {
             ast: a,
         })
         .collect();
-    let index = AsgIndex::build(index_inputs)
-        .expect("index build")
-        .with_libraries(&lib_registry());
+    let registry = lib_registry();
+    let index = AsgIndex::build(index_inputs, &registry).expect("index build");
     let asts: Vec<&Ast> = parsed.iter().map(|(_, _, a)| a).collect();
     let analysis = analyze_program(&asts, &index);
     analysis.diagnostics.iter().map(|d| d.kind).collect()
@@ -982,7 +981,7 @@ fn semantic_model_fingerprint_snapshot() {
             ast: a,
         })
         .collect();
-    let index = AsgIndex::build(index_inputs).expect("index build");
+    let index = AsgIndex::build(index_inputs, &LibraryRegistry::empty()).expect("index build");
     let asts: Vec<&Ast> = parsed.iter().map(|(_, _, a)| a).collect();
     let model = SemanticModel::build(&asts, &index);
     insta::assert_snapshot!("semantic_model_fingerprint", model.formal_fingerprint());

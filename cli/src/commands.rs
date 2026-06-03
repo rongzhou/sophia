@@ -8,8 +8,8 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use sophia_hir::{
-    action_context, resolve_item, resolve_program_with_libraries, task_context, AsgIndex,
-    ContextClosure, LibraryRegistry, LibrarySources, ProgramInput,
+    action_context, resolve_item, resolve_program, task_context, AsgIndex, ContextClosure,
+    LibraryRegistry, LibrarySources, ProgramInput,
 };
 use sophia_semantic::{analyze_one_callable, analyze_program, SemanticModel};
 use sophia_syntax::{Ast, Item, Span};
@@ -133,8 +133,7 @@ pub fn index(root: &Path) -> Result<ExitCode> {
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("构建 ASG index 失败")?;
+    let (index, _diags) = resolve_program(&inputs, &registry).context("构建 ASG index 失败")?;
 
     let json = index.to_json().context("序列化 ASG index 失败")?;
     let out_path = root.join("sophia-runs/asg_index.json");
@@ -160,8 +159,7 @@ pub fn graph(root: &Path) -> Result<ExitCode> {
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("构建 ASG index 失败")?;
+    let (index, _diags) = resolve_program(&inputs, &registry).context("构建 ASG index 失败")?;
 
     println!("ASG 摘要（{} 个顶层节点）：", index.nodes.len());
     // BTreeMap 已按名排序。
@@ -238,8 +236,7 @@ pub fn check(root: &Path) -> Result<ExitCode> {
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _hir_diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("名称解析失败")?;
+    let (index, _hir_diags) = resolve_program(&inputs, &registry).context("名称解析失败")?;
     // 用户 AST + 库随附 Sophia 源码 AST 同列建模（库节点须建模才能解析其调用 / 被调用）。
     let mut asts: Vec<&Ast> = project.files.iter().map(|f| &f.ast).collect();
     asts.extend(lib_srcs.asts());
@@ -305,8 +302,7 @@ pub fn context(
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("构建 ASG index 失败")?;
+    let (index, _diags) = resolve_program(&inputs, &registry).context("构建 ASG index 失败")?;
     let mut asts: Vec<&Ast> = project.files.iter().map(|f| &f.ast).collect();
     asts.extend(lib_srcs.asts());
 
@@ -367,16 +363,50 @@ fn render_closure(project: &Project, closure: &ContextClosure, with_sources: boo
 /// ③ emit `.wasm` 落 `sophia-runs/build/program.wasm`。codegen 未覆盖的构造（`to_text`/`List`，无 v1
 /// 演示需求触发）会诚实报 `NotYetImplemented`——如实标注、不伪造产出。
 pub fn build(root: &Path) -> Result<ExitCode> {
-    // 先确保 check 通过（语法 + 名称解析 + 语义三层 + IR 层 strip-assist）。
-    if check(root)? != ExitCode::SUCCESS {
+    let project = Project::load(root)?;
+    if report_syntax_errors(&project) {
         return Ok(ExitCode::FAILURE);
     }
 
-    let project = Project::load(root)?;
+    let (registry, lib_srcs) = library_context(root)?;
+    let mut inputs = program_inputs(&project);
+    inputs.extend(lib_srcs.program_inputs());
+    let (index, _hir_diags) = resolve_program(&inputs, &registry).context("名称解析失败")?;
+    let mut asts: Vec<&Ast> = project.files.iter().map(|f| &f.ast).collect();
+    asts.extend(lib_srcs.asts());
+    let model = SemanticModel::build(&asts, &index);
+
+    let diags = collect_diagnostics(&project, &index, &model, &asts);
+    if !diags.is_empty() {
+        for d in &diags {
+            eprintln!(
+                "{}",
+                render::diag_line(&d.rel_path, d.span, &d.code, &d.message)
+            );
+        }
+        eprintln!("check 未通过（{} 条诊断）。", diags.len());
+        return Ok(ExitCode::FAILURE);
+    }
+
     let sources = strip_sources(&project);
+    match sophia_check::check_strip_assist_equivalence(&sources, &registry, &index) {
+        Ok(outcome) => {
+            if !outcome.equivalent {
+                eprintln!(
+                    "strip-assist IR 层门禁未通过：{}",
+                    outcome.detail.unwrap_or_default()
+                );
+                return Ok(ExitCode::FAILURE);
+            }
+        }
+        Err(e) => {
+            eprintln!("strip-assist IR 层门禁执行失败：{e}");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
 
     // strip-assist artifact 层门禁（判据 3）：移除 assist 前后 .wasm 逐字节相等。
-    match sophia_codegen::check_artifact_strip_equivalence(&sources) {
+    match sophia_codegen::check_artifact_strip_equivalence(&sources, &registry) {
         Ok(outcome) => {
             if !outcome.equivalent {
                 eprintln!(
@@ -398,7 +428,7 @@ pub fn build(root: &Path) -> Result<ExitCode> {
     }
 
     // emit 最终 artifact（原始版，含 assist 与否字节相同，已由门禁保证）。
-    let bytes = match sophia_codegen::emit_from_sources(&sources, false) {
+    let bytes = match sophia_codegen::emit_from_sources(&sources, &registry, false) {
         Ok(b) => b,
         Err(e) => {
             eprintln!("build：emit 失败：{e}");
@@ -435,8 +465,7 @@ pub fn run_action(
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, hir_diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("名称解析失败")?;
+    let (index, hir_diags) = resolve_program(&inputs, &registry).context("名称解析失败")?;
     if !hir_diags.is_empty() {
         eprintln!("名称解析未通过，无法运行（先 `sophia check`）。");
         return Ok(ExitCode::FAILURE);
@@ -453,14 +482,14 @@ pub fn run_action(
     // 解析实参。
     let args = parse_args(raw_args).context("解析实参失败")?;
 
-    run_with_host(&registry, &analysis.model, &asts, action, args, with_trace)
+    run_interpreter_action(&registry, &analysis.model, &asts, action, args, with_trace)
 }
 
 /// 据入口 action 的声明 effect 判断是否需注入标准库 **native** host（真实网络 / 文件 IO）。
 ///
 /// 含 `Http.Get` / `File.Read` / `File.Write` 则需真实 host；纯逻辑 / Console 程序不需（零开销）。
 /// 三方 WASM 库 op（如 `WasmHash.Mix`）多为 `effectful=false`，不经声明 effect 体现——其 host 由
-/// [`sophia_stdlib::register_wasm_library_hosts`] 据注册表无条件注册（见 `run_with_host`）。
+/// [`sophia_stdlib::register_wasm_library_hosts`] 据注册表无条件注册（见 `run_interpreter_action`）。
 fn needs_native_host(model: &sophia_semantic::SemanticModel, action: &str) -> bool {
     model
         .callables
@@ -481,7 +510,7 @@ fn needs_native_host(model: &sophia_semantic::SemanticModel, action: &str) -> bo
 ///
 /// 二者互补：标准库（无 host.wasm）走 native，三方 WASM 库（有 host.wasm）走 `WasmHostFn`。库 host
 /// 失败一律物化为硬错误阻断，绝不伪造成功。
-fn run_with_host(
+fn run_interpreter_action(
     registry: &LibraryRegistry,
     model: &sophia_semantic::SemanticModel,
     asts: &[&Ast],
@@ -497,7 +526,7 @@ fn run_with_host(
     if needs_native_host(model, action) {
         sophia_stdlib::register_native_hosts(&mut host);
     }
-    match sophia_runtime::run_action_with_host(model, asts, action, args, &mut host) {
+    match sophia_runtime::run_action(model, asts, action, args, &mut host) {
         Ok((outcome, trace)) => present_run(&host.console, outcome, &trace, with_trace),
         Err(e) => {
             eprintln!("运行失败：{e}");
@@ -608,8 +637,7 @@ pub fn repair_context(root: &Path, error_code: &str) -> Result<ExitCode> {
     let (registry, lib_srcs) = library_context(root)?;
     let mut inputs = program_inputs(&project);
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _hir_diags) =
-        resolve_program_with_libraries(&inputs, &registry).context("名称解析失败")?;
+    let (index, _hir_diags) = resolve_program(&inputs, &registry).context("名称解析失败")?;
     let mut asts: Vec<&Ast> = project.files.iter().map(|f| &f.ast).collect();
     asts.extend(lib_srcs.asts());
     let model = SemanticModel::build(&asts, &index);

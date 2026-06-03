@@ -14,7 +14,7 @@
 //! 实际结局比对。runner 真正执行、真正比对，绝不伪造通过。
 
 use crate::value::{RaisedError, Value};
-use crate::{run_action, Outcome};
+use crate::{run_action, HostRegistry, Outcome};
 use serde::{Deserialize, Serialize};
 use sophia_semantic::SemanticModel;
 use sophia_syntax::Ast;
@@ -77,9 +77,16 @@ pub fn run_hidden_case(
     asts: &[&Ast],
     case: &HiddenCase,
 ) -> VerificationResult {
-    let result = run_action(model, asts, &case.entry_action, case.args.clone());
+    let mut host = HostRegistry::new();
+    let result = run_action(
+        model,
+        asts,
+        &case.entry_action,
+        case.args.clone(),
+        &mut host,
+    );
     let (passed, detail) = match result {
-        Ok(execution) => match_outcome(&case.expected, &execution.outcome),
+        Ok((outcome, _trace)) => match_outcome(&case.expected, &outcome),
         Err(e) => (false, format!("执行 `{}` 硬错误：{e}", case.entry_action)),
     };
     VerificationResult {

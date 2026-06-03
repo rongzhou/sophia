@@ -3,7 +3,7 @@
 //! 见 docs/workflow_graph_spec.md 4.1.2、第七节接入点 4。验证 runner 在 v0 解释器上
 //! 真正执行 hidden case 并如实判定 pass/fail（绝不伪造）。
 
-use sophia_hir::{AsgIndex, IndexInput};
+use sophia_hir::{AsgIndex, IndexInput, LibraryRegistry};
 use sophia_runtime::{
     run_hidden_case, run_hidden_cases, ExpectedOutcome, HiddenCase, Value, VerificationResult,
 };
@@ -35,7 +35,7 @@ impl Program {
                 ast: a,
             })
             .collect();
-        let index = AsgIndex::build(inputs).expect("index");
+        let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).expect("index");
         let refs: Vec<&Ast> = self.asts.iter().collect();
         let analysis = analyze_program(&refs, &index);
         assert!(

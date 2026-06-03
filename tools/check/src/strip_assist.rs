@@ -9,9 +9,7 @@
 //! 指纹一致即等价；不一致说明某处形式核心推导读取了 assist 字段（设计禁止）。
 
 use crate::{fingerprint, CheckError, CheckResult};
-use sophia_hir::{
-    resolve_program_with_libraries, AsgIndex, LibraryRegistry, LibrarySources, ProgramInput,
-};
+use sophia_hir::{resolve_program, AsgIndex, LibraryRegistry, LibrarySources, ProgramInput};
 use sophia_semantic::analyze_program;
 use sophia_syntax::Ast;
 
@@ -55,7 +53,7 @@ pub fn check_strip_assist_equivalence(
         .map(|((domain, path, _), ast)| ProgramInput { domain, path, ast })
         .collect();
     stripped_inputs.extend(lib_srcs.program_inputs());
-    let (stripped_index, _diags) = resolve_program_with_libraries(&stripped_inputs, registry)
+    let (stripped_index, _diags) = resolve_program(&stripped_inputs, registry)
         .map_err(|e| CheckError::IndexBuild(e.to_string()))?;
     let stripped_fp = ir_fingerprint(&stripped_asts, &stripped_index);
 

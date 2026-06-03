@@ -54,23 +54,18 @@ pub struct CodegenInput<'a> {
 }
 
 impl<'a> CodegenInput<'a> {
-    /// 由语义模型 + 全程序 AST 构建 codegen 输入（库契约取**标准库**注册表）。
+    /// 由语义模型 + 全程序 AST + 库注册表构建 codegen 输入。
     ///
     /// 内部用 [`ExecGraph::from_model`] 构图——与解释器（`runtime::Interpreter::new`）**同一份**
-    /// 构图逻辑，保证两后端看到同一执行图（差测试等价的前提之一）。库 op 的类型契约取
-    /// `sophia_stdlib::standard_registry()`（标准库）；三方库场景用 [`Self::with_registry`]。
-    pub fn new(model: &'a SemanticModel, asts: &'a [&'a Ast]) -> Self {
-        Self::with_registry(model, asts, &sophia_stdlib::standard_registry())
-    }
-
-    /// 同 [`Self::new`]，但库 op 契约取指定注册表（标准库 + 三方库合并）。
-    pub fn with_registry(
+    /// 构图逻辑，保证两后端看到同一执行图（差测试等价的前提之一）。库 op 的类型契约必须由调用方显式
+    /// 传入（标准库确定性路径传 `standard_registry()`，CLI 生产路径传 full registry）。
+    pub fn new(
         model: &'a SemanticModel,
         asts: &'a [&'a Ast],
         registry: &sophia_hir::LibraryRegistry,
     ) -> Self {
         let graph = ExecGraph::from_model(model, asts);
-        let lib_index = AsgIndex::new().with_libraries(registry);
+        let lib_index = AsgIndex::new(registry);
         CodegenInput {
             model,
             asts,

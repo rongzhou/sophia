@@ -120,7 +120,7 @@ pub const ASG_INDEX_VERSION: u32 = 1;
 
 impl Default for AsgIndex {
     fn default() -> Self {
-        AsgIndex::new()
+        AsgIndex::new(&LibraryRegistry::empty())
     }
 }
 
@@ -135,11 +135,8 @@ pub struct IndexInput<'a> {
 }
 
 impl AsgIndex {
-    /// 新建空 index（仅语言内置 effect 符号 `Console.Write`；无库）。
-    ///
-    /// 库（标准库 / 三方库）的 effect / 特殊根经 [`Self::with_libraries`] 叠加——这样**无库上下文**
-    /// （纯逻辑程序、core 单测）零改动沿用 `new` / `build`，只有用到库的站点才注入注册表。
-    pub fn new() -> Self {
+    /// 新建空 index，并注入给定库注册表的 effect / 特殊根 family / op 契约。
+    pub fn new(registry: &LibraryRegistry) -> Self {
         let mut effect_ops = BTreeMap::new();
         // 语言内置（Console）——「机制 vs 能力族」边界里的例外（输出原语保留为语言内置）。
         for (family, op, arity) in crate::builtins::BUILTIN_EFFECT_OPS {
@@ -153,7 +150,7 @@ impl AsgIndex {
                 },
             );
         }
-        AsgIndex {
+        let mut index = AsgIndex {
             version: ASG_INDEX_VERSION,
             nodes: BTreeMap::new(),
             variants: BTreeMap::new(),
@@ -161,21 +158,13 @@ impl AsgIndex {
             library_families: BTreeSet::new(),
             library_ops: BTreeMap::new(),
             library_domains: BTreeSet::new(),
-        }
-    }
-
-    /// 叠加库注册表声明的 effect / 特殊根 family / op 契约（清单驱动，链式调用）。
-    ///
-    /// 这是「库不渗透语言核心」的注入点：核心不硬编码 `File`/`Http`，而由库注册表（标准库 + 三方）
-    /// 在此把 family/op/host_fn 灌入 index 的派生符号表。effect 身份不带资源 arg（path/url 走特殊根
-    /// method_call），故声明位 arity=0——同 `Console.Write`。重复调用幂等合并。
-    pub fn with_libraries(mut self, registry: &LibraryRegistry) -> Self {
+        };
         for contract in registry.ops() {
             let key = format!("{}.{}", contract.family, contract.op);
-            self.library_families.insert(contract.family.clone());
-            self.library_ops.insert(key.clone(), contract.clone());
+            index.library_families.insert(contract.family.clone());
+            index.library_ops.insert(key.clone(), contract.clone());
             if contract.effectful {
-                self.effect_ops.insert(
+                index.effect_ops.insert(
                     key,
                     EffectOpInfo {
                         family: contract.family.clone(),
@@ -188,9 +177,9 @@ impl AsgIndex {
         }
         // 纯 Sophia 源码库的 domain（库名即 domain）→ 用户跨 domain 引用库节点时豁免诊断。
         for src in registry.sophia_sources() {
-            self.library_domains.insert(src.domain.clone());
+            index.library_domains.insert(src.domain.clone());
         }
-        self
+        index
     }
 
     /// 查 effect 操作的声明信息（`Family.Op`）。
@@ -215,18 +204,18 @@ impl AsgIndex {
         self.library_ops.get(&format!("{family}.{op}"))
     }
 
-    /// 从一组源文件输入构建 index（**无库**；用 [`Self::with_libraries`] 叠加库）。
+    /// 从一组源文件输入构建 index，并注入给定库注册表。
     ///
     /// 约束（docs/engineering_architecture.md 5.1）：
     /// - 一个文件只能定义一个顶层 formal node；
     /// - 禁止同名 shadowing（跨文件重名即报错）。
     ///
     /// 为产出确定性结果，输入先按 path 升序排序后处理。
-    pub fn build(inputs: Vec<IndexInput<'_>>) -> HirResult<Self> {
+    pub fn build(inputs: Vec<IndexInput<'_>>, registry: &LibraryRegistry) -> HirResult<Self> {
         let mut inputs = inputs;
         inputs.sort_by(|a, b| a.path.cmp(b.path));
 
-        let mut index = AsgIndex::new();
+        let mut index = AsgIndex::new(registry);
         for input in inputs {
             // 一个文件只能定义一个顶层 node。
             if input.ast.items.len() > 1 {

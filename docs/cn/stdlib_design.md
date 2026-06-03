@@ -8,6 +8,8 @@
 >
 > **状态：活文档。** 库随演示需求增量。当前：库插件模型已落地（清单驱动 + `LibraryRegistry` +
 > 路线 B host 注册表）；标准库 `Http` / `File`（已落地，见 `http_lib.md` / `file_lib.md`）。
+> WASM 生产执行、动态 host import、三方 `host.wasm` 在 VM 模式下的 provider ABI 与 CLI runner 设计见
+> `wasm_host_runtime.md`。
 
 ---
 
@@ -32,7 +34,7 @@
 > effect/capability、无 ambient authority 问题。它不在库清单里，由 `hir::builtins::BUILTIN_EFFECT_OPS`
 > 承载（唯一内置 effect 族），随常驻语法基线提供。
 
-> **准入门槛**：库扩充走与语言扩充**同一套需求驱动 + 设计门**纪律——由具体演示需求触发、单库过设计门，
+> **准入门槛**：库扩充走与语言扩充**同一套需求驱动 + 设计评审**纪律——由具体演示需求触发、单库完成对应设计评审，
 > 不预先铺功能清单。
 
 ---
@@ -106,7 +108,7 @@ TypeDesc := Scalar                  # Int | Bool | Text | Unit
 ```
 
 刻意只覆盖现有库形状（`Http`/`File` 全部签名都在内）。**故意不支持**库自定义类型作参/返、泛型、
-`one of`、`list of`——将来某库需要时再扩 DSL + 过设计门（YAGNI）。这是把语义层 effect-op 校验从「逐 op
+`one of`、`list of`——将来某库需要时再扩 DSL + 完成相应设计评审（YAGNI）。这是把语义层 effect-op 校验从「逐 op
 命令式 match」改为「解释清单 TypeDesc」（表驱动）的依据：每库从「改 Rust」坍缩为「写清单」。
 
 ### 2.5 `LibraryRegistry`（各层只读数据源）
@@ -117,7 +119,7 @@ op 契约（`family.op` → 签名 / 返回 / effectful / host_fn）、特殊根
 
 | 层 | 消费方式 |
 | --- | --- |
-| HIR 注册（effect 符号表） | `AsgIndex::with_libraries(registry)` 注入 effect-op + 特殊根 family |
+| HIR 注册（effect 符号表） | `AsgIndex::new(registry)/AsgIndex::build(inputs, registry)` 注入 effect-op + 特殊根 family |
 | HIR 特殊根放行 | `AsgIndex::is_library_family`（替代 `File`/`Http` 白名单） |
 | 语义签名校验 | `index.library_op(family, op)` 的 TypeDesc 表驱动校验（替代 `infer_effect_op` 命令式 match） |
 | 运行时分派 | `HostRegistry` 按 `(family, op)` 委派（路线 B，§五.3） |
@@ -179,7 +181,7 @@ sidecar 持久化）。
 - **不开 ambient authority**：所有库能力是显式声明的 effect。
 - **不让库定义新 intent 种类**：`Raw`/`Sanitized`… 是核心安全词汇，库只能**引用**（§六安全红线）。
 - **不让库改语法 / 加关键字 / 加类型构造器**：只能声明 effect 族 + 操作签名。
-- **不预先铺库清单**：单库过设计门、需求驱动增量。
+- **不预先铺库清单**：单库完成对应设计评审、需求驱动增量。
 - **不做实时热加载**：三方库只在启动时一次性发现，注册表随后冻结。
 
 ---
@@ -281,7 +283,7 @@ surface 与 host 都**不与执行模式绑定**，故四象限全部可用：
 | --- | --- | --- | --- | --- |
 | `Http` | 网络 GET 取回响应体（不可信 `Raw<Text>`） | native-effect | `http_lib.md` | 已落地 |
 | `File` | 本地文件读 / 写 | native-effect | `file_lib.md` | 已落地 |
-| `DB` | 持久化数据存储 | （未定） | （未建） | **未来候选**：需先澄清语义（KV / 关系 / 文档？后端？一致性？）再过设计门；不在 v1 |
+| `DB` | 持久化数据存储 | （未定） | （未建） | **未来候选**：需先澄清语义（KV / 关系 / 文档？后端？一致性？）再完成设计评审；不在 v1 |
 
 > 新增库：加 `libs/<lib>/`（清单 + 资产 + 可选源码 + 可选 host）→ 在 `sophia-stdlib::STDLIB_LIBS` 登记
 > 一行（标准库）或放入三方根目录（三方）→ 新建 `<lib>_lib.md` 契约文档（若 effectful）。详见
@@ -298,7 +300,7 @@ surface 与 host 都**不与执行模式绑定**，故四象限全部可用：
 - 2026-05-31 — 建立标准库设计文档（与 `language_design.md` 对称）：定位、两类知识、基线 vs 库资产边界、
   两阶段提示词脚手架。
 - 2026-05-31 — 确立 (B)「I/O = 库」模型，移除 `storage`，库清单新增 `File` / `DB`（未来候选）。
-- 2026-05-31 — **库插件模型落地（消化原 `library_plugin.md` 设计门）**。把库从散落各层的硬编码切片重构
+- 2026-05-31 — **库插件模型落地（消化原 `library_plugin.md` 设计评审）**。把库从散落各层的硬编码切片重构
   为**清单 = 单一真相源 + `LibraryRegistry` = 各层只读数据源**（倒转索引）。新增两条正交维度（surface ×
   host）统一标准库 / 三方库、纯 Sophia 库 / WASM 库；二元装载路径（标准库静态编译 / 三方启动时一次性发现 +
   WASM 沙箱 host）；表驱动化 effect 签名（TypeDesc mini-DSL，替代命令式 match）；host 分派改路线 B

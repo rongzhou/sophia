@@ -2106,6 +2106,7 @@ version = "0.1.0"
 dependencies = [
  "sophia-exec-ir",
  "sophia-hir",
+ "sophia-library",
  "sophia-runtime",
  "sophia-semantic",
  "sophia-stdlib",

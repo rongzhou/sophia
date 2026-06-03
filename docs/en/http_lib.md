@@ -108,7 +108,7 @@ EffectHost trait method:
 fn http_get(&mut self, url: &str) -> Result<String, String>;
 ```
 
-The interpreter recognizes the `Http.Get` special root during `MethodCall` evaluation (alongside `try_storage_op` there is `try_effect_op`), delegates to `host.http_get(url)`, and wraps the returned text as `Value::Text(body)` (runtime does not carry intent tags—intent is a static, compile-time attribute; runtime only preserves structure). The generic injection mechanism for hosts (`run_action_with_host` / composing hosts / effect-based injection) is described in `stdlib_implementation.md` §III.
+The interpreter recognizes the `Http.Get` special root during `MethodCall` evaluation (alongside `try_storage_op` there is `try_effect_op`), delegates to `host.http_get(url)`, and wraps the returned text as `Value::Text(body)` (runtime does not carry intent tags—intent is a static, compile-time attribute; runtime only preserves structure). The generic injection mechanism for hosts (`run_action` / composing hosts / effect-based injection) is described in `stdlib_implementation.md` §III.
 
 ### 3.2 InMemoryHost deterministic mock
 
@@ -137,7 +137,7 @@ fn http_get(&mut self, url: &str) -> Result<String, String> {
 
 - Synchronous: use `reqwest::blocking` (matches the sync signature of `http_get`; the `run` command is synchronous; no need to thread a tokio runtime through the interpreter). Enable `blocking` feature on workspace `reqwest` (used only by the CLI).
 - Timeouts: set a fixed client timeout (e.g., 10s) to avoid hangs; timeouts → `Err` (honest failure).
-- Error mapping (current stage): network failures / non-2xx / body-read failures all → `Err(String)`, materialized by the interpreter as `RuntimeError` (hard-stop). Do not map network failures into domain `one of {..., HttpError}` at this stage—consistent with §2.3; if we need recoverable failures later, extend `Http.Get`’s return type via F1 (language-layer change via the design gate).
+- Error mapping (current stage): network failures / non-2xx / body-read failures all → `Err(String)`, materialized by the interpreter as `RuntimeError` (hard-stop). Do not map network failures into domain `one of {..., HttpError}` at this stage—consistent with §2.3; if we need recoverable failures later, extend `Http.Get`’s return type via F1 (language-layer change via the design review).
 - Injection predicate: the CLI’s `run` uses `InMemoryHost` by default; only when the entry action’s `declared_effects` includes `Http.Get` do we construct a `CliHost` and inject real networking—programs without networking incur zero overhead and zero behavior change (see `stdlib_implementation.md` §3.2).
 
 ### 3.4 Real-host decisions (2026-05-30)
@@ -173,4 +173,4 @@ We add only “one built-in effect triple + one host method + one type-layer spe
 ## VI. Change log
 
 - 2026-05-30 — `Http` language contract landed: built-in effect family, reuse the storage “special-root method_call + host delegation” path (zero new syntax); `Http.Get(url) -> Raw<Text>`, with intent boundary intercepting untrusted data (D2 reject case). Mock host is honest (miss → `Err`). Three decisions in §2.8 adopted; HIR/semantic/runtime implemented end-to-end + 9 tests.
-- 2026-05-30 — Real host landed: `CliHost` in the CLI coordination layer composes by delegating to `InMemoryHost`, overriding only `http_get` to real `reqwest::blocking` (fixed timeout + honest errors). Runtime exposes `run_action_with_host` as the injection seam. CLI `run` injects based on the entry’s `Http.Get` effect. Four decisions in §3.4 adopted. Seam tests cover delegation equivalence/injection path/effect detection; real networking is not part of `cargo test`.
+- 2026-05-30 — Real host landed: `CliHost` in the CLI coordination layer composes by delegating to `InMemoryHost`, overriding only `http_get` to real `reqwest::blocking` (fixed timeout + honest errors). Runtime exposes `run_action` as the injection seam. CLI `run` injects based on the entry’s `Http.Get` effect. Four decisions in §3.4 adopted. Seam tests cover delegation equivalence/injection path/effect detection; real networking is not part of `cargo test`.

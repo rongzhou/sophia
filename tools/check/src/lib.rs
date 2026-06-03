@@ -14,9 +14,7 @@ mod strip_assist;
 
 pub use strip_assist::{check_strip_assist_equivalence, StripAssistOutcome};
 
-use sophia_hir::{
-    resolve_program_with_libraries, AsgIndex, HirDiagnostic, LibrarySources, ProgramInput,
-};
+use sophia_hir::{resolve_program, AsgIndex, HirDiagnostic, LibrarySources, ProgramInput};
 use sophia_semantic::{analyze_program, SemanticDiagnostic, SemanticModel};
 use sophia_syntax::Ast;
 use thiserror::Error;
@@ -80,8 +78,8 @@ pub fn check_program(sources: &[(String, String, String)]) -> CheckResult<CheckR
         .collect();
     inputs.extend(lib_srcs.program_inputs());
 
-    let (index, hir) = resolve_program_with_libraries(&inputs, &registry)
-        .map_err(|e| CheckError::IndexBuild(e.to_string()))?;
+    let (index, hir) =
+        resolve_program(&inputs, &registry).map_err(|e| CheckError::IndexBuild(e.to_string()))?;
 
     // 用户 AST + 库 AST 同列分析（库节点须建模才能解析调用）；用户诊断与库诊断分离由调用方按需处理，
     // 此处汇总全部语义诊断（库源码自身若有问题也应暴露）。

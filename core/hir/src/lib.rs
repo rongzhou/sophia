@@ -95,24 +95,17 @@ impl LibrarySources {
     }
 }
 
-/// 对整个程序（一组源文件）做名称解析与 scope 分析（**无库**：仅语言内置 `Console`）。
+/// 对整个程序（一组源文件）做名称解析与 scope 分析。
 ///
 /// 流程（对应 docs/language_implementation.md 第二节管线的 “节点索引 → 名称解析”）：
 /// 1. 从全部输入构建 [`AsgIndex`]（含一文件一节点、禁止重名校验）；
 /// 2. 对每个节点用该 index 解析引用、检查 scope，汇总诊断。
 ///
-/// 用到标准库 / 三方库的程序应改用 [`resolve_program_with_libraries`]（注入库注册表）。
-/// index 构建失败（硬错误）以 `Err` 返回；名称解析诊断以 `Ok((index, diags))` 返回。
-pub fn resolve_program(inputs: &[ProgramInput<'_>]) -> HirResult<(AsgIndex, Vec<HirDiagnostic>)> {
-    resolve_program_with_libraries(inputs, &LibraryRegistry::empty())
-}
-
-/// 同 [`resolve_program`]，但注入**库注册表**（标准库 + 三方库经清单构建）。
-///
 /// index 据 `registry` 叠加库特殊根 family 与 effect / op 契约，使库的 `Lib.Op(args)` 调用能被
-/// 名称解析放行、被语义层表驱动校验——核心不硬编码具体库（见 docs/stdlib_design.md）。空注册表
-/// 等价于 [`resolve_program`]。
-pub fn resolve_program_with_libraries(
+/// 名称解析放行、被语义层表驱动校验——核心不硬编码具体库（见 docs/stdlib_design.md）。纯逻辑 /
+/// core 单测路径显式传 [`LibraryRegistry::empty`]。
+/// index 构建失败（硬错误）以 `Err` 返回；名称解析诊断以 `Ok((index, diags))` 返回。
+pub fn resolve_program(
     inputs: &[ProgramInput<'_>],
     registry: &LibraryRegistry,
 ) -> HirResult<(AsgIndex, Vec<HirDiagnostic>)> {
@@ -124,7 +117,7 @@ pub fn resolve_program_with_libraries(
             ast: i.ast,
         })
         .collect();
-    let index = AsgIndex::build(index_inputs)?.with_libraries(registry);
+    let index = AsgIndex::build(index_inputs, registry)?;
 
     let mut diags = Vec::new();
     // 按 path 排序保证诊断顺序确定。
