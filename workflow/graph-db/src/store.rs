@@ -486,6 +486,12 @@ fn validate_payload(payload: &NodePayload) -> GraphResult<()> {
                     "ContextSnapshot.digest 必须为 64 位小写 hex".into(),
                 ));
             }
+            let expected = snapshot_digest(&s.snapshot)?;
+            if s.digest != expected {
+                return Err(GraphError::InvalidPayload(
+                    "ContextSnapshot.digest 与 snapshot 内容不一致".into(),
+                ));
+            }
         }
         P::Decision(d) => {
             nonempty(&d.rationale, "rationale")?;
@@ -545,4 +551,10 @@ fn validate_payload(payload: &NodePayload) -> GraphResult<()> {
         _ => {}
     }
     Ok(())
+}
+
+fn snapshot_digest(snapshot: &serde_json::Value) -> GraphResult<String> {
+    crate::active_context::digest_snapshot_value(snapshot).map_err(|e| {
+        GraphError::InvalidPayload(format!("ContextSnapshot.snapshot 序列化失败：{e}"))
+    })
 }

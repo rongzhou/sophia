@@ -14,3 +14,4 @@ minijinja.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+jsonschema.workspace = true

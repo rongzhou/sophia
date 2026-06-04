@@ -17,12 +17,13 @@ use crate::edge::EdgeKind;
 use crate::ids::{NodeId, NodeRole, Provenance};
 use crate::payload::{ClarificationKind, NodePayload};
 use crate::store::GraphStore;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 /// 目标视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectiveView {
     pub id: NodeId,
     pub title: String,
@@ -30,7 +31,7 @@ pub struct ObjectiveView {
 }
 
 /// 约束视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstraintView {
     pub id: NodeId,
     pub kind: crate::payload::ConstraintKind,
@@ -38,14 +39,14 @@ pub struct ConstraintView {
 }
 
 /// 验收条件视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcceptanceCriterionView {
     pub id: NodeId,
     pub statement: String,
 }
 
 /// milestone 视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MilestoneView {
     pub id: NodeId,
     pub name: String,
@@ -53,21 +54,21 @@ pub struct MilestoneView {
 }
 
 /// 变更请求视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeRequestView {
     pub id: NodeId,
     pub request: String,
 }
 
 /// 澄清（问题）视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClarificationView {
     pub id: NodeId,
     pub body: String,
 }
 
 /// Active Context：确定性管线根据图当前状态计算出的视图。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActiveContext {
     pub bound_objectives: Vec<ObjectiveView>,
     pub active_milestone: Option<MilestoneView>,
@@ -482,4 +483,28 @@ pub fn snapshot_payload(ctx: &ActiveContext) -> crate::payload::ContextSnapshotP
         snapshot: serde_json::to_value(ctx).expect("ActiveContext 序列化"),
         digest: ctx.digest.clone(),
     }
+}
+
+/// 按 active context 的 digest 契约重算 snapshot digest。
+///
+/// 真实 ActiveContext snapshot 含有固定六个 body 字段和一个 `digest` 字段；digest 只覆盖
+/// 六个 body 字段，且字段顺序与 [`SnapshotBody`] 一致。恢复 / 测试用的其它 JSON 值按自身
+/// canonical JSON 计算，仍能校验“digest 与 payload 内容一致”。
+pub(crate) fn digest_snapshot_value(snapshot: &Value) -> Result<String, String> {
+    if let Ok(ctx) = serde_json::from_value::<ActiveContext>(snapshot.clone()) {
+        let body = SnapshotBody {
+            bound_objectives: &ctx.bound_objectives,
+            active_milestone: &ctx.active_milestone,
+            bound_constraints: &ctx.bound_constraints,
+            bound_acceptance_criteria: &ctx.bound_acceptance_criteria,
+            open_change_requests: &ctx.open_change_requests,
+            outstanding_questions: &ctx.outstanding_questions,
+        };
+        return serde_json::to_string(&body)
+            .map(|raw| sha256_hex(&raw))
+            .map_err(|e| e.to_string());
+    }
+    serde_json::to_string(snapshot)
+        .map(|raw| sha256_hex(&raw))
+        .map_err(|e| e.to_string())
 }

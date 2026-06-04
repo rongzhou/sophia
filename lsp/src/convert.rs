@@ -42,27 +42,17 @@ pub fn byte_to_position(source: &str, byte: usize) -> Position {
 
 /// LSP `Position`（0 基行 + UTF-16 列）→ 字节偏移。
 pub fn position_to_byte(source: &str, pos: Position) -> usize {
-    let mut cur_line = 0u32;
-    let mut idx = 0usize;
-    let mut line_start = 0usize;
-    // 定位目标行起始字节。
+    let mut line_starts = vec![0usize];
     for (i, c) in source.char_indices() {
-        if cur_line == pos.line {
-            line_start = i;
-            break;
-        }
         if c == '\n' {
-            cur_line += 1;
+            line_starts.push(i + 1);
         }
-        idx = i + c.len_utf8();
     }
-    if cur_line < pos.line {
-        // 目标行超出范围。
+
+    let Some(&line_start) = line_starts.get(pos.line as usize) else {
         return source.len();
-    }
-    if pos.line == 0 {
-        line_start = 0;
-    }
+    };
+
     // 行内：消费 pos.character 个 UTF-16 code unit。
     let mut utf16_seen = 0u32;
     let mut byte = line_start;
@@ -73,7 +63,6 @@ pub fn position_to_byte(source: &str, pos: Position) -> usize {
         utf16_seen += c.len_utf16() as u32;
         byte += c.len_utf8();
     }
-    let _ = idx;
     byte
 }
 
@@ -122,5 +111,50 @@ mod tests {
             character: 0,
         };
         assert_eq!(position_to_byte(src, pos), src.len());
+    }
+
+    #[test]
+    fn position_on_trailing_empty_line_maps_to_eof() {
+        let src = "a\n";
+        assert_eq!(
+            position_to_byte(
+                src,
+                Position {
+                    line: 1,
+                    character: 0
+                }
+            ),
+            src.len()
+        );
+    }
+
+    #[test]
+    fn position_on_consecutive_empty_lines_roundtrips() {
+        let src = "a\n\nb";
+        let byte = src.find('b').unwrap();
+        let pos = byte_to_position(src, byte);
+        assert_eq!(
+            pos,
+            Position {
+                line: 2,
+                character: 0
+            }
+        );
+        assert_eq!(position_to_byte(src, pos), byte);
+    }
+
+    #[test]
+    fn position_inside_surrogate_pair_clamps_after_scalar() {
+        let src = "😀x";
+        assert_eq!(
+            position_to_byte(
+                src,
+                Position {
+                    line: 0,
+                    character: 1
+                }
+            ),
+            "😀".len()
+        );
     }
 }

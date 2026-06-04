@@ -245,7 +245,7 @@ pub struct ClarificationPayload {
 // ============ 推理与执行簇 ============
 
 /// ContextSnapshotNode（4.4.1）。`snapshot` 用 JSON Value 承载 ActiveContext，
-/// 由 active context 推导模块（第五节）填充；本层只存储与校验 digest 格式。
+/// 由 active context 推导模块（第五节）填充；存储层会校验 digest 与 snapshot 内容一致。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContextSnapshotPayload {

@@ -83,6 +83,14 @@ async fn backend_unavailable_emits_raw_llm_with_attempted_edge() {
             assert_eq!(store.role_of(raw_llm), Some(NodeRole::RawLlm));
             // attempted→ target 边存在。
             assert!(store.has_edge(raw_llm, tgt, EdgeKind::Attempted));
+            // 失败调用也连回本次调用前创建的 ContextSnapshot，便于审计复现。
+            let snapshot = store
+                .edges()
+                .iter()
+                .find(|e| e.from == raw_llm && e.kind == EdgeKind::Consumed)
+                .map(|e| e.to)
+                .expect("RawLlm 应有 consumed→ ContextSnapshot");
+            assert_eq!(store.role_of(snapshot), Some(NodeRole::ContextSnapshot));
         }
         LlmStepOutcome::Succeeded { .. } => panic!("后端不可用应失败"),
     }

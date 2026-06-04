@@ -4,7 +4,7 @@
 //! （codegen 与解释器看到同一张图）；② W1 阶段 `emit_module` 诚实返回 `NotYetImplemented`
 //! （不伪造产出）。
 
-use sophia_codegen::{emit_module, CodegenError, CodegenInput};
+use sophia_codegen::{emit_from_sources, emit_module, CodegenError, CodegenInput};
 use sophia_hir::{resolve_program, LibraryRegistry, ProgramInput};
 use sophia_semantic::analyze_program;
 use sophia_syntax::{parse_ast, Ast};
@@ -83,6 +83,39 @@ fn emit_supported_program_produces_wasm_bytes() {
     let bytes = emit_module(&input).expect("W2 标量程序应 emit 出 WASM");
     assert_eq!(&bytes[0..4], b"\0asm", "应以 WASM 魔数开头");
     assert_eq!(&bytes[4..8], &[1, 0, 0, 0], "WASM 版本应为 1");
+}
+
+#[test]
+fn emit_from_sources_rejects_hir_diagnostics() {
+    let registry = LibraryRegistry::empty();
+    let err = emit_from_sources(
+        &[(
+            "d".to_string(),
+            "d/actions/Bad.sophia".to_string(),
+            "action Bad { input { n: Int } output { y: Int } body { return Missing(n) } }"
+                .to_string(),
+        )],
+        &registry,
+        false,
+    )
+    .unwrap_err();
+    assert!(matches!(err, CodegenError::InvalidInput(msg) if msg.contains("名称解析诊断未通过")));
+}
+
+#[test]
+fn emit_from_sources_rejects_semantic_diagnostics() {
+    let registry = LibraryRegistry::empty();
+    let err = emit_from_sources(
+        &[(
+            "d".to_string(),
+            "d/actions/Bad.sophia".to_string(),
+            "action Bad { input { n: Int } output { y: Int } body { return \"x\" } }".to_string(),
+        )],
+        &registry,
+        false,
+    )
+    .unwrap_err();
+    assert!(matches!(err, CodegenError::InvalidInput(msg) if msg.contains("语义诊断未通过")));
 }
 
 #[test]

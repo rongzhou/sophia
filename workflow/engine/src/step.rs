@@ -77,6 +77,7 @@ where
                 },
             )?;
             store.append_edge(raw_llm, target, sophia_graph_db::EdgeKind::Attempted)?;
+            store.append_edge(raw_llm, snapshot, sophia_graph_db::EdgeKind::Consumed)?;
             Ok(LlmStepOutcome::Failed { raw_llm, error })
         }
     }

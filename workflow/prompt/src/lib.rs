@@ -76,6 +76,75 @@ const SCHEMAS: &[(&str, &str)] = &[
     ),
 ];
 
+/// 工作流 prompt 步骤。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PromptStep {
+    Decision,
+    Decompose,
+    DesignSolution,
+    ImplementDesign,
+    RepairCode,
+    ReviseDesign,
+}
+
+impl PromptStep {
+    /// 全部内置工作流步骤，按稳定顺序返回。
+    pub fn all() -> &'static [PromptStep] {
+        &[
+            PromptStep::Decision,
+            PromptStep::Decompose,
+            PromptStep::DesignSolution,
+            PromptStep::ImplementDesign,
+            PromptStep::RepairCode,
+            PromptStep::ReviseDesign,
+        ]
+    }
+}
+
+/// 单个工作流 prompt 步骤的模板 / schema 绑定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PromptSpec {
+    pub step: PromptStep,
+    pub template: &'static str,
+    pub schema: &'static str,
+}
+
+/// 取工作流步骤的模板 / schema 绑定。
+pub fn spec_for(step: PromptStep) -> PromptSpec {
+    match step {
+        PromptStep::Decision => PromptSpec {
+            step,
+            template: "decision",
+            schema: "decision",
+        },
+        PromptStep::Decompose => PromptSpec {
+            step,
+            template: "decompose",
+            schema: "decompose_result",
+        },
+        PromptStep::DesignSolution => PromptSpec {
+            step,
+            template: "design_solution",
+            schema: "design_result",
+        },
+        PromptStep::ImplementDesign => PromptSpec {
+            step,
+            template: "implement_design",
+            schema: "implement_result",
+        },
+        PromptStep::RepairCode => PromptSpec {
+            step,
+            template: "repair_code",
+            schema: "repair_result",
+        },
+        PromptStep::ReviseDesign => PromptSpec {
+            step,
+            template: "revise_design",
+            schema: "design_result",
+        },
+    }
+}
+
 /// 内置 prompt 资产（system preamble 等）：名字 → 源文本。
 ///
 /// 见 docs/engineering_architecture.md 8.3。与 templates / schemas 同为 prompt 核心资产，
@@ -119,7 +188,10 @@ impl PromptRegistry {
 
     /// 内置模板名列表（字典序，确定性）。
     pub fn template_names(&self) -> Vec<&'static str> {
-        let mut names: Vec<&'static str> = TEMPLATES.iter().map(|(n, _)| *n).collect();
+        let mut names: Vec<&'static str> = PromptStep::all()
+            .iter()
+            .map(|step| spec_for(*step).template)
+            .collect();
         names.sort_unstable();
         names
     }

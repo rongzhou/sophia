@@ -145,7 +145,12 @@ impl EdgeKind {
             E::Consumed => {
                 matches!(
                     from,
-                    R::Decision | R::Pseudocode | R::Code | R::Assessment | R::Decomposition
+                    R::Decision
+                        | R::Pseudocode
+                        | R::Code
+                        | R::Assessment
+                        | R::Decomposition
+                        | R::RawLlm
                 ) && to == R::ContextSnapshot
             }
             E::Considers => {

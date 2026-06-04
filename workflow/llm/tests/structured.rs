@@ -145,7 +145,50 @@ async fn exhausted_retries_returns_structured_error_not_fake_success() {
     let req = CompletionRequest::new("test", "decide");
     let cfg = StructuredConfig { max_retries: 2 };
     let result = complete_structured::<Decision, _>(&client, &req, &decision_schema(), &cfg).await;
+    assert!(matches!(result, Err(LlmError::Parse(_))));
+}
+
+#[tokio::test]
+async fn schema_failure_after_parse_failure_stays_schema_validation() {
+    let client = MockClient::new(vec![
+        Ok("not json at all".into()),
+        Ok(r#"{"action":"design"}"#.into()),
+    ]);
+    let req = CompletionRequest::new("test", "decide");
+    let cfg = StructuredConfig { max_retries: 1 };
+    let result = complete_structured::<Decision, _>(&client, &req, &decision_schema(), &cfg).await;
     assert!(matches!(result, Err(LlmError::SchemaValidation { .. })));
+}
+
+#[tokio::test]
+async fn extracts_first_complete_object_not_cross_response_blob() {
+    let client = MockClient::new(vec![Ok(
+        "示例：{\"action\":\"wrong\"}\n最终：{\"action\":\"implement\",\"confidence\":5}".into(),
+    )]);
+    let req = CompletionRequest::new("test", "decide");
+    let cfg = StructuredConfig { max_retries: 0 };
+    let err = complete_structured::<Decision, _>(&client, &req, &decision_schema(), &cfg)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, LlmError::SchemaValidation { .. }));
+}
+
+#[tokio::test]
+async fn extracts_json_fenced_code_block_before_inline_example() {
+    let client = MockClient::new(vec![Ok(
+        "示例：{\"action\":\"wrong\"}\n```json\n{\"action\":\"implement\",\"confidence\":5}\n```"
+            .into(),
+    )]);
+    let req = CompletionRequest::new("test", "decide");
+    let out: Decision = complete_structured(
+        &client,
+        &req,
+        &decision_schema(),
+        &StructuredConfig { max_retries: 0 },
+    )
+    .await
+    .unwrap();
+    assert_eq!(out.action, "implement");
 }
 
 #[tokio::test]

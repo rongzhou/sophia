@@ -81,6 +81,29 @@ fn cross_document_diagnostics_are_attributed_correctly() {
 }
 
 #[test]
+fn workspace_index_error_is_reported_not_silently_downgraded() {
+    let mut ws = Workspace::new();
+    ws.upsert(
+        "d/A.sophia",
+        "D",
+        "entity Todo { fields { id { type: Int } } }",
+    );
+    ws.upsert(
+        "d/B.sophia",
+        "D",
+        "entity Todo { fields { id { type: Int } } }",
+    );
+
+    let diags = ws.diagnostics("d/A.sophia");
+    assert!(
+        diags.iter().any(|d| {
+            d.source == DiagnosticSource::Hir && d.message.contains("重复的节点名")
+        }),
+        "workspace-level HIR 错误应可见：{diags:?}"
+    );
+}
+
+#[test]
 fn hover_returns_symbol_info() {
     let mut ws = Workspace::new();
     let src = "entity Todo { fields { id { type: Int } } }";

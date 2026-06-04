@@ -16,7 +16,16 @@ use sophia_graph_db::{DiagnosticItem, DiagnosticKind, DiagnosticPayload, Diagnos
 /// strip-assist 等价（`check_program`）。任一语法错误即跳过语义阶段；`check_program` 作为公共
 /// raw-source API 也会结构化返回语法错误，这里先过滤是为了保留更细的逐文件语法诊断。
 pub fn code_check(files: &[(String, String)]) -> DiagnosticPayload {
-    let mut items = syntax_diagnostics(files);
+    let mut items = path_diagnostics(files);
+    if !items.is_empty() {
+        return DiagnosticPayload {
+            kind: DiagnosticKind::CodeCheck,
+            ok: false,
+            diagnostics: items,
+        };
+    }
+
+    items.extend(syntax_diagnostics(files));
     if items.is_empty() {
         items.extend(semantic_diagnostics(files));
     }
@@ -25,6 +34,51 @@ pub fn code_check(files: &[(String, String)]) -> DiagnosticPayload {
         ok: items.is_empty(),
         diagnostics: items,
     }
+}
+
+/// 候选文件路径来自 LLM / artifact 边界，先收敛为 domain-first `.sophia` 相对路径。
+pub fn validate_candidate_path(path: &str) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("候选文件路径不能为空".to_string());
+    }
+    if path.starts_with('/') {
+        return Err(format!("候选文件路径不能是绝对路径：{path}"));
+    }
+    if path.contains('\\') {
+        return Err(format!("候选文件路径必须使用正斜杠：{path}"));
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() < 3 {
+        return Err(format!(
+            "候选文件路径必须为 domain-first 布局 `<domain>/<category>/<file>.sophia`：{path}"
+        ));
+    }
+    if parts.iter().any(|part| part.is_empty() || *part == ".") {
+        return Err(format!("候选文件路径包含空段或 `.`：{path}"));
+    }
+    if parts.contains(&"..") {
+        return Err(format!("候选文件路径不能包含 `..`：{path}"));
+    }
+    if !path.ends_with(".sophia") {
+        return Err(format!("候选文件路径必须以 `.sophia` 结尾：{path}"));
+    }
+    Ok(())
+}
+
+fn path_diagnostics(files: &[(String, String)]) -> Vec<DiagnosticItem> {
+    files
+        .iter()
+        .filter_map(|(path, _)| {
+            validate_candidate_path(path)
+                .err()
+                .map(|problem| DiagnosticItem {
+                    code: "PATH".to_string(),
+                    severity: DiagnosticSeverity::Error,
+                    problem,
+                    location: Some(path.clone()),
+                })
+        })
+        .collect()
 }
 
 /// 阶段一：语法层诊断（每文件解析，收集 tree-sitter ERROR/MISSING 节点）。

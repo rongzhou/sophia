@@ -607,10 +607,8 @@ pub(super) fn write_code_artifacts(
     let base = artifacts_dir(root).join(code.as_string());
     let mut written = Vec::new();
     for (rel, content) in files {
-        // 拒绝绝对路径与 `..` 逃逸（与 materialize 的安全约束一致）。
-        if rel.starts_with('/') || rel.split('/').any(|s| s == "..") {
-            anyhow::bail!("候选文件路径非法（绝对路径或 .. 逃逸）：{rel}");
-        }
+        // 与 code_check / materialize 的边界契约一致。
+        sophia_engine::validate_candidate_path(rel).map_err(anyhow::Error::msg)?;
         let path = base.join(rel);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -651,6 +649,17 @@ mod tests {
         let payload = code_check(&files);
         assert!(!payload.ok, "语法错误应不通过");
         assert!(payload.diagnostics.iter().any(|d| d.code == "SYNTAX"));
+    }
+
+    #[test]
+    fn code_check_flags_invalid_candidate_path_before_parse() {
+        let files = vec![(
+            "Bad.sophia".to_string(),
+            "action Bad { input { n: Int } output { r: Int } body { return n } }".to_string(),
+        )];
+        let payload = code_check(&files);
+        assert!(!payload.ok);
+        assert_eq!(payload.diagnostics[0].code, "PATH");
     }
 
     #[test]

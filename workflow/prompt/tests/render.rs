@@ -4,7 +4,7 @@
 //! （docs/engineering_architecture.md 8.2）。
 
 use serde_json::json;
-use sophia_prompt::{schema_for, PromptError, PromptRegistry};
+use sophia_prompt::{schema_for, spec_for, PromptError, PromptRegistry, PromptStep};
 
 #[test]
 fn all_templates_loaded() {
@@ -196,12 +196,51 @@ fn schemas_are_valid_json_and_strict() {
     ] {
         let src = schema_for(name).unwrap_or_else(|| panic!("缺 schema {name}"));
         let value: serde_json::Value = serde_json::from_str(src).expect("schema 应为合法 JSON");
+        jsonschema::validator_for(&value).unwrap_or_else(|e| panic!("schema {name} 应可编译：{e}"));
         // strict 模式：顶层对象 additionalProperties:false（workflow_graph_spec 1.3）。
-        assert_eq!(
-            value.get("additionalProperties"),
-            Some(&serde_json::Value::Bool(false)),
-            "schema {name} 顶层应 additionalProperties:false"
+        assert_strict_objects(name, &value);
+    }
+}
+
+#[test]
+fn prompt_specs_bind_existing_templates_and_schemas() {
+    let reg = PromptRegistry::new();
+    let templates = reg.template_names();
+    for step in PromptStep::all() {
+        let spec = spec_for(*step);
+        assert!(
+            templates.contains(&spec.template),
+            "缺少模板 {}",
+            spec.template
         );
+        assert!(
+            schema_for(spec.schema).is_some(),
+            "缺少 schema {}",
+            spec.schema
+        );
+    }
+}
+
+fn assert_strict_objects(schema_name: &str, value: &serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.get("type").and_then(|v| v.as_str()) == Some("object") {
+                assert_eq!(
+                    map.get("additionalProperties"),
+                    Some(&serde_json::Value::Bool(false)),
+                    "schema {schema_name} 的 object schema 应 additionalProperties:false: {value}"
+                );
+            }
+            for nested in map.values() {
+                assert_strict_objects(schema_name, nested);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for nested in items {
+                assert_strict_objects(schema_name, nested);
+            }
+        }
+        _ => {}
     }
 }
 

@@ -2217,6 +2217,7 @@ name = "sophia-prompt"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "jsonschema",
  "minijinja",
  "serde",
  "serde_json",

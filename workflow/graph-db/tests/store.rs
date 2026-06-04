@@ -15,7 +15,7 @@ fn ctx_snapshot() -> ContextSnapshotPayload {
     ContextSnapshotPayload {
         schema_version: 1,
         snapshot: serde_json::json!({}),
-        digest: "a".repeat(64),
+        digest: "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a".to_string(),
     }
 }
 
@@ -180,6 +180,24 @@ fn context_snapshot_digest_format_enforced() {
                 schema_version: 1,
                 snapshot: serde_json::json!({}),
                 digest: "TOOSHORT".into(),
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(err, GraphError::InvalidPayload(_)));
+}
+
+#[test]
+fn context_snapshot_digest_must_match_snapshot_content() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let err = store
+        .as_deterministic()
+        .context_snapshot(
+            "s",
+            ContextSnapshotPayload {
+                schema_version: 1,
+                snapshot: serde_json::json!({"actual": true}),
+                digest: "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                    .to_string(),
             },
         )
         .unwrap_err();

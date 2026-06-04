@@ -21,7 +21,7 @@ mod select_materialize;
 mod step;
 mod traversal;
 
-pub use code_check::{code_check, domain_of_path};
+pub use code_check::{code_check, domain_of_path, validate_candidate_path};
 pub use implement_loop::{
     run_implement_loop, CodeChecker, ImplementLoopConfig, ImplementLoopError, ImplementLoopOutcome,
 };

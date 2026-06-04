@@ -7,9 +7,9 @@
 //!
 //! 本模块不依赖 tower-lsp，便于单元测试；协议投影见 `convert` 与 `server`。
 
-use sophia_hir::{resolve_item, resolve_program, AsgIndex, NodeKind, ProgramInput};
+use sophia_hir::{resolve_item, resolve_program, NodeKind, ProgramInput};
 use sophia_semantic::{analyze_one_callable, SemanticModel};
-use sophia_syntax::{parse_str, Ast, Item, Span, SyntaxDiagnostic, SyntaxTree};
+use sophia_syntax::{parse_str, Ast, Item, Point, Span, SyntaxDiagnostic, SyntaxTree};
 use std::collections::BTreeMap;
 
 /// 一个文档的 URI（不透明字符串键）。
@@ -128,8 +128,8 @@ impl Workspace {
             return syntax;
         }
 
-        // 跨文件 index 构建失败（重名 / 一文件多节点）：以空 index 退化，
-        // 仍按本文档 item 解析，避免完全无诊断。
+        // 跨文件 index 构建失败（重名 / 一文件多节点）必须作为可见 HIR 诊断返回；
+        // 不能退化为空 index，否则会吞掉 CLI check 能看到的 workspace-level 错误。
         let inputs: Vec<ProgramInput> = self
             .docs
             .values()
@@ -142,7 +142,14 @@ impl Workspace {
         let registry = sophia_stdlib::standard_registry();
         let index = match resolve_program(&inputs, &registry) {
             Ok((index, _)) => index,
-            Err(_) => AsgIndex::new(&registry),
+            Err(e) => {
+                return vec![Diagnostic {
+                    source: DiagnosticSource::Hir,
+                    span: workspace_error_span(doc),
+                    code: "WorkspaceIndex".to_string(),
+                    message: e.to_string(),
+                }];
+            }
         };
 
         let mut out = Vec::new();
@@ -239,4 +246,19 @@ fn ident_at_byte(tree: &SyntaxTree, byte: usize) -> Option<String> {
 
 fn node_kind_of(item: &Item) -> NodeKind {
     NodeKind::of_item(item)
+}
+
+fn workspace_error_span(doc: &Document) -> Span {
+    doc.ast.items.first().map(Item::span).unwrap_or(Span {
+        start: Point {
+            byte: 0,
+            row: 0,
+            column: 0,
+        },
+        end: Point {
+            byte: 0,
+            row: 0,
+            column: 0,
+        },
+    })
 }

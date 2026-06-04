@@ -13,7 +13,9 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use sophia_engine::{code_check, domain_of_path, run_materialization, run_selection};
+use sophia_engine::{
+    code_check, domain_of_path, run_materialization, run_selection, validate_candidate_path,
+};
 use sophia_graph_db::{
     derive_active_context, ConstraintView, DiagnosticItem, DiagnosticKind, DiagnosticPayload,
     DiagnosticSeverity, GraphStore, NodeId, NodePayload, NodeRole,
@@ -376,6 +378,7 @@ fn load_candidate_files(
     let base = artifacts_dir(root).join(code.as_string());
     let mut files = Vec::new();
     for rel in paths {
+        validate_candidate_path(&rel).map_err(|e| anyhow::anyhow!(e))?;
         let path = base.join(&rel);
         let content = std::fs::read_to_string(&path).with_context(|| {
             format!(
@@ -477,6 +480,39 @@ mod tests {
         store.validate_i6().unwrap();
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn load_candidate_files_rejects_persisted_escape_path() {
+        let root = temp_root("escape_path");
+        let mut store = open_store(&root).unwrap();
+        let snap = store
+            .as_deterministic()
+            .context_snapshot(
+                "snap",
+                sophia_graph_db::ContextSnapshotPayload {
+                    schema_version: 1,
+                    snapshot: serde_json::json!({}),
+                    digest: "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+                        .to_string(),
+                },
+            )
+            .unwrap();
+        let code = store
+            .as_llm()
+            .code(
+                "code",
+                sophia_graph_db::CodePayload {
+                    files: vec!["D/../outside.sophia".to_string()],
+                },
+            )
+            .unwrap();
+        store
+            .append_edge(code, snap, sophia_graph_db::EdgeKind::Consumed)
+            .unwrap();
+
+        let err = load_candidate_files(&root, &store, code).unwrap_err();
+        assert!(err.to_string().contains("不能包含 `..`"));
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::contract::CodegenInput;
 use crate::emit_module;
 use crate::error::{CodegenError, CodegenResult};
 use sophia_hir::{LibraryRegistry, LibrarySources, ProgramInput};
-use sophia_semantic::SemanticModel;
+use sophia_semantic::analyze_program;
 use sophia_syntax::{parse_ast, Ast};
 
 /// 由 `(domain, path, source)` 源码直接 emit WASM 字节。
@@ -50,12 +50,33 @@ pub fn emit_from_sources(
         })
         .collect();
     inputs.extend(lib_srcs.program_inputs());
-    let (index, _diags) = sophia_hir::resolve_program(&inputs, registry)
+    let (index, hir_diagnostics) = sophia_hir::resolve_program(&inputs, registry)
         .map_err(|e| CodegenError::InvalidInput(format!("名称解析失败：{e}")))?;
+    if !hir_diagnostics.is_empty() {
+        let details = hir_diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(CodegenError::InvalidInput(format!(
+            "名称解析诊断未通过：{details}"
+        )));
+    }
     let mut refs: Vec<&Ast> = asts.iter().collect();
     refs.extend(lib_srcs.asts());
-    let model = SemanticModel::build(&refs, &index);
-    let input = CodegenInput::new(&model, &refs, registry);
+    let analysis = analyze_program(&refs, &index);
+    if !analysis.diagnostics.is_empty() {
+        let details = analysis
+            .diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(CodegenError::InvalidInput(format!(
+            "语义诊断未通过：{details}"
+        )));
+    }
+    let input = CodegenInput::new(&analysis.model, &refs, registry);
     emit_module(&input)
 }
 
