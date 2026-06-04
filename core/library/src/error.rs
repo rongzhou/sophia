@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 /// 当前支持的清单 ABI 版本。发现到更高版本即报错（不静默跳过）。
-pub const SUPPORTED_ABI_VERSION: u32 = 1;
+pub(crate) const SUPPORTED_ABI_VERSION: u32 = 1;
 
 /// 库构建 / 合并错误。
 #[derive(Debug, Error, PartialEq, Eq)]

@@ -1498,7 +1498,7 @@ struct FnEmitter<'a> {
     /// host op 实参句柄暂存局部起点。
     host_arg_base: u32,
     /// 当前 callable 的类型推导表（静态分派用，如 `Add` 的 Int/Text）。
-    types: sophia_semantic::type_layer::TypeTable,
+    types: sophia_semantic::TypeTable,
     instrs: Vec<Instruction<'static>>,
 }
 
@@ -1531,8 +1531,12 @@ fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> Codeg
     let declared_i32_locals = let_names.len() as u32 + 6 + host_arg_count; // lets/bindings + scratch + host args
 
     // 重算类型表（Table 模式，语义 6.2）：codegen 不要求 analyze_program 暴露它。
-    let out = sophia_semantic::type_layer::TypeChecker::new(ctx.model, ast, ctx.lib_index)
-        .check_callable(&callable.name.text);
+    let types = sophia_semantic::infer_callable_type_table(
+        &callable.name.text,
+        ctx.model,
+        ast,
+        ctx.lib_index,
+    );
 
     let mut emitter = FnEmitter {
         ast,
@@ -1550,7 +1554,7 @@ fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> Codeg
         io_a,
         io_b,
         host_arg_base,
-        types: out.table,
+        types,
         instrs: Vec::new(),
     };
     emitter.emit_block(body)?;
@@ -1977,7 +1981,7 @@ impl FnEmitter<'_> {
             }
             Add => {
                 // 静态分派：Int 加法 / Text 拼接（List 追加待后续增量）。
-                use sophia_semantic::ty::Ty;
+                use sophia_semantic::Ty;
                 match self.types.get(whole).map(|t| t.strip_intent()) {
                     Some(Ty::Int) => self.emit_int_binop(left, right, Instruction::I64Add),
                     Some(Ty::Text) => {
@@ -2281,7 +2285,7 @@ impl FnEmitter<'_> {
 
     /// 要求表达式静态类型可用 `value_eq` 比较（Int/Bool/Null/Unit/Text），否则 `NotYetImplemented`。
     fn require_scalar_eq(&self, id: ExprId) -> CodegenResult<()> {
-        use sophia_semantic::ty::Ty;
+        use sophia_semantic::Ty;
         match self.types.get(id).map(|t| t.strip_intent()) {
             Some(Ty::Int | Ty::Bool | Ty::Null | Ty::Unit | Ty::Text) | None => Ok(()),
             _ => Err(unsupported(
@@ -2410,7 +2414,7 @@ impl FnEmitter<'_> {
             }
         }
         // entity 字段读取 / Text.length 伪字段：按 base 静态类型分派。
-        use sophia_semantic::ty::Ty;
+        use sophia_semantic::Ty;
         match self.types.get(base).map(|t| t.strip_intent()) {
             Some(Ty::Entity(_)) => {
                 let (kptr, klen) = self.interner.lookup(field);

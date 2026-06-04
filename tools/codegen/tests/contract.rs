@@ -6,8 +6,7 @@
 
 use sophia_codegen::{emit_from_sources, emit_module, CodegenError, CodegenInput};
 use sophia_hir::{resolve_program, LibraryRegistry, ProgramInput};
-use sophia_semantic::analyze_program;
-use sophia_semantic::ty::Ty;
+use sophia_semantic::{analyze_program, Ty};
 use sophia_syntax::{parse_ast, Ast};
 
 /// 解析 + 名称解析 + 语义分析一个程序，返回 (AST 集合, 语义模型)。

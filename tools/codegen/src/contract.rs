@@ -15,11 +15,11 @@
 //!    function（每节点一个 action / transition）与调用关系（`Control` 边 → WASM `call`）。**body
 //!    语句级执行不在图上展开**（设计如此，见 exec-ir）：body 由 codegen 像解释器一样遍历 AST 生成。
 //!
-//! 3. **AST body + 可重算的 `TypeTable`**（`sophia_syntax::Ast` + `sophia_semantic::type_layer`）——
+//! 3. **AST body + 可重算的 `TypeTable`**（`sophia_syntax::Ast` + `sophia_semantic::TypeTable`）——
 //!    codegen 遍历 callable 的 body AST 生成函数体指令（与解释器同源，**不引入新 body IR**，见 §三
 //!    决策点 ①）。需要静态分派时（如 `Add` 的 Int vs Text）按 `ExprId` 查 `TypeTable`。`TypeTable`
-//!    是 Table 模式可重算产物（语义 6.2），codegen 经 `TypeChecker::check_callable` 按需重算，
-//!    **不要求** `analyze_program` 额外暴露它（保持语义 crate 接口不变）。
+//!    是 Table 模式可重算产物（语义 6.2），codegen 经 `infer_callable_type_table` 按需重算，
+//!    **不要求** `analyze_program` 额外暴露它。
 //!
 //! ## 不在契约里的东西
 //!

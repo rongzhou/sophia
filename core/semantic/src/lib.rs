@@ -15,10 +15,10 @@
 
 #![forbid(unsafe_code)]
 
-pub mod effect;
-pub mod model;
-pub mod ty;
-pub mod type_layer;
+mod effect;
+mod model;
+mod ty;
+mod type_layer;
 
 // type/effect/contract 三层的检查逻辑是本 crate 内部实现（对外只暴露 `analyze_program` /
 // `analyze_one_callable` 的统一入口），不对外按路径访问。
@@ -28,9 +28,11 @@ pub(crate) mod union_check;
 
 mod error;
 
+pub use effect::{Effect, EffectArg, EffectSet};
 pub use error::{SemanticDiagnostic, SemanticDiagnosticKind};
-pub use model::SemanticModel;
+pub use model::{CallableDecl, CapabilityDecl, EntityDecl, SemanticModel, StateDecl, VariantDecl};
 pub use ty::{IntentKind, Ty};
+pub use type_layer::TypeTable;
 
 use sophia_hir::AsgIndex;
 use sophia_syntax::{Ast, Callable, Item};
@@ -76,6 +78,21 @@ pub fn analyze_one_callable(
     let mut diagnostics = Vec::new();
     analyze_callable(name, model, asts, index, &mut diagnostics);
     diagnostics
+}
+
+/// 重算单个 callable 的表达式类型表。
+///
+/// 这是 codegen 等下游需要静态分派信息时使用的窄入口。完整诊断仍由
+/// [`analyze_program`] / [`analyze_one_callable`] 负责，对外不暴露类型层实现对象。
+pub fn infer_callable_type_table(
+    name: &str,
+    model: &SemanticModel,
+    ast: &Ast,
+    index: &AsgIndex,
+) -> TypeTable {
+    type_layer::TypeChecker::new(model, ast, index)
+        .check_callable(name)
+        .table
 }
 
 /// 分析单个 callable，串联三层。

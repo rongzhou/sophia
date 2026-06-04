@@ -60,7 +60,7 @@ impl TypeDesc {
     ///
     /// 解析只校验**形状**（标量名合法、`Intent<Scalar>` 结构正确）；intent 名是否属核心固定集
     /// 由语义层在比对时判定（本层不依赖 hir 的 `INTENT_WRAPPERS`，避免反向依赖）。
-    pub fn parse(s: &str) -> Result<TypeDesc, String> {
+    pub(crate) fn parse(s: &str) -> Result<TypeDesc, String> {
         let s = s.trim();
         if let Some(open) = s.find('<') {
             if !s.ends_with('>') {

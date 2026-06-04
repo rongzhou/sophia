@@ -15,14 +15,38 @@ use sophia_syntax::{Ast, Block, ElseBranch, Expr, ExprId, Item, Stmt};
 
 /// 执行节点稳定 ID（`u32` 索引，只增不复用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExecNodeId(pub u32);
+pub struct ExecNodeId(u32);
+
+impl ExecNodeId {
+    /// 稳定数值表示（用于 trace / 日志展示）。
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// 作为 `nodes()` 切片下标使用的稳定索引。
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 /// 执行边稳定 ID（`u32` 索引，只增不复用）。
 ///
 /// 见 docs/language_implementation.md 9.4：trace 投影需要稳定引用图中的具体边
 /// （`ExecutionSpan.edge_id`）。边按构建顺序分配 ID，与 `edges()` 的下标一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExecEdgeId(pub u32);
+pub struct ExecEdgeId(u32);
+
+impl ExecEdgeId {
+    /// 稳定数值表示（用于 trace / 日志展示）。
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// 作为 `edges()` 切片下标使用的稳定索引。
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 /// 执行节点的种类。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,11 +60,21 @@ pub enum ExecNodeKind {
 /// 执行图节点。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecNode {
-    pub id: ExecNodeId,
-    pub kind: ExecNodeKind,
+    id: ExecNodeId,
+    kind: ExecNodeKind,
 }
 
 impl ExecNode {
+    /// 节点稳定 ID。
+    pub fn id(&self) -> ExecNodeId {
+        self.id
+    }
+
+    /// 节点种类。
+    pub fn kind(&self) -> &ExecNodeKind {
+        &self.kind
+    }
+
     /// 节点对应的 callable 名。
     pub fn name(&self) -> &str {
         match &self.kind {
@@ -52,10 +86,32 @@ impl ExecNode {
 /// 执行图边。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecEdge {
-    pub id: ExecEdgeId,
-    pub from: ExecNodeId,
-    pub to: ExecNodeId,
-    pub kind: EdgeKind,
+    id: ExecEdgeId,
+    from: ExecNodeId,
+    to: ExecNodeId,
+    kind: EdgeKind,
+}
+
+impl ExecEdge {
+    /// 边稳定 ID。
+    pub fn id(&self) -> ExecEdgeId {
+        self.id
+    }
+
+    /// 边起点节点 ID。
+    pub fn from(&self) -> ExecNodeId {
+        self.from
+    }
+
+    /// 边终点节点 ID。
+    pub fn to(&self) -> ExecNodeId {
+        self.to
+    }
+
+    /// 边种类。
+    pub fn kind(&self) -> EdgeKind {
+        self.kind
+    }
 }
 
 /// Execution Graph IR。
@@ -172,7 +228,7 @@ impl ExecGraph {
     }
 
     /// 增加一条边（校验两端节点存在），返回其稳定 ID。
-    pub fn add_edge(&mut self, from: ExecNodeId, to: ExecNodeId, kind: EdgeKind) -> ExecEdgeId {
+    fn add_edge(&mut self, from: ExecNodeId, to: ExecNodeId, kind: EdgeKind) -> ExecEdgeId {
         debug_assert!(
             self.nodes.iter().any(|n| n.id == from) && self.nodes.iter().any(|n| n.id == to),
             "边的两端节点必须存在"

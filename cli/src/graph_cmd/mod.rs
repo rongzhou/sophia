@@ -4,7 +4,7 @@
 //! 这些命令在 `sophia-runs/graph/dev_graph.sqlite` 上以事件溯源 append 节点 / 边
 //! （仅增、不可变 N1/N2/I9）。确定性命令（不调用 LLM）：`init`（建库）/ `start`（人类目标）/
 //! `context`（推导 active context）/ `nodes`（列节点）/ `select` / `materialize`（重跑 gate +
-//! 原子写盘）。调用 LLM 的命令：`design`（→ Pseudocode）/ `implement_loop`（implement→check→repair
+//! staging/rename 写盘）。调用 LLM 的命令：`design`（→ Pseudocode）/ `implement_loop`（implement→check→repair
 //! 预算闭环）。
 
 use std::path::{Path, PathBuf};
@@ -16,8 +16,8 @@ use sophia_engine::{
     LibrarySelectionPolicy, LoopStepOutcome,
 };
 use sophia_graph_db::{
-    derive_active_context, ActiveContext, DiagnosticItem, GraphStore, NodeId, NodeRole,
-    ObjectivePayload,
+    derive_active_context, ActiveContext, DiagnosticItem, DiagnosticKind, DiagnosticPayload,
+    DiagnosticSeverity, EdgeKind, GraphStore, NodeId, NodeRole, ObjectivePayload,
 };
 use sophia_hir::LibraryRegistry;
 use sophia_llm::{BackendConfig, CompletionRequest, HttpLlmClient, StructuredConfig};
@@ -223,7 +223,13 @@ pub fn design(
 
     match outcome {
         LoopStepOutcome::Succeeded(art) => {
-            let path = write_pseudo_artifact(root, art.node, &art.text, &art.libraries)?;
+            let path = match write_pseudo_artifact(root, art.node, &art.text, &art.libraries) {
+                Ok(path) => path,
+                Err(e) => {
+                    record_artifact_write_failure(&mut store, art.node, "pseudo artifact", &e)?;
+                    return Err(e);
+                }
+            };
             let libs_note = if art.libraries.is_empty() {
                 String::new()
             } else {
@@ -465,7 +471,13 @@ pub fn implement_loop(
             files,
             attempts,
         } => {
-            let written = write_code_artifacts(root, code, &files)?;
+            let written = match write_code_artifacts(root, code, &files) {
+                Ok(written) => written,
+                Err(e) => {
+                    record_artifact_write_failure(&mut store, code, "code artifact", &e)?;
+                    return Err(e);
+                }
+            };
             println!(
                 "implement-loop 通过（{attempts} 次尝试）：候选 {code}，{} 个文件写入 {}",
                 written.len(),
@@ -632,11 +644,52 @@ pub(super) fn write_code_artifacts(
     Ok(written)
 }
 
+fn record_artifact_write_failure(
+    store: &mut GraphStore,
+    target: NodeId,
+    artifact_kind: &str,
+    error: &anyhow::Error,
+) -> Result<()> {
+    let payload = DiagnosticPayload {
+        kind: DiagnosticKind::ArtifactWrite,
+        ok: false,
+        diagnostics: vec![DiagnosticItem {
+            code: "ARTIFACT-WRITE".to_string(),
+            severity: DiagnosticSeverity::Error,
+            problem: format!("{artifact_kind} 写入失败：{error}"),
+            location: Some(target.as_string()),
+        }],
+    };
+    let diagnostic = store
+        .as_deterministic()
+        .diagnostic("artifact write failed", payload)
+        .context("创建 ArtifactWrite DiagnosticNode 失败")?;
+    store
+        .append_edge(diagnostic, target, EdgeKind::Checks)
+        .context("连接 artifact-write checks→ 边失败")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sophia_engine::StepPrompts;
+    use sophia_graph_db::{CodePayload, EdgeKind, NodePayload};
     use sophia_hir::LibraryContent;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "sophia_graph_cmd_{tag}_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
 
     #[test]
     fn code_check_passes_clean_candidate() {
@@ -678,12 +731,7 @@ mod tests {
     fn pseudo_libraries_sidecar_roundtrips() {
         // S2 graph 路径缺陷修复：design 阶段所选库须随伪代码经伴生 `.libs` 持久化，
         // implement 阶段读回——否则 graph design→implement 跨命令丢失库选择。
-        let tag = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("sophia_libs_rt_{tag}"));
-        std::fs::create_dir_all(&root).unwrap();
+        let root = temp_root("libs_rt");
         let node = NodeId::parse("N0007").unwrap();
 
         // 写入：伪代码正文 + 所选库 ["http"]。
@@ -707,6 +755,44 @@ mod tests {
         assert!(read_pseudo_libraries(&root, node3).is_empty());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn artifact_write_failure_is_recorded_on_target_node() {
+        let root = temp_root("artifact_write_diag");
+        let mut store = open_store(&root).unwrap();
+        let code = store
+            .as_llm()
+            .code(
+                "code",
+                CodePayload {
+                    files: vec!["D/actions/A.sophia".to_string()],
+                },
+            )
+            .unwrap();
+
+        record_artifact_write_failure(
+            &mut store,
+            code,
+            "code artifact",
+            &anyhow::anyhow!("disk full"),
+        )
+        .unwrap();
+
+        let diagnostic = store
+            .nodes()
+            .find(|node| {
+                matches!(
+                    &node.payload,
+                    NodePayload::Diagnostic(p)
+                        if p.kind == DiagnosticKind::ArtifactWrite
+                            && !p.ok
+                            && p.diagnostics.iter().any(|d| d.code == "ARTIFACT-WRITE")
+                )
+            })
+            .map(|node| node.meta.id)
+            .expect("应记录 ArtifactWrite 诊断");
+        assert!(store.has_edge(diagnostic, code, EdgeKind::Checks));
     }
 
     #[test]

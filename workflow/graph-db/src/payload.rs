@@ -367,6 +367,7 @@ pub enum DiagnosticKind {
     PseudoCheck,
     CodeCheck,
     ConstraintAudit,
+    ArtifactWrite,
     ArtifactDiff,
     RegressionGate,
 }

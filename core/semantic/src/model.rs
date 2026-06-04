@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 ///
 /// 依赖 `index` 区分 entity / state 名；未知具名类型按标量名尝试，
 /// 再不行则记为 [`Ty::Error`]（名称解析阶段已报未解析引用，此处不重复报错）。
-pub fn lower_type(ty: &TypeRef, index: &AsgIndex) -> Ty {
+pub(crate) fn lower_type(ty: &TypeRef, index: &AsgIndex) -> Ty {
     match ty {
         TypeRef::Named { name, .. } => lower_named(&name.text, index),
         TypeRef::Intent { head, arg, .. } => {
@@ -175,7 +175,10 @@ impl SemanticModel {
     /// 这里对未解析类型记 [`Ty::Error`] 以避免级联误报。
     pub fn build(asts: &[&Ast], index: &AsgIndex) -> Self {
         let mut model = SemanticModel {
-            library_ops: index.library_ops.clone(),
+            library_ops: index
+                .library_ops()
+                .map(|(name, contract)| (name.to_string(), contract.clone()))
+                .collect(),
             ..SemanticModel::default()
         };
         for ast in asts {

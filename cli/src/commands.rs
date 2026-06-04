@@ -483,11 +483,7 @@ pub fn index(root: &Path) -> Result<ExitCode> {
     }
     std::fs::write(&out_path, &json)
         .with_context(|| format!("写入 {} 失败", out_path.display()))?;
-    println!(
-        "已生成 {}（{} 个节点）",
-        out_path.display(),
-        index.nodes.len()
-    );
+    println!("已生成 {}（{} 个节点）", out_path.display(), index.len());
     Ok(ExitCode::SUCCESS)
 }
 
@@ -502,9 +498,9 @@ pub fn graph(root: &Path) -> Result<ExitCode> {
     inputs.extend(lib_srcs.program_inputs());
     let (index, _diags) = resolve_program(&inputs, &registry).context("构建 ASG index 失败")?;
 
-    println!("ASG 摘要（{} 个顶层节点）：", index.nodes.len());
+    println!("ASG 摘要（{} 个顶层节点）：", index.len());
     // BTreeMap 已按名排序。
-    for (name, info) in &index.nodes {
+    for (name, info) in index.nodes() {
         println!(
             "  {:<24} {:<12} {}",
             name,

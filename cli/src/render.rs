@@ -42,7 +42,7 @@ pub fn print_trace(trace: &sophia_runtime::Trace) {
     for span in trace.spans() {
         let indent = "  ".repeat(span.depth as usize + 1);
         let edge = match span.edge_id {
-            Some(id) => format!("edge E{}", id.0),
+            Some(id) => format!("edge E{}", id.as_u32()),
             None => "顶层入口".to_string(),
         };
         let outcome = match span.outcome {
@@ -51,7 +51,12 @@ pub fn print_trace(trace: &sophia_runtime::Trace) {
         };
         println!(
             "{}#{} {} [node N{}, {}] → {}",
-            indent, span.seq, span.callable, span.node_id.0, edge, outcome
+            indent,
+            span.seq,
+            span.callable,
+            span.node_id.as_u32(),
+            edge,
+            outcome
         );
     }
 }

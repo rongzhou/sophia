@@ -17,7 +17,14 @@ use crate::span::Span;
 /// 采用 `u32` 索引（对齐 docs/language_implementation.md 4.2 节示例）。
 /// 索引只增不删，避免悬空引用。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExprId(pub u32);
+pub struct ExprId(u32);
+
+impl ExprId {
+    /// 表达式 arena 中的 0 基索引。
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 /// 一个解析后的源文件 AST。
 ///
@@ -34,12 +41,12 @@ pub struct Ast {
 
 impl Ast {
     /// 新建空 AST。
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Ast::default()
     }
 
     /// 向 arena 追加一个表达式，返回其稳定 ID。
-    pub fn alloc_expr(&mut self, expr: Expr) -> ExprId {
+    pub(crate) fn alloc_expr(&mut self, expr: Expr) -> ExprId {
         let id = ExprId(self.exprs.len() as u32);
         self.exprs.push(expr);
         id
@@ -47,7 +54,7 @@ impl Ast {
 
     /// 按 ID 读取表达式。
     pub fn expr(&self, id: ExprId) -> &Expr {
-        &self.exprs[id.0 as usize]
+        &self.exprs[id.index()]
     }
 
     /// 移除全部 Semantic Assist 字段（strip-assist 等价门禁用，见 docs/language_design.md 5.1）。

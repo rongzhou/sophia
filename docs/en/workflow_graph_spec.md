@@ -439,7 +439,7 @@ Edges: `addresses→`; `consumed→ ContextSnapshot`; `implements→ Pseudocode`
 #### 4.4.5 DiagnosticNode
 
 ```rust
-pub enum DiagnosticKind { PseudoCheck, CodeCheck, ConstraintAudit, ArtifactDiff, RegressionGate }
+pub enum DiagnosticKind { PseudoCheck, CodeCheck, ConstraintAudit, ArtifactWrite, ArtifactDiff, RegressionGate }
 pub enum DiagnosticSeverity { Info, Warning, Error }
 
 #[derive(Serialize, Deserialize)]

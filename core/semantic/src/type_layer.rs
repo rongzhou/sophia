@@ -21,7 +21,7 @@ use std::collections::HashMap;
 /// 表达式类型推导结果表，按 `ExprId` 索引。
 #[derive(Debug, Default)]
 pub struct TypeTable {
-    types: HashMap<u32, Ty>,
+    types: HashMap<usize, Ty>,
 }
 
 impl TypeTable {
@@ -30,12 +30,12 @@ impl TypeTable {
     }
 
     fn set(&mut self, id: ExprId, ty: Ty) {
-        self.types.insert(id.0, ty);
+        self.types.insert(id.index(), ty);
     }
 
     /// 查表达式推导出的类型。
     pub fn get(&self, id: ExprId) -> Option<&Ty> {
-        self.types.get(&id.0)
+        self.types.get(&id.index())
     }
 }
 

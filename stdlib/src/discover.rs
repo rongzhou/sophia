@@ -130,10 +130,10 @@ fn read_library_dir(dir: &Path) -> Result<LibraryContent> {
         reason,
     })?;
 
-    let asset_text = read_file(&dir.join(&raw.prompt.asset))?;
+    let asset_text = read_file(&dir.join(raw.prompt_asset()))?;
 
     let mut sophia_sources = Vec::new();
-    for rel in &raw.surface.sophia_sources {
+    for rel in raw.sophia_source_paths() {
         let source = read_file(&dir.join(rel))?;
         sophia_sources.push((rel.clone(), source));
     }

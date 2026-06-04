@@ -24,7 +24,7 @@ pub struct Span {
 
 impl Span {
     /// 从 Tree-sitter 节点提取 span。
-    pub fn from_node(node: &Node) -> Self {
+    pub(crate) fn from_node(node: &Node) -> Self {
         let s = node.start_position();
         let e = node.end_position();
         Span {

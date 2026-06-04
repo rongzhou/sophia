@@ -12,15 +12,11 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod manifest;
 mod registry;
 mod typedesc;
 
-/// 库清单（`library.toml`）的反序列化形态。三方库发现层（CLI，P2）先解析清单、据
-/// `[prompt].asset` / `[surface].sophia_sources` 得知要读哪些文件，再组装 [`LibraryContent`]
-/// 交给 [`LibraryRegistry::build`]。
-pub mod manifest;
-
-pub use error::{LibraryError, LibraryResult, SUPPORTED_ABI_VERSION};
+pub use error::{LibraryError, LibraryResult};
 pub use manifest::RawManifest;
 pub use registry::{LibraryContent, LibraryRegistry, OpContract, PromptAsset, SophiaSource};
 pub use typedesc::{Scalar, TypeDesc};

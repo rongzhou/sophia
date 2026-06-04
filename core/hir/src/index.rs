@@ -92,27 +92,27 @@ pub struct EffectOpInfo {
 /// effect 引用。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsgIndex {
-    pub version: u32,
-    pub nodes: BTreeMap<String, NodeInfo>,
+    version: u32,
+    nodes: BTreeMap<String, NodeInfo>,
     #[serde(skip)]
-    pub variants: BTreeMap<String, VariantInfo>,
+    variants: BTreeMap<String, VariantInfo>,
     #[serde(skip)]
-    pub effect_ops: BTreeMap<String, EffectOpInfo>,
+    effect_ops: BTreeMap<String, EffectOpInfo>,
     /// 库特殊根 family 集（如 `File` / `Http`），由 [`LibraryRegistry`] 注入。名称解析据此放行
     /// body 级 `Lib.Op(args)` 入口（[`Self::is_library_family`]），使核心不硬编码具体库名。
     /// 派生符号表，`#[serde(skip)]`（不入 `asg_index.json`）。
     #[serde(skip)]
-    pub library_families: BTreeSet<String>,
+    library_families: BTreeSet<String>,
     /// 库 op 契约（`family.op` → 签名 / 返回 / host_fn），由 [`LibraryRegistry`] 注入。语义层据此
     /// 表驱动校验 `Lib.Op(args)`（替代命令式 match）。派生符号表，`#[serde(skip)]`。
     #[serde(skip)]
-    pub library_ops: BTreeMap<String, OpContract>,
+    library_ops: BTreeMap<String, OpContract>,
     /// 库 domain 集（纯 Sophia 源码库的「库名即 domain」），由 [`LibraryRegistry`] 注入。用户代码
     /// 跨 domain 引用库节点时据此**豁免** `ImplicitCrossDomain` 诊断（[`Self::is_library_domain`]）
     /// ——库是显式可用的外部能力（类比 task include 是显式入口）；用户↔用户跨 domain 仍受检。
     /// 派生符号表，`#[serde(skip)]`。
     #[serde(skip)]
-    pub library_domains: BTreeSet<String>,
+    library_domains: BTreeSet<String>,
 }
 
 /// 当前 ASG index schema 版本。
@@ -180,6 +180,33 @@ impl AsgIndex {
             index.library_domains.insert(src.domain.clone());
         }
         index
+    }
+
+    /// 当前 index schema 版本。
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    /// 顶层 formal node 数量。
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// index 是否不含任何顶层 formal node。
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    /// 按名称稳定排序遍历顶层 formal node。
+    pub fn nodes(&self) -> impl Iterator<Item = (&str, &NodeInfo)> {
+        self.nodes.iter().map(|(name, info)| (name.as_str(), info))
+    }
+
+    /// 按 key（`Family.Op`）稳定排序遍历库 op 契约。
+    pub fn library_ops(&self) -> impl Iterator<Item = (&str, &OpContract)> {
+        self.library_ops
+            .iter()
+            .map(|(name, contract)| (name.as_str(), contract))
     }
 
     /// 查 effect 操作的声明信息（`Family.Op`）。

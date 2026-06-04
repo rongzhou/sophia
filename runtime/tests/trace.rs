@@ -127,8 +127,8 @@ fn cross_call_trace_projects_call_edge() {
 
     // 投影一致性：edge 的 from/to 对应两条 span 的 node_id。
     let edge = graph.edge(inner.edge_id.unwrap()).unwrap();
-    assert_eq!(edge.from, outer.node_id);
-    assert_eq!(edge.to, inner.node_id);
+    assert_eq!(edge.from(), outer.node_id);
+    assert_eq!(edge.to(), inner.node_id);
 }
 
 #[test]

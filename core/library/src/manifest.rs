@@ -9,20 +9,20 @@ use serde::Deserialize;
 /// 一份 `library.toml` 的原始反序列化结果。
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawManifest {
-    pub library: RawLibrary,
+    pub(crate) library: RawLibrary,
     /// surface 维度 A：Sophia 源码节点（可选）。
     #[serde(default)]
-    pub surface: RawSurface,
+    pub(crate) surface: RawSurface,
     /// surface 维度 B + host：effect 操作（可选，每 op 一条）。
     #[serde(default, rename = "op")]
-    pub ops: Vec<RawOp>,
+    pub(crate) ops: Vec<RawOp>,
     /// 提示词资产引用。
-    pub prompt: RawPrompt,
+    prompt: RawPrompt,
 }
 
 /// `[library]` 段：库身份。
 #[derive(Debug, Clone, Deserialize)]
-pub struct RawLibrary {
+pub(crate) struct RawLibrary {
     /// 库名（= 目录名，唯一标识）。
     pub name: String,
     /// 一句话用途（进 stdlib_catalog）。
@@ -33,14 +33,14 @@ pub struct RawLibrary {
 
 /// `[surface]` 段：随库装入 ASG 的 Sophia 源码节点路径（相对库目录）。
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct RawSurface {
+pub(crate) struct RawSurface {
     #[serde(default)]
     pub sophia_sources: Vec<String>,
 }
 
 /// `[[op]]` 段：一个 effect 操作的契约。
 #[derive(Debug, Clone, Deserialize)]
-pub struct RawOp {
+pub(crate) struct RawOp {
     /// effect 族（= 特殊根名，如 `Http`）。
     pub family: String,
     /// 操作名（如 `Get`）。
@@ -63,7 +63,7 @@ fn default_true() -> bool {
 
 /// `[prompt]` 段：提示词资产引用。
 #[derive(Debug, Clone, Deserialize)]
-pub struct RawPrompt {
+struct RawPrompt {
     /// 资产文件名（相对库目录）。
     pub asset: String,
 }
@@ -72,5 +72,15 @@ impl RawManifest {
     /// 从 TOML 文本解析（仅形状，不做语义校验）。
     pub fn from_toml(src: &str) -> Result<RawManifest, String> {
         toml::from_str(src).map_err(|e| e.to_string())
+    }
+
+    /// 清单 `[prompt].asset` 指向的资产文件名。
+    pub fn prompt_asset(&self) -> &str {
+        &self.prompt.asset
+    }
+
+    /// 清单 `[surface].sophia_sources` 中声明的源码路径。
+    pub fn sophia_source_paths(&self) -> &[String] {
+        &self.surface.sophia_sources
     }
 }

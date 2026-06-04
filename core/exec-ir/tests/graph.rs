@@ -35,8 +35,11 @@ fn builds_one_node_per_callable_in_stable_order() {
     assert_eq!(graph.nodes().len(), 2);
     assert_eq!(graph.nodes()[0].name(), "Alpha");
     assert_eq!(graph.nodes()[1].name(), "Beta");
-    assert!(matches!(graph.nodes()[0].kind, ExecNodeKind::Transition(_)));
-    assert!(matches!(graph.nodes()[1].kind, ExecNodeKind::Action(_)));
+    assert!(matches!(
+        graph.nodes()[0].kind(),
+        ExecNodeKind::Transition(_)
+    ));
+    assert!(matches!(graph.nodes()[1].kind(), ExecNodeKind::Action(_)));
 
     // 按名查找。
     assert!(graph.node_by_name("Alpha").is_some());
@@ -150,13 +153,13 @@ fn exec_graph_structure_snapshot() {
     // 渲染为稳定文本：节点（按构建序=名字典序）+ 边（from→to，kind）。
     let mut out = String::from("nodes:\n");
     for n in graph.nodes() {
-        out.push_str(&format!("  {:?}\n", n.kind));
+        out.push_str(&format!("  {:?}\n", n.kind()));
     }
     out.push_str("edges:\n");
     for e in graph.edges() {
-        let from = graph.nodes()[e.from.0 as usize].name();
-        let to = graph.nodes()[e.to.0 as usize].name();
-        out.push_str(&format!("  {from} --{:?}-> {to}\n", e.kind));
+        let from = graph.nodes()[e.from().index()].name();
+        let to = graph.nodes()[e.to().index()].name();
+        out.push_str(&format!("  {from} --{:?}-> {to}\n", e.kind()));
     }
     insta::assert_snapshot!("exec_graph_structure", out);
 }
