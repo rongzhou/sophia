@@ -330,6 +330,65 @@ fn event_sourcing_replay_round_trips() {
 }
 
 #[test]
+fn replay_rejects_duplicate_node_id_from_corrupt_log() {
+    let dir = std::env::temp_dir().join(format!(
+        "sophia_graph_duplicate_replay_{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("graph.sqlite");
+
+    let first_event = {
+        let mut store = GraphStore::open(&db).unwrap();
+        store.as_human().objective("o", obj_payload("O")).unwrap();
+        store.raw_event_log().unwrap().remove(0)
+    };
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO graph_events (payload) VALUES (?1)",
+        [first_event],
+    )
+    .unwrap();
+
+    let err = match GraphStore::open(&db) {
+        Ok(_) => panic!("corrupt replay should fail"),
+        Err(err) => err,
+    };
+    assert!(matches!(err, GraphError::InvalidPayload(_)));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn replay_rejects_dangling_edge_from_corrupt_log() {
+    let dir = std::env::temp_dir().join(format!(
+        "sophia_graph_dangling_replay_{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("graph.sqlite");
+
+    {
+        let mut store = GraphStore::open(&db).unwrap();
+        store.as_human().objective("o", obj_payload("O")).unwrap();
+    }
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO graph_events (payload) VALUES (?1)",
+        [r#"{"event":"edge_added","edge":{"from":"N0001","to":"N9999","kind":"validated_by"}}"#],
+    )
+    .unwrap();
+
+    let err = match GraphStore::open(&db) {
+        Ok(_) => panic!("corrupt replay should fail"),
+        Err(err) => err,
+    };
+    assert!(matches!(err, GraphError::DanglingReference(NodeId(9999))));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn concurrent_open_stores_allocate_distinct_node_ids() {
     let dir = std::env::temp_dir().join(format!("sophia_graph_multi_store_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

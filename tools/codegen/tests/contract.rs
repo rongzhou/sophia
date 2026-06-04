@@ -7,6 +7,7 @@
 use sophia_codegen::{emit_from_sources, emit_module, CodegenError, CodegenInput};
 use sophia_hir::{resolve_program, LibraryRegistry, ProgramInput};
 use sophia_semantic::analyze_program;
+use sophia_semantic::ty::Ty;
 use sophia_syntax::{parse_ast, Ast};
 
 /// 解析 + 名称解析 + 语义分析一个程序，返回 (AST 集合, 语义模型)。
@@ -116,6 +117,35 @@ fn emit_from_sources_rejects_semantic_diagnostics() {
     )
     .unwrap_err();
     assert!(matches!(err, CodegenError::InvalidInput(msg) if msg.contains("语义诊断未通过")));
+}
+
+#[test]
+fn emit_module_rejects_callable_arity_contract_break() {
+    let (asts, mut model) = analyzed(&[
+        (
+            "d/actions/Callee.sophia",
+            "action Callee { input { } output { y: Int } body { return 1 } }",
+        ),
+        (
+            "d/actions/Caller.sophia",
+            "action Caller { input { } output { y: Int } body { return Callee() } }",
+        ),
+    ]);
+    model
+        .callables
+        .get_mut("Callee")
+        .unwrap()
+        .inputs
+        .push(("n".to_string(), Ty::Int));
+    let refs: Vec<&Ast> = asts.iter().collect();
+    let registry = sophia_stdlib::standard_registry();
+    let input = CodegenInput::new(&model, &refs, &registry);
+
+    let err = emit_module(&input).unwrap_err();
+    assert!(
+        matches!(err, CodegenError::InvalidInput(ref msg) if msg.contains("参数个数不匹配")),
+        "codegen 应显式拒绝 callable arity 契约破坏，得到 {err:?}"
+    );
 }
 
 #[test]

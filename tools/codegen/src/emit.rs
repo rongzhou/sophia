@@ -2239,9 +2239,16 @@ impl FnEmitter<'_> {
                 "未知调用目标 `{callee}`"
             )));
         };
-        if !self.model.callables.contains_key(callee) {
+        let Some(decl) = self.model.callables.get(callee) else {
             return Err(CodegenError::InvalidInput(format!(
                 "`{callee}` 不是 callable"
+            )));
+        };
+        if args.len() != decl.inputs.len() {
+            return Err(CodegenError::InvalidInput(format!(
+                "callable `{callee}` 参数个数不匹配：期望 {}，实际 {}",
+                decl.inputs.len(),
+                args.len()
             )));
         }
         // 实参逐个求值（顺序与解释器一致）。

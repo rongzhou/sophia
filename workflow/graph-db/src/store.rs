@@ -83,9 +83,33 @@ impl GraphStore {
         };
         for raw in rows {
             let event: GraphEvent = serde_json::from_str(&raw)?;
+            self.validate_replay_event(&event)?;
             self.apply_in_memory(event);
         }
         Ok(())
+    }
+
+    fn validate_replay_event(&self, event: &GraphEvent) -> GraphResult<()> {
+        match event {
+            GraphEvent::NodeCreated { meta, payload } => self.validate_replayed_node(meta, payload),
+            GraphEvent::EdgeAdded { edge } => self.validate_edge(edge.from, edge.to, edge.kind),
+        }
+    }
+
+    fn validate_replayed_node(&self, meta: &NodeMeta, payload: &NodePayload) -> GraphResult<()> {
+        if meta.id.0 == 0 || self.nodes.contains_key(&meta.id) {
+            return Err(GraphError::InvalidPayload(format!(
+                "replay 发现重复或非法 NodeId {}",
+                meta.id
+            )));
+        }
+        validate_node_contract(
+            meta.role,
+            meta.provenance,
+            meta.creation_status,
+            &meta.summary,
+            payload,
+        )
     }
 
     /// 把事件应用到内存视图（不写库；写库由 append 持久化后调用）。
@@ -146,48 +170,8 @@ impl GraphStore {
         summary: impl Into<String>,
         payload: NodePayload,
     ) -> GraphResult<NodeId> {
-        // role 与 payload 必须一致。
-        if payload.role() != role {
-            return Err(GraphError::InvalidPayload(format!(
-                "payload 对应 role {:?} 与声明 role {:?} 不一致",
-                payload.role(),
-                role
-            )));
-        }
-        // I2：(role, provenance) 矩阵。
-        if !provenance.allowed_for(role) {
-            return Err(GraphError::ProvenanceNotAllowed { role, provenance });
-        }
-        // Clarification 的 kind↔provenance 精确约束。
-        if let NodePayload::Clarification(c) = &payload {
-            let expect = match c.kind {
-                ClarificationKind::Question => Provenance::Llm,
-                ClarificationKind::Answer => Provenance::Human,
-            };
-            if provenance != expect {
-                return Err(GraphError::ProvenanceNotAllowed { role, provenance });
-            }
-        }
-        // I8：Failed 仅 RawLlm。
-        match (role, creation_status) {
-            (NodeRole::RawLlm, NodeCreationStatus::Failed) => {}
-            (_, NodeCreationStatus::Failed) => {
-                return Err(GraphError::InvalidFailedStatus { role });
-            }
-            (_, NodeCreationStatus::Ok) => {}
-        }
-        // RawLlm 必须 Failed。
-        if role == NodeRole::RawLlm && creation_status != NodeCreationStatus::Failed {
-            return Err(GraphError::InvalidPayload(
-                "RawLlm 节点的 creation_status 必须为 Failed".into(),
-            ));
-        }
-
         let summary = summary.into();
-        if summary.trim().is_empty() {
-            return Err(GraphError::EmptySummary);
-        }
-        validate_payload(&payload)?;
+        validate_node_contract(role, provenance, creation_status, &summary, &payload)?;
 
         let (id, event) = {
             let tx = self
@@ -221,6 +205,67 @@ impl GraphStore {
             (id, event)
         };
         self.apply_in_memory(event);
+        Ok(id)
+    }
+
+    pub(crate) fn append_node_with_outgoing_edges(
+        &mut self,
+        role: NodeRole,
+        provenance: Provenance,
+        creation_status: NodeCreationStatus,
+        summary: impl Into<String>,
+        payload: NodePayload,
+        outgoing: &[(NodeId, EdgeKind)],
+    ) -> GraphResult<NodeId> {
+        let summary = summary.into();
+        validate_node_contract(role, provenance, creation_status, &summary, &payload)?;
+        for &(to, kind) in outgoing {
+            self.validate_new_node_outgoing_edge(role, &payload, to, kind)?;
+        }
+
+        let (id, events) = {
+            let tx = self
+                .conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let id = NodeId(tx.query_row(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM graph_node_ids",
+                [],
+                |row| row.get::<_, u32>(0),
+            )?);
+
+            tx.execute("INSERT INTO graph_node_ids (id) VALUES (?1)", [id.0])?;
+            let meta = NodeMeta {
+                id,
+                role,
+                provenance,
+                creation_status,
+                created_at: chrono::Utc::now(),
+                summary,
+                tags: Vec::new(),
+                model: None,
+                prompt_artifact: None,
+                response_artifact: None,
+            };
+            let mut events = Vec::with_capacity(outgoing.len() + 1);
+            events.push(GraphEvent::NodeCreated {
+                meta: Box::new(meta),
+                payload: Box::new(payload),
+            });
+            for &(to, kind) in outgoing {
+                events.push(GraphEvent::EdgeAdded {
+                    edge: Edge { from: id, to, kind },
+                });
+            }
+            for event in &events {
+                let raw = serde_json::to_string(event)?;
+                tx.execute("INSERT INTO graph_events (payload) VALUES (?1)", [raw])?;
+            }
+            tx.commit()?;
+            (id, events)
+        };
+        for event in events {
+            self.apply_in_memory(event);
+        }
         Ok(id)
     }
 
@@ -286,6 +331,16 @@ impl GraphStore {
     /// - I3：`(from.role, to.role, kind)` 在允许集合中；
     /// - I4：`supersedes` 两端同 role、不成环、单出边。
     pub fn append_edge(&mut self, from: NodeId, to: NodeId, kind: EdgeKind) -> GraphResult<()> {
+        self.validate_edge(from, to, kind)?;
+
+        let edge = Edge { from, to, kind };
+        let event = GraphEvent::EdgeAdded { edge };
+        self.persist(&event)?;
+        self.apply_in_memory(event);
+        Ok(())
+    }
+
+    fn validate_edge(&self, from: NodeId, to: NodeId, kind: EdgeKind) -> GraphResult<()> {
         let from_role = self
             .role_of(from)
             .ok_or(GraphError::DanglingReference(from))?;
@@ -305,12 +360,25 @@ impl GraphStore {
         if kind == EdgeKind::Supersedes {
             self.validate_supersedes(from, to)?;
         }
-
-        let edge = Edge { from, to, kind };
-        let event = GraphEvent::EdgeAdded { edge };
-        self.persist(&event)?;
-        self.apply_in_memory(event);
         Ok(())
+    }
+
+    fn validate_new_node_outgoing_edge(
+        &self,
+        from_role: NodeRole,
+        from_payload: &NodePayload,
+        to: NodeId,
+        kind: EdgeKind,
+    ) -> GraphResult<()> {
+        let to_node = self.node(to).ok_or(GraphError::DanglingReference(to))?;
+        if !kind.allows(from_role, to_node.meta.role) {
+            return Err(GraphError::InvalidEdge {
+                edge: kind.name(),
+                from_role,
+                to_role: to_node.meta.role,
+            });
+        }
+        self.validate_edge_payload_values(Some(from_payload), Some(&to_node.payload), kind)
     }
 
     /// payload 级边约束（第六节 6.1）：依赖节点 payload 而非仅 role 的约束。
@@ -319,9 +387,18 @@ impl GraphStore {
     /// - `requires`：to 必须是 `Constraint(kind=Invariant)`；
     /// - `excludes`：to 必须是 `Constraint(kind=OutOfScope)`。
     fn validate_edge_payload(&self, from: NodeId, to: NodeId, kind: EdgeKind) -> GraphResult<()> {
-        use crate::payload::{ConstraintKind, NodePayload as P};
         let from_payload = self.node(from).map(|n| &n.payload);
         let to_payload = self.node(to).map(|n| &n.payload);
+        self.validate_edge_payload_values(from_payload, to_payload, kind)
+    }
+
+    fn validate_edge_payload_values(
+        &self,
+        from_payload: Option<&NodePayload>,
+        to_payload: Option<&NodePayload>,
+        kind: EdgeKind,
+    ) -> GraphResult<()> {
+        use crate::payload::{ConstraintKind, NodePayload as P};
 
         match kind {
             EdgeKind::Answers => {
@@ -446,6 +523,55 @@ impl GraphStore {
         }
         Ok(())
     }
+}
+
+fn validate_node_contract(
+    role: NodeRole,
+    provenance: Provenance,
+    creation_status: NodeCreationStatus,
+    summary: &str,
+    payload: &NodePayload,
+) -> GraphResult<()> {
+    // role 与 payload 必须一致。
+    if payload.role() != role {
+        return Err(GraphError::InvalidPayload(format!(
+            "payload 对应 role {:?} 与声明 role {:?} 不一致",
+            payload.role(),
+            role
+        )));
+    }
+    // I2：(role, provenance) 矩阵。
+    if !provenance.allowed_for(role) {
+        return Err(GraphError::ProvenanceNotAllowed { role, provenance });
+    }
+    // Clarification 的 kind↔provenance 精确约束。
+    if let NodePayload::Clarification(c) = payload {
+        let expect = match c.kind {
+            ClarificationKind::Question => Provenance::Llm,
+            ClarificationKind::Answer => Provenance::Human,
+        };
+        if provenance != expect {
+            return Err(GraphError::ProvenanceNotAllowed { role, provenance });
+        }
+    }
+    // I8：Failed 仅 RawLlm。
+    match (role, creation_status) {
+        (NodeRole::RawLlm, NodeCreationStatus::Failed) => {}
+        (_, NodeCreationStatus::Failed) => {
+            return Err(GraphError::InvalidFailedStatus { role });
+        }
+        (_, NodeCreationStatus::Ok) => {}
+    }
+    // RawLlm 必须 Failed。
+    if role == NodeRole::RawLlm && creation_status != NodeCreationStatus::Failed {
+        return Err(GraphError::InvalidPayload(
+            "RawLlm 节点的 creation_status 必须为 Failed".into(),
+        ));
+    }
+    if summary.trim().is_empty() {
+        return Err(GraphError::EmptySummary);
+    }
+    validate_payload(payload)
 }
 
 /// payload 字段级约束（非空字符串、非空列表等）。

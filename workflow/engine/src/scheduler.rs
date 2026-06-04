@@ -226,11 +226,11 @@ where
             DecisionAction::NeedsClarification => {
                 // emit 一个 Clarification(Question) `asks_about→ 焦点`（真正落图，而非空让位），
                 // 再交回调用方：自动循环中无人类回答，提问后只能 yield（design 4.3 / 第七节 1）。
-                let question = store.as_llm().question(
+                store.as_llm().question_with_edges(
                     "clarification:scheduler",
                     "调度器：当前信息不足以继续，需要澄清。",
+                    &[(focus, EdgeKind::AsksAbout)],
                 )?;
-                store.append_edge(question, focus, EdgeKind::AsksAbout)?;
                 Dispatch::Done(Outcome::Yielded {
                     decision: decision_node,
                     action,
@@ -524,9 +524,11 @@ where
     match outcome {
         LlmStepOutcome::Succeeded { value, snapshot } => {
             let action = value.selected_action;
-            let node = store.as_llm().decision("decision", value)?;
-            store.append_edge(node, snapshot, EdgeKind::Consumed)?;
-            store.append_edge(node, focus, EdgeKind::Considers)?;
+            let node = store.as_llm().decision_with_edges(
+                "decision",
+                value,
+                &[(snapshot, EdgeKind::Consumed), (focus, EdgeKind::Considers)],
+            )?;
             Ok(DecisionResult::Decided { node, action })
         }
         LlmStepOutcome::Failed { raw_llm, error } => Ok(DecisionResult::Failed { raw_llm, error }),

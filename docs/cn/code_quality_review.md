@@ -342,11 +342,12 @@ cargo clippy -p sophia-codegen -- -D warnings
    - 建议：把边界说清：若该函数继续 public 且接收 raw sources，应作为 checked 入口拒绝非空 HIR/semantic diagnostics；若仅供已 check 管线调用，应改名为 `emit_prechecked_from_sources` 或收窄可见性，并在文档标明不重复 semantic check。
    - 修复：`emit_from_sources` 作为 raw-source public API 重新拒绝非空 HIR diagnostics，并改用 `analyze_program` 收集 semantic diagnostics；任一诊断返回 `CodegenError::InvalidInput`。已补 HIR / semantic 诊断拒绝回归测试。
 
-3. 中优先级：callable 调用 arity 依赖上游语义检查，但 codegen 契约没有显式化。
+3. 中优先级：callable 调用 arity 依赖上游语义检查，但 codegen 契约没有显式化。（已修复）
    - 位置：`tools/codegen/src/emit.rs` 的 `emit_call`。
    - 现象：函数只确认 callee 存在且是 callable，然后逐个 emit 已提供实参并直接 `Call(idx)`，没有比较 `args.len()` 与 callee input 数量。
    - 风险：若上游 arity 漏检或 public API 被直接喂入坏输入，codegen 可能生成栈签名不匹配的无效 WASM，或把错误推迟到 module validation/runner 阶段。
    - 建议：先修 core callable arity。codegen 侧可在过渡期返回 `CodegenError::InvalidInput` 或使用 `debug_assert` 暴露契约破坏；长期不必复制完整 arity/type checker，只需依赖 `CodegenInput` prechecked 契约并补 contract/diff tests。
+   - 修复：`emit_call` 在实参求值前显式比较 AST call args 与 `SemanticModel.callables[callee].inputs`，不匹配时返回 `CodegenError::InvalidInput`。已补篡改 prechecked 模型签名的契约回归测试，防止生成栈签名不匹配的 WASM。
 
 4. 中低优先级：模块文档和测试注释仍停留在 W2 早期阶段，低估了当前实现能力。
    - 位置：`tools/codegen/src/lib.rs`、`tools/codegen/src/abi.rs`、`tools/codegen/tests/diff.rs` 的顶部注释。
@@ -363,7 +364,7 @@ cargo clippy -p sophia-codegen -- -D warnings
 建议修复顺序：
 
 1. 已完成 `repeat` 的 `i64 -> i32` 语义漂移修复与差分边界测试。
-2. 修复 core callable arity 后，把 codegen arity 检查降为契约断言/过渡防线。
+2. 已完成 codegen callable arity 契约防线。
 3. 明确 `emit_from_sources` 是 checked 边界还是 prechecked fast path，并据此调整 API。
 4. 更新 codegen 阶段文档、ABI 注释、diff 测试注释与 `to_text` 错误文案。
 
@@ -414,11 +415,12 @@ cargo clippy -p sophia-graph-db -- -D warnings
    - 风险：replay 时 `nodes.insert(id, ...)` 会以后写节点覆盖内存视图中的同 ID 节点，但旧事件仍在日志里，导致 raw log 与 materialized view 语义分裂。
    - 修复：新增内部 `graph_node_ids(id INTEGER PRIMARY KEY)` 投影表；`append_node` 在 SQLite `BEGIN IMMEDIATE` 事务中分配唯一 NodeId、写投影表并追加 `NodeCreated` 事件，同事务提交。打开旧库时从事件 replay 同步投影表。新增两个已打开 store 交替写入仍分配不同 NodeId 的回归测试。
 
-3. 中优先级：事件 replay 只反序列化并 apply，不重放不变量校验。
+3. 中优先级：事件 replay 只反序列化并 apply，不重放不变量校验。（已修复）
    - 位置：`workflow/graph-db/src/store.rs` 的 `replay` / `apply_in_memory`。
    - 现象：replay 对历史事件调用 `serde_json::from_str` 后直接 `apply_in_memory`；不会检查重复 node id、role/payload 一致性、payload 字段约束、边悬空、edge role 矩阵、supersedes 环等。
    - 风险：一旦数据库来自旧版本、手工编辑、并发写坏或迁移 bug，`GraphStore::open` 可能成功打开一个不满足 crate 文档不变量的图。
    - 建议：把 replay 改成 checked replay：按事件顺序用与 append 相同的校验逻辑构建视图，并显式拒绝重复 NodeId、非法边和坏 payload；必要时提供 `open_unchecked_for_recovery` 作为修复工具入口。
+   - 修复：`GraphStore::replay` 在 apply 前按事件顺序重放节点契约和边契约校验，拒绝重复 / 非法 NodeId、role/payload/provenance/status 不一致、坏 payload、悬空边、非法 edge kind、payload 级边约束和 supersedes 约束。已补重复 NodeId 与悬空边损坏日志的打开失败测试。
 
 4. 中优先级：`ContextSnapshot.digest` 只校验格式，不校验与 `snapshot` 内容一致。（已修复）
    - 位置：`workflow/graph-db/src/store.rs` 的 `validate_payload`。
@@ -437,8 +439,8 @@ cargo clippy -p sophia-graph-db -- -D warnings
 
 1. 已完成 `decompose_assessment` / `build_decomposition` 预校验，失败无副作用。
 2. 已用 SQLite immediate transaction + 唯一投影表解决多 store NodeId 重复分配。
-3. 校验 `ContextSnapshot.digest` 与 snapshot 内容一致。
-4. 将 replay 升级为 checked replay，拒绝坏历史事件。
+3. 已将 replay 升级为 checked replay，拒绝坏历史事件。
+4. 已校验 `ContextSnapshot.digest` 与 snapshot 内容一致。
 5. 收紧 `NodeId::parse` 的规范性。
 
 ## 2026-06-04 — workflow/llm 模块
@@ -468,11 +470,12 @@ cargo clippy -p sophia-llm -- -D warnings
 
 发现：
 
-1. 中高优先级：HTTP backend 声称使用 streaming，但实际先把完整响应读入内存。
+1. 中高优先级：HTTP backend 声称使用 streaming，但实际先把完整响应读入内存。（已修复）
    - 位置：`workflow/llm/src/backend.rs` 的 `complete`。
    - 现象：请求体设置 `stream: true`，模块注释也写“都用 streaming 响应”；但实现使用 `resp.text().await` 聚合完整 body 后再解析。
    - 风险：无法在收到 `[DONE]` / `done=true` 时尽早停止，也没有增量处理或 backpressure；异常后端或代理返回超大 body 时会带来内存风险。`read_timeout` 只能限制读取空闲时间，不能限制总响应大小。
    - 建议：改用 `bytes_stream` / `chunk` 增量解析 SSE/NDJSON，遇到结束标记立即返回；同时增加最大响应字节数配置，超过上限返回 `BackendUnavailable` 或专门错误。
+   - 修复：HTTP backend 已改为基于 `reqwest::Response::chunk()` 的增量行解析，OpenAI SSE 收到 `[DONE]`、Ollama NDJSON 收到 `done=true` 即返回；保留 UTF-8 split chunk 缓冲。已补 OpenAI split chunk、Ollama UTF-8 split chunk 和缺少结束标记测试。
 
 2. 中优先级：结构化输出的“无法解析 JSON”最终被归类为 `SchemaValidation`。（已修复）
    - 位置：`workflow/llm/src/structured.rs` 的 `complete_structured`。
@@ -502,7 +505,7 @@ cargo clippy -p sophia-llm -- -D warnings
 
 建议修复顺序：
 
-1. 为 HTTP backend 增加最大响应大小，并逐步改为真正增量解析 stream。
+1. 已改为真正增量解析 stream；最大响应大小仍可作为后续加固项。
 2. 修正结构化输出的最终错误分类，区分 parse failure 与 schema validation failure。
 3. 改进 JSON object 提取算法，补多 JSON / fenced code block / 花括号说明测试。
 4. 为 OpenAI-compatible backend 增加可选 provider-native `response_format`。
@@ -629,11 +632,12 @@ cargo clippy -p sophia-engine -- -D warnings
    - 建议：扩展 edge schema 允许 `RawLlm consumed→ ContextSnapshot`，或在 `RawLlmPayload` 中记录 snapshot id/摘要；随后更新 `validate_i6` 或新增失败调用不变量测试。
    - 修复：`EdgeKind::Consumed` 允许 `RawLlm → ContextSnapshot`；`run_llm_step` 失败分支在 `attempted→ target` 外同步追加 `consumed→ snapshot`。已补失败 RawLlm 可回溯 snapshot 的测试。
 
-4. 中优先级：成功路径多处“建节点后逐条加边”，缺少批量原子提交。
+4. 中优先级：成功路径多处“建节点后逐条加边”，缺少批量原子提交。（已修复）
    - 位置：`workflow/engine/src/loop_steps.rs` 的 `design_solution`、`revise_design`、`build_code_node`、`implement_design`、`repair_code`，以及 `workflow/engine/src/scheduler.rs` 的 `make_decision`。
    - 现象：例如 `design_solution` 先创建 PseudocodeNode，再加 `consumed→ snapshot` 和 `addresses→ target`；`implement_design` 先建 CodeNode 与基础边，再加 `implements→ Pseudocode`。
    - 风险：若后续边写入失败，图中会留下缺少必要边的 LLM 节点，可能违反 I6 或让 active context/后续查询读到半成品。当前单进程内存库很少触发，但文件库/磁盘错误/未来校验增强会放大该问题。
    - 建议：依赖 graph-db 提供 transaction/batch append 后，把“节点 + 必需边”作为一个原子批次提交；短期可先把所有可预校验项前置，并补失败无副作用测试。
+   - 修复：graph-db 新增 crate 内部 `append_node_with_outgoing_edges`，在 SQLite immediate transaction 中分配 NodeId、写 NodeCreated 和必需 EdgeAdded 事件；写入前复用节点契约与边契约校验。LLM factory 暴露 `decision/pseudocode/code/question_with_edges`，engine 的 decision、clarification、design、revise、implement、repair 成功产物改用单事务节点+必需边落图。
 
 5. 中低优先级：engine 对 prompt schema 与内部 DTO 的契约没有直接回归测试。
    - 位置：`workflow/engine/src/step.rs` 的 `step_schema`，以及 `workflow/engine/src/loop_steps.rs` / `scheduler.rs` 的 `DesignResult`、`ImplementResult`、`DecisionPayload` 等。
@@ -653,7 +657,7 @@ cargo clippy -p sophia-engine -- -D warnings
 1. 已完成 selection/materialize 图记录与文件写入顺序修正，并补失败无副作用测试。
 2. 已完成 scheduler LLM 节点预算作用域修正，按本轮 delta 计数。
 3. 已完成 RawLlmNode 可追溯到失败调用的 ContextSnapshot。
-4. 在 graph-db 提供事务/batch append 后，收敛 engine 的“节点 + 必需边”原子提交。
+4. 已在 graph-db 提供事务/batch append，并收敛 engine 的“节点 + 必需边”原子提交。
 5. 增加 prompt schema ↔ engine DTO contract test。
 6. 为 code_check 增加候选文件路径形状诊断。
 

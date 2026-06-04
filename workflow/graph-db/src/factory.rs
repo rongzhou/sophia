@@ -9,6 +9,7 @@
 //! `GraphStore::append_node` 是 crate 内部原语；外部只能经这些工厂创建节点，
 //! 因此调用方无法自由设定 provenance。每个工厂只暴露其 provenance 矩阵允许的 role。
 
+use crate::edge::EdgeKind;
 use crate::error::GraphResult;
 use crate::ids::{NodeCreationStatus, NodeId, NodeRole, Provenance};
 use crate::payload::*;
@@ -322,6 +323,25 @@ impl LlmFactory<'_> {
         )
     }
 
+    pub fn question_with_edges(
+        &mut self,
+        summary: impl Into<String>,
+        body: impl Into<String>,
+        outgoing: &[(NodeId, EdgeKind)],
+    ) -> GraphResult<NodeId> {
+        self.store.append_node_with_outgoing_edges(
+            NodeRole::Clarification,
+            Provenance::Llm,
+            NodeCreationStatus::Ok,
+            summary,
+            NodePayload::Clarification(ClarificationPayload {
+                kind: ClarificationKind::Question,
+                body: body.into(),
+            }),
+            outgoing,
+        )
+    }
+
     pub fn decision(
         &mut self,
         summary: impl Into<String>,
@@ -333,6 +353,22 @@ impl LlmFactory<'_> {
             NodeCreationStatus::Ok,
             summary,
             NodePayload::Decision(p),
+        )
+    }
+
+    pub fn decision_with_edges(
+        &mut self,
+        summary: impl Into<String>,
+        p: DecisionPayload,
+        outgoing: &[(NodeId, EdgeKind)],
+    ) -> GraphResult<NodeId> {
+        self.store.append_node_with_outgoing_edges(
+            NodeRole::Decision,
+            Provenance::Llm,
+            NodeCreationStatus::Ok,
+            summary,
+            NodePayload::Decision(p),
+            outgoing,
         )
     }
 
@@ -350,6 +386,22 @@ impl LlmFactory<'_> {
         )
     }
 
+    pub fn pseudocode_with_edges(
+        &mut self,
+        summary: impl Into<String>,
+        p: PseudocodePayload,
+        outgoing: &[(NodeId, EdgeKind)],
+    ) -> GraphResult<NodeId> {
+        self.store.append_node_with_outgoing_edges(
+            NodeRole::Pseudocode,
+            Provenance::Llm,
+            NodeCreationStatus::Ok,
+            summary,
+            NodePayload::Pseudocode(p),
+            outgoing,
+        )
+    }
+
     pub fn code(&mut self, summary: impl Into<String>, p: CodePayload) -> GraphResult<NodeId> {
         self.store.append_node(
             NodeRole::Code,
@@ -357,6 +409,22 @@ impl LlmFactory<'_> {
             NodeCreationStatus::Ok,
             summary,
             NodePayload::Code(p),
+        )
+    }
+
+    pub fn code_with_edges(
+        &mut self,
+        summary: impl Into<String>,
+        p: CodePayload,
+        outgoing: &[(NodeId, EdgeKind)],
+    ) -> GraphResult<NodeId> {
+        self.store.append_node_with_outgoing_edges(
+            NodeRole::Code,
+            Provenance::Llm,
+            NodeCreationStatus::Ok,
+            summary,
+            NodePayload::Code(p),
+            outgoing,
         )
     }
 

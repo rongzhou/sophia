@@ -198,15 +198,17 @@ where
 
     match outcome {
         LlmStepOutcome::Succeeded { value, snapshot } => {
-            let pseudo = store.as_llm().pseudocode(
+            let pseudo = store.as_llm().pseudocode_with_edges(
                 format!("pseudo:{}", value.purpose),
                 PseudocodePayload {
                     purpose: value.purpose,
                     artifact_path: "content.pseudo".to_string(),
                 },
+                &[
+                    (snapshot, EdgeKind::Consumed),
+                    (target, EdgeKind::Addresses),
+                ],
             )?;
-            store.append_edge(pseudo, snapshot, EdgeKind::Consumed)?;
-            store.append_edge(pseudo, target, EdgeKind::Addresses)?;
             Ok(LoopStepOutcome::Succeeded(PseudocodeArtifact {
                 node: pseudo,
                 text: value.pseudocode,
@@ -319,16 +321,18 @@ where
 
     match outcome {
         LlmStepOutcome::Succeeded { value, snapshot } => {
-            let pseudo = store.as_llm().pseudocode(
+            let pseudo = store.as_llm().pseudocode_with_edges(
                 format!("pseudo(revised):{}", value.purpose),
                 PseudocodePayload {
                     purpose: value.purpose,
                     artifact_path: "content.pseudo".to_string(),
                 },
+                &[
+                    (snapshot, EdgeKind::Consumed),
+                    (target, EdgeKind::Addresses),
+                    (prev_pseudocode, EdgeKind::Revises),
+                ],
             )?;
-            store.append_edge(pseudo, snapshot, EdgeKind::Consumed)?;
-            store.append_edge(pseudo, target, EdgeKind::Addresses)?;
-            store.append_edge(pseudo, prev_pseudocode, EdgeKind::Revises)?;
             Ok(LoopStepOutcome::Succeeded(PseudocodeArtifact {
                 node: pseudo,
                 text: value.pseudocode,
@@ -372,8 +376,15 @@ where
 
     match outcome {
         LlmStepOutcome::Succeeded { value, snapshot } => {
-            let artifact = build_code_node(store, value, snapshot, target)?;
-            store.append_edge(artifact.node, pseudocode, EdgeKind::Implements)?;
+            let artifact = build_code_node(
+                store,
+                value,
+                &[
+                    (snapshot, EdgeKind::Consumed),
+                    (target, EdgeKind::Addresses),
+                    (pseudocode, EdgeKind::Implements),
+                ],
+            )?;
             Ok(LoopStepOutcome::Succeeded(artifact))
         }
         LlmStepOutcome::Failed { raw_llm, error } => Ok(LoopStepOutcome::Failed { raw_llm, error }),
@@ -415,8 +426,15 @@ where
 
     match outcome {
         LlmStepOutcome::Succeeded { value, snapshot } => {
-            let artifact = build_code_node(store, value, snapshot, target)?;
-            store.append_edge(artifact.node, prev_code, EdgeKind::Repairs)?;
+            let artifact = build_code_node(
+                store,
+                value,
+                &[
+                    (snapshot, EdgeKind::Consumed),
+                    (target, EdgeKind::Addresses),
+                    (prev_code, EdgeKind::Repairs),
+                ],
+            )?;
             Ok(LoopStepOutcome::Succeeded(artifact))
         }
         LlmStepOutcome::Failed { raw_llm, error } => Ok(LoopStepOutcome::Failed { raw_llm, error }),
@@ -428,8 +446,7 @@ where
 fn build_code_node(
     store: &mut GraphStore,
     value: ImplementResult,
-    snapshot: NodeId,
-    target: NodeId,
+    outgoing: &[(NodeId, EdgeKind)],
 ) -> Result<CodeArtifact, LoopError> {
     let files: Vec<(String, String)> = value
         .files
@@ -437,12 +454,11 @@ fn build_code_node(
         .map(|f| (f.path, f.content))
         .collect();
     let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
-    let code = store.as_llm().code(
+    let code = store.as_llm().code_with_edges(
         format!("code:{} files", paths.len()),
         CodePayload { files: paths },
+        outgoing,
     )?;
-    store.append_edge(code, snapshot, EdgeKind::Consumed)?;
-    store.append_edge(code, target, EdgeKind::Addresses)?;
     Ok(CodeArtifact { node: code, files })
 }
 
