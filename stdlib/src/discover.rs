@@ -6,7 +6,10 @@
 //!
 //! 本模块**做文件 IO**（归 sophia-stdlib 内容 / 装载层正当）；`core` 不依赖它。
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use sophia_library::{LibraryContent, LibraryRegistry, RawManifest};
 
@@ -42,7 +45,7 @@ impl std::error::Error for DiscoverError {}
 type Result<T> = std::result::Result<T, DiscoverError>;
 
 /// 项目根相对的三方库根目录：① `<project_root>/sophia_libs/`,② 环境变量 `$SOPHIA_LIB_PATH`
-/// （冒号分隔多目录,机器级三方库路径）。返回存在的根目录列表（不存在的根静默忽略——根缺失不是
+/// （平台 path-list 语义,机器级三方库路径）。返回存在的根目录列表（不存在的根静默忽略——根缺失不是
 /// 错误,库缺失才是）。
 ///
 /// CLI 各命令以显式 `--root` 定位项目（非进程 CWD）,故按项目根解析本地 `sophia_libs/`。
@@ -52,16 +55,17 @@ pub fn project_roots(project_root: &Path) -> Vec<PathBuf> {
     if local.is_dir() {
         roots.push(local);
     }
-    // `$SOPHIA_LIB_PATH`（冒号分隔）里存在的目录（与项目根无关）。
-    if let Ok(path_var) = std::env::var("SOPHIA_LIB_PATH") {
-        for entry in path_var.split(':').filter(|s| !s.is_empty()) {
-            let p = PathBuf::from(entry);
-            if p.is_dir() {
-                roots.push(p);
-            }
-        }
+    // `$SOPHIA_LIB_PATH` 采用平台 path-list 语义（Unix `:` / Windows `;`）。
+    if let Some(path_var) = std::env::var_os("SOPHIA_LIB_PATH") {
+        roots.extend(env_roots_from(&path_var));
     }
     roots
+}
+
+fn env_roots_from(path_var: &OsStr) -> Vec<PathBuf> {
+    std::env::split_paths(path_var)
+        .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
+        .collect()
 }
 
 /// 完整注册表 = 标准库 + 以**项目根**解析的三方库（`<root>/sophia_libs/` + `$SOPHIA_LIB_PATH`）。
@@ -165,4 +169,30 @@ fn read_bytes(path: &Path) -> Result<Vec<u8>> {
         path: path.to_path_buf(),
         reason: e.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "sophia_stdlib_discover_{tag}_{}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn env_roots_use_platform_path_list_semantics() {
+        let a = temp_dir("a");
+        let b = temp_dir("b");
+        let missing = temp_dir("missing");
+        std::fs::create_dir_all(&a).expect("create a");
+        std::fs::create_dir_all(&b).expect("create b");
+        let path_var = std::env::join_paths([&a, &missing, &b]).expect("join paths");
+
+        let roots = env_roots_from(&path_var);
+
+        assert_eq!(roots, vec![a, b]);
+    }
 }

@@ -821,7 +821,7 @@ engine（`run_ranked_selection`），落地详情见 `dev_checklist_v0.md`。
 - 起步阶段：解释器对该候选的全套 runtime input/output validation 通过，hidden verifier 不泄漏 prompt；
 - v1 起：候选的 WASM build 与 host 侧 preflight 也通过。
 
-materialize 必须是原子操作：先写临时目录，preflight 通过后再替换目标文件。Materialize 顺序由编译期类型状态保证（参见实现文档）。
+materialize 必须先写临时目录，preflight / staging 全部通过后再替换目标文件；单文件替换依赖同文件系统 `rename` 保证原子，文件集合不是事务。Materialize 顺序由编译期类型状态保证（参见实现文档）。
 
 **gate 跨进程重跑**：编译期类型状态证明（候选已过全部 gate）**无法序列化跨进程持久化**，而 `select`
 与 `materialize` 是两个独立 CLI 进程。故各自从候选 artifacts（`sophia-runs/graph/artifacts/`，未物化

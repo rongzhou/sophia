@@ -5,7 +5,8 @@
 //! `Unchecked → CheckPassed → AuditPassed → RuntimeValidated → Selected → materialize`。
 //! `materialize` 只能在 `CodeCandidate<Selected>` 上调用，编译器阻止任何跳过 gate 的路径。
 //!
-//! materialize 原子：先写临时 staging 目录，全部成功后再 rename 替换目标文件。
+//! materialize 写入：先写临时 staging 目录；staging 阶段失败不触碰目标文件；提交阶段逐文件
+//! rename，单文件替换原子，但文件集合不是事务。
 //!
 //! 本 crate 属 tools 层；只消费确定性检查报告（[`GateReport`]），不重复实现检查逻辑，
 //! 也不依赖 workflow 图（MaterializeNode 的创建由编排层在 gate 通过后单独完成）。

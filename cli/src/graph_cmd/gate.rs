@@ -42,7 +42,7 @@ pub fn select(root: &Path, node: &str, rationale: &str) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `sophia graph materialize <SelectionId>`：重跑 gate 并原子物化到 `domains/`。
+/// `sophia graph materialize <SelectionId>`：重跑 gate 并经 staging/rename 物化到 `domains/`。
 pub fn materialize(root: &Path, node: &str) -> Result<ExitCode> {
     let selection = parse_node(node)?;
     let mut store = open_store(root)?;
@@ -266,7 +266,7 @@ fn constraint_to_audit(store: &GraphStore, view: &ConstraintView) -> sophia_audi
     }
 }
 
-/// 对带 `HiddenCase` verifier 的 invariant，在**候选**上执行 hidden case，产出注入审计的 outcomes。
+/// 对带 `HiddenCase` verifier 的 invariant / forbidden，在**候选**上执行 hidden case，产出注入审计的 outcomes。
 ///
 /// 分层（architecture §3.3）：执行属 `runtime`（`run_hidden_case`），判定属 `tools/audit`；本协调层
 /// 加载候选 → 构建模型 → 执行 → 零损耗映射 `VerificationResult` 为 `VerifierOutcome`。缺用例则
@@ -277,10 +277,15 @@ fn run_hidden_verifiers(
     hidden: &crate::verifier_store::HiddenVerifierStore,
     files: &[(String, String)],
 ) -> Vec<sophia_audit::VerifierOutcome> {
-    // 收集需要执行的 hidden case（仅 Invariant + HiddenCase verifier 且存储里有用例）。
+    // 收集需要执行的 hidden case（仅 Invariant / Forbidden + HiddenCase verifier 且存储里有用例）。
     let cases: Vec<sophia_runtime::HiddenCase> = constraints
         .iter()
-        .filter(|c| c.kind == sophia_audit::ConstraintKind::Invariant)
+        .filter(|c| {
+            matches!(
+                c.kind,
+                sophia_audit::ConstraintKind::Invariant | sophia_audit::ConstraintKind::Forbidden
+            )
+        })
         .filter_map(|c| match &c.verifier {
             Some((sophia_audit::VerifierKind::HiddenCase, vref)) => hidden.get(vref).cloned(),
             _ => None,

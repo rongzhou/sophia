@@ -278,6 +278,90 @@ fn field_type_mismatch_reported() {
 }
 
 #[test]
+fn transition_construct_missing_input_reported() {
+    let transition = (
+        "D",
+        "domains/D/transitions/Inc.sophia",
+        r#"transition Inc {
+  input { x: Int; delta: Int }
+  output { y: Int }
+  body { return x + delta }
+}"#,
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  input { x: Int }
+  output { y: Int }
+  body { return Inc { x = x } }
+}"#,
+    );
+    let parsed = parse_all(&[transition, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::MissingField),
+        "transition 构造缺 input 应报 MissingField：{diags:?}"
+    );
+}
+
+#[test]
+fn transition_construct_unknown_input_reported() {
+    let transition = (
+        "D",
+        "domains/D/transitions/Inc.sophia",
+        r#"transition Inc {
+  input { x: Int }
+  output { y: Int }
+  body { return x + 1 }
+}"#,
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  input { x: Int }
+  output { y: Int }
+  body { return Inc { x = x, ghost = x } }
+}"#,
+    );
+    let parsed = parse_all(&[transition, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::UnknownField),
+        "transition 构造未知 input 应报 UnknownField：{diags:?}"
+    );
+}
+
+#[test]
+fn transition_construct_input_type_mismatch_reported() {
+    let transition = (
+        "D",
+        "domains/D/transitions/Inc.sophia",
+        r#"transition Inc {
+  input { x: Int }
+  output { y: Int }
+  body { return x + 1 }
+}"#,
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  input { s: Text }
+  output { y: Int }
+  body { return Inc { x = s } }
+}"#,
+    );
+    let parsed = parse_all(&[transition, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "transition 构造 input 类型不匹配应报 TypeMismatch：{diags:?}"
+    );
+}
+
+#[test]
 fn intent_strict_equality_violation_reported() {
     // 字段要 Sanitized<Text>，传入 Raw<Text> —— intent 严格相等被违反。
     let entity = (

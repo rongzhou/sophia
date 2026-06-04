@@ -193,7 +193,7 @@ sidecar 持久化）。
 - **标准库**：`sophia-stdlib` 的 `libs/` 编译进二进制（清单 + 资产 + 源码 `include_str!`，native host
   链接）。注册表标准库部分进程初始化时构建，**零 IO、确定**。
 - **三方库**：进程启动时按约定顺序扫描——① 项目根下 `<root>/sophia_libs/`，② 环境变量
-  `$SOPHIA_LIB_PATH`（冒号分隔多目录）——逐子目录读 `library.toml` + 资产 + （若有）`.sophia` 源码 + `host.wasm`，合并进
+  `$SOPHIA_LIB_PATH`（平台 path-list 语义；Unix 为 `:`，Windows 为 `;`）——逐子目录读 `library.toml` + 资产 + （若有）`.sophia` 源码 + `host.wasm`，合并进
   注册表。**只在启动做一次**，随后冻结。失败（清单非法 / `abi_version` 不符 / 名冲突 / wasm 校验失败）→
   **启动期诚实报错退出**，不静默跳过、不部分加载、不静默覆盖同名。发现实现 =
   `sophia-stdlib::full_registry_for(project_root)`（CLI 各命令用）/ `project_roots(project_root)`（只计算发现根）/
@@ -317,7 +317,7 @@ surface 与 host 都**不与执行模式绑定**，故四象限全部可用：
   （用户↔用户仍受检）。**WASM host**：`wasmi` 提为 `sophia-runtime` 正式依赖 + `runtime::WasmHostFn`（持
   `host.wasm` 实例，统一字节 ABI，§五.4 / §六.1）。**两演示库**：`hash_sophia`（纯 Sophia 源码库，action
   `SophiaDigest`）/ `hash_wasm`（WASM-effect 库，op `WasmHash.Mix`，`effectful=false`，`host.wasm` 由
-  wasm-encoder 测试时生成）计算同一确定 digest（`acc=acc*31+value` ×3）。`cargo test` 集成测试
+  wasm-encoder 在测试临时三方根中生成）计算同一确定 digest（`acc=acc*31+value` ×3）。`cargo test` 集成测试
   （`stdlib/tests/library_demo.rs`）验收：发现 + 注册表合并 + 跨 domain 豁免 + 纯 Sophia 库执行 + WASM 库
   经 `WasmHostFn` 执行 + 两库结果逐位相等。全确定、进门禁（369 passed）。**CLI 生产接线**
   （`library_registry(root)` → `full_registry_for(root)` + 库源码并入各命令 inputs + `sophia run` 注册三方 WASM host）

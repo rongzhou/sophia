@@ -809,13 +809,14 @@ impl<'a> TypeChecker<'a> {
             return Ty::ErrorVariant(name.to_string());
         }
 
-        // 构造目标可能是 transition（语法二义）。transition 字段契约单独补齐，不在 variant/entity
-        // 检查里混入第二套规则。
-        self.model
-            .callables
-            .get(name)
-            .and_then(|c| c.sole_output_ty().cloned())
-            .unwrap_or(Ty::Unknown)
+        if let Some(decl) = self.model.callables.get(name) {
+            let inputs = decl.inputs.clone();
+            let output = decl.sole_output_ty().cloned().unwrap_or(Ty::Unknown);
+            self.check_record_construct("transition", name, &inputs, provided, span);
+            return output;
+        }
+
+        Ty::Unknown
     }
 
     fn check_record_construct(

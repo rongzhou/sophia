@@ -7,7 +7,7 @@
 //! 全确定（纯计算 + fixture 发现 + wasm 确定执行）→ 进 `cargo test`。验证:发现 + 注册表合并 +
 //! 跨 domain 豁免 + 纯 Sophia 库执行 + WASM 库经 WasmHostFn 执行 + 两库等价。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sophia_hir::{resolve_program, AsgIndex, IndexInput, LibrarySources, ProgramInput};
 use sophia_runtime::{HostRegistry, Outcome, Value, WasmHostFn};
@@ -24,15 +24,43 @@ fn expected_digest(seed: i64, value: i64) -> i64 {
     acc
 }
 
-/// fixture 三方根目录（含 hash_sophia / hash_wasm）。
-fn fixture_root() -> PathBuf {
+/// fixture 模板三方根目录（含 hash_sophia / hash_wasm），测试只读。
+fn fixture_template_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sophia_libs")
 }
 
-/// 在 hash_wasm 库目录写入 host.wasm（wasm-encoder 手工 emit,见 docs/stdlib_design.md §六.1）。
+/// 为单个测试准备临时三方根目录，并在临时 hash_wasm 库目录写入 host.wasm。
+fn prepared_fixture_root() -> (PathBuf, PathBuf) {
+    let root = std::env::temp_dir()
+        .join(format!(
+            "sophia_stdlib_library_demo_{}_{}",
+            std::process::id(),
+            nanos()
+        ))
+        .join("sophia_libs");
+    copy_dir(&fixture_template_root(), &root);
+    let host_wasm = write_host_wasm(&root);
+    (root, host_wasm)
+}
+
+fn copy_dir(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("创建临时 fixture 目录");
+    for entry in std::fs::read_dir(src).expect("读取 fixture 模板目录") {
+        let entry = entry.expect("读取 fixture 模板条目");
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).expect("复制 fixture 模板文件");
+        }
+    }
+}
+
+/// 在指定 hash_wasm 库目录写入 host.wasm（wasm-encoder 手工 emit,见 docs/stdlib_design.md §六.1）。
 /// 模块导出 `memory` + `sophia_alloc` + `sophia_read_copy` + `wasm_hash_mix(args_ptr,args_len)`。
 /// `wasm_hash_mix` 读 ArgsWire、写 ValueWire result stash。确定字节、自包含。
-fn ensure_host_wasm() -> PathBuf {
+fn write_host_wasm(root: &Path) -> PathBuf {
     use wasm_encoder::{
         CodeSection, ConstExpr, ExportKind, ExportSection, Function, FunctionSection,
         GlobalSection, GlobalType, Instruction, MemorySection, MemoryType, Module, TypeSection,
@@ -147,11 +175,10 @@ fn ensure_host_wasm() -> PathBuf {
     module.section(&code);
 
     let bytes = module.finish();
-    let path = fixture_root().join("hash_wasm/host.wasm");
-    // 原子写入（temp + rename）：三个测试并行各自 ensure_host_wasm,而发现层（read_library_dir）
-    // 现在会读 host.wasm——非原子写会让并发读撞上半写文件（unexpected EOF）。rename 同盘原子,
-    // 并发读者要么见旧完整文件、要么见新完整文件,绝不见截断。temp 名带唯一后缀避免互撞。
-    let tmp = fixture_root().join(format!(
+    let path = root.join("hash_wasm/host.wasm");
+    // 原子写入（temp + rename）：发现层（read_library_dir）会读 host.wasm；即便未来测试并行复用
+    // 同一个临时根,读者也只会见到完整文件。仓库 fixture 作为模板只读,避免测试污染工作区。
+    let tmp = root.join(format!(
         "hash_wasm/.host.wasm.{}.{}",
         std::process::id(),
         nanos()
@@ -204,8 +231,8 @@ fn user_program() -> Vec<(String, Ast)> {
 
 #[test]
 fn discovers_both_demo_libraries() {
-    ensure_host_wasm();
-    let reg = full_registry_from(&[fixture_root()]).expect("发现 + 合并注册表");
+    let (root, _) = prepared_fixture_root();
+    let reg = full_registry_from(&[root]).expect("发现 + 合并注册表");
     // 标准库仍在。
     assert!(reg.op("Http", "Get").is_some());
     assert!(reg.op("File", "Read").is_some());
@@ -222,8 +249,8 @@ fn discovers_both_demo_libraries() {
 
 #[test]
 fn pure_sophia_library_resolves_and_runs_with_cross_domain_exemption() {
-    ensure_host_wasm();
-    let reg = full_registry_from(&[fixture_root()]).expect("注册表");
+    let (root, _) = prepared_fixture_root();
+    let reg = full_registry_from(&[root]).expect("注册表");
     let lib_srcs = LibrarySources::from_registry(&reg).expect("解析库源码");
 
     let user = user_program();
@@ -248,8 +275,8 @@ fn pure_sophia_library_resolves_and_runs_with_cross_domain_exemption() {
 
 #[test]
 fn both_libraries_compute_equal_digest() {
-    let host_wasm_path = ensure_host_wasm();
-    let reg = full_registry_from(&[fixture_root()]).expect("注册表");
+    let (root, host_wasm_path) = prepared_fixture_root();
+    let reg = full_registry_from(&[root]).expect("注册表");
     let lib_srcs = LibrarySources::from_registry(&reg).expect("解析库源码");
 
     // 组装全程序 AST（用户 + 库源码）。

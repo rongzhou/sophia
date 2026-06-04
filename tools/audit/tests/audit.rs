@@ -42,6 +42,41 @@ fn invariant_with_failing_verifier_fails_gate() {
 }
 
 #[test]
+fn forbidden_with_failing_verifier_fails_gate() {
+    let cs = vec![Constraint {
+        id: "N0007".into(),
+        kind: ConstraintKind::Forbidden,
+        statement: "禁止写入项目根外文件".into(),
+        verifier: Some((VerifierKind::HiddenCase, "forbidden_case".into())),
+    }];
+    let outs = vec![VerifierOutcome {
+        verifier_ref: "forbidden_case".into(),
+        passed: false,
+        detail: "检测到禁止行为".into(),
+    }];
+
+    let report = audit_constraints(&cs, &outs).unwrap();
+
+    assert!(!report.ok());
+    assert_eq!(report.failures().count(), 1);
+    assert_eq!(report.items[0].constraint_id, "N0007");
+}
+
+#[test]
+fn forbidden_with_missing_verifier_outcome_is_hard_error() {
+    let cs = vec![Constraint {
+        id: "N0008".into(),
+        kind: ConstraintKind::Forbidden,
+        statement: "禁止网络访问".into(),
+        verifier: Some((VerifierKind::HiddenCase, "net_case".into())),
+    }];
+
+    let err = audit_constraints(&cs, &[]).unwrap_err();
+
+    assert!(matches!(err, AuditError::MissingVerifierOutcome { .. }));
+}
+
+#[test]
 fn non_invariant_constraint_is_skipped() {
     let cs = vec![
         Constraint {

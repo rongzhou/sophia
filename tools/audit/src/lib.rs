@@ -3,8 +3,8 @@
 //! 见 docs/workflow_graph_spec.md 4.1.2（ConstraintNode + verifier）、4.4.5
 //! （Diagnostic kind=ConstraintAudit / RegressionGate）、第七节接入点 4。
 //!
-//! 职责：对一组约束（含可选 verifier）做审计——`Invariant` 约束由 verifier 驱动
-//! regression gate，其余 kind 仅作上下文（不 gate）。本 crate 只组装审计判定与
+//! 职责：对一组约束（含可选 verifier）做审计——`Invariant` / `Forbidden` 约束由可执行
+//! verifier 驱动 regression gate，其余 kind 仅作上下文（不 gate）。本 crate 只组装审计判定与
 //! 结构化报告；verifier 的**实际执行**（跑 hidden case / audit rule）由确定性管线
 //! 注入结果（[`VerifierOutcome`]），不在本层实现——与 `tools/materialize` 消费
 //! `GateReport` 同构，保持 tools 层不依赖 workflow 图与具体运行器。
@@ -115,9 +115,9 @@ impl AuditReport {
 /// 对一组约束做审计。
 ///
 /// 规则（4.1.2 / 第七节 4）：
-/// - `Invariant` + 可执行 verifier（HiddenCase / AuditRule）→ 由对应 [`VerifierOutcome`]
-///   决定 Pass/Fail（regression gate）；缺结果则报 [`AuditError`]；
-/// - 其余约束（非 Invariant，或 Manual / 无 verifier）→ `Skipped`（仅上下文）。
+/// - `Invariant` / `Forbidden` + 可执行 verifier（HiddenCase / AuditRule）→ 由对应
+///   [`VerifierOutcome`] 决定 Pass/Fail（regression gate）；缺结果则报 [`AuditError`]；
+/// - 其余约束（非 gate kind，或 Manual / 无 verifier）→ `Skipped`（仅上下文）。
 ///
 /// `outcomes` 按 `verifier_ref` 查找；顺序无关。
 pub fn audit_constraints(
@@ -136,8 +136,8 @@ pub fn audit_constraints(
 }
 
 fn audit_one(c: &Constraint, outcomes: &[VerifierOutcome]) -> AuditResult<ConstraintVerdict> {
-    // 只有 Invariant 驱动 regression gate；其余仅作上下文。
-    if c.kind != ConstraintKind::Invariant {
+    // 只有 Invariant / Forbidden 可由可执行 verifier 驱动 gate；其余仅作上下文。
+    if !drives_gate(c.kind) {
         return Ok(ConstraintVerdict::Skipped {
             reason: format!("{:?} 约束不驱动 gate", c.kind),
         });
@@ -166,4 +166,8 @@ fn audit_one(c: &Constraint, outcomes: &[VerifierOutcome]) -> AuditResult<Constr
             reason: "无 verifier，仅作上下文".to_string(),
         }),
     }
+}
+
+fn drives_gate(kind: ConstraintKind) -> bool {
+    matches!(kind, ConstraintKind::Invariant | ConstraintKind::Forbidden)
 }

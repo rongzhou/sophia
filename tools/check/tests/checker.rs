@@ -1,10 +1,35 @@
 //! Checker 集成测试：名称解析 + 语义 + strip-assist 等价门禁。
 
-use sophia_check::check_program;
+use sophia_check::{check_program, check_program_with_registry, CheckError};
+use sophia_hir::{LibraryContent, LibraryRegistry};
 
 /// 构造 `(domain, path, source)` 列表。
 fn src(domain: &str, path: &str, source: &str) -> (String, String, String) {
     (domain.into(), path.into(), source.into())
+}
+
+fn registry_with_pure_sophia_library() -> LibraryRegistry {
+    LibraryRegistry::build(vec![LibraryContent {
+        dir_name: "math_lib".into(),
+        manifest_toml: r#"
+[library]
+name = "math_lib"
+summary = "Pure Sophia math helper"
+abi_version = 1
+[surface]
+sophia_sources = ["src/inc.sophia"]
+[prompt]
+asset = "math.md"
+"#
+        .into(),
+        asset_text: "x".into(),
+        sophia_sources: vec![(
+            "math_lib/src/inc.sophia".into(),
+            "action Inc { input { n: Int } output { r: Int } body { return n + 1 } }".into(),
+        )],
+        host_wasm: None,
+    }])
+    .expect("build registry")
 }
 
 #[test]
@@ -22,6 +47,44 @@ fn clean_program_passes_all_checks() {
         report.semantic
     );
     assert!(report.strip_assist.equivalent, "strip-assist 应等价");
+    assert!(report.passed());
+}
+
+#[test]
+fn syntax_errors_are_reported_without_panic() {
+    let sources = vec![src(
+        "D",
+        "domains/D/actions/Broken.sophia",
+        "action Broken {",
+    )];
+    match check_program(&sources) {
+        Err(CheckError::Syntax { path, reason }) => {
+            assert_eq!(path, "domains/D/actions/Broken.sophia");
+            assert!(reason.contains("line 1"), "应包含定位信息：{reason}");
+        }
+        Err(other) => panic!("应返回 Syntax 错误，实际为 {other:?}"),
+        Ok(_) => panic!("语法错误应结构化返回"),
+    }
+}
+
+#[test]
+fn check_program_with_registry_includes_library_sources() {
+    let registry = registry_with_pure_sophia_library();
+    let sources = vec![src(
+        "App",
+        "domains/App/actions/UseInc.sophia",
+        "action UseInc { input { n: Int } output { r: Int } body { return Inc(n) } }",
+    )];
+
+    let report = check_program_with_registry(&sources, &registry).expect("project check");
+
+    assert!(report.hir.is_empty(), "库源码应并入 HIR：{:?}", report.hir);
+    assert!(
+        report.semantic.is_empty(),
+        "库源码应并入 semantic：{:?}",
+        report.semantic
+    );
+    assert!(report.strip_assist.equivalent);
     assert!(report.passed());
 }
 

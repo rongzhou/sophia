@@ -398,4 +398,50 @@ asset = "http.md"
         // effect 操作进入符号表。
         assert!(index.effect_op("Payment", "Charge").is_some());
     }
+
+    #[test]
+    fn user_effect_cannot_redeclare_builtin_family() {
+        let ast = parse_ast("effect Console { operation Other }".to_string()).unwrap();
+        let inputs = vec![ProgramInput {
+            domain: "D",
+            path: "domains/D/effects/Console.sophia",
+            ast: &ast,
+        }];
+        let err = resolve_program(&inputs, &LibraryRegistry::empty()).unwrap_err();
+        assert!(
+            matches!(&err, sophia_hir::HirError::EffectOpConflict { family, .. } if family == "Console"),
+            "用户 effect 不应覆盖内置 Console family：{err:?}"
+        );
+    }
+
+    #[test]
+    fn user_effect_cannot_redeclare_library_family() {
+        let ast = parse_ast("effect File { operation Other }".to_string()).unwrap();
+        let inputs = vec![ProgramInput {
+            domain: "D",
+            path: "domains/D/effects/File.sophia",
+            ast: &ast,
+        }];
+        let err = resolve_program(&inputs, &lib_registry()).unwrap_err();
+        assert!(
+            matches!(&err, sophia_hir::HirError::EffectOpConflict { family, .. } if family == "File"),
+            "用户 effect 不应覆盖库 File family：{err:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_operation_in_effect_is_hard_error() {
+        let ast =
+            parse_ast("effect Payment { operation Charge operation Charge }".to_string()).unwrap();
+        let inputs = vec![ProgramInput {
+            domain: "D",
+            path: "domains/D/effects/Payment.sophia",
+            ast: &ast,
+        }];
+        let err = resolve_program(&inputs, &LibraryRegistry::empty()).unwrap_err();
+        assert!(
+            matches!(&err, sophia_hir::HirError::EffectOpConflict { family, op, .. } if family == "Payment" && op == "Charge"),
+            "同一 effect 内重复 operation 不应 silent overwrite：{err:?}"
+        );
+    }
 }

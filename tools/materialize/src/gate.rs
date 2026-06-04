@@ -60,7 +60,7 @@ impl GateReport {
 /// 候选 CodeNode 的类型状态包装。
 ///
 /// 类型参数 `S` 在编译期编码 gate 进度。`files` 是候选的 `.sophia` 文件
-/// （路径 → 内容），随状态推进不变，最终在 materialize 时原子写入。
+/// （路径 → 内容），随状态推进不变，最终在 materialize 时经 staging + rename 写入。
 pub struct CodeCandidate<S> {
     files: Vec<(String, String)>,
     _state: PhantomData<S>,
@@ -138,9 +138,9 @@ impl CodeCandidate<RuntimeValidated> {
 }
 
 impl CodeCandidate<Selected> {
-    /// 物化：把候选文件原子写入 `target_root`。
+    /// 物化：把候选文件经 staging + rename 写入 `target_root`。
     ///
-    /// 仅 `Selected` 状态可调用——编译器保证物化必经全部 gate。原子语义见
+    /// 仅 `Selected` 状态可调用——编译器保证物化必经全部 gate。写入语义见
     /// [`crate::write::atomic_write_all`]。
     pub fn materialize(
         self,

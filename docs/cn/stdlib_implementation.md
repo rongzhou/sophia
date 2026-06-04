@@ -170,7 +170,7 @@ console_write` 捕获——语言内置，不经库注册表。
   `AsgIndex.library_domains` + `is_library_domain` + `resolve` 跨 domain 豁免；`runtime::WasmHostFn`
   （`wasmi` 加载 `host.wasm`，ValueWire provider 形态，`wasmi` 提为 runtime 正式依赖 + `wasm-encoder` dev-dep）。
   两演示库 fixture（`stdlib/tests/fixtures/sophia_libs/hash_sophia`、`hash_wasm`）+ 集成测试
-  `stdlib/tests/library_demo.rs`（`host.wasm` 由 wasm-encoder 测试时生成、`.gitignore` 忽略）。验收发现 +
+  `stdlib/tests/library_demo.rs`（仓库 fixture 只读；测试复制到临时三方根后用 wasm-encoder 生成 `host.wasm`）。验收发现 +
   跨 domain 豁免 + 两库等价 digest，全确定进门禁。CLI 生产接线（`full_registry_for(root)` + 库源码并入命令 inputs +
   `sophia run` 注册三方 WASM host）列为后续项。
 - 2026-05-31 — **CLI 生产路径接线落地（P2 收尾）**。`discover` 新增 `project_roots(root)` /

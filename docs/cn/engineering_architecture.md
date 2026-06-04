@@ -603,7 +603,7 @@ sophia graph materialize <NodeId>
 - **`select` / `materialize` 重跑 gate**：二者分属两个进程，类型状态 gate 证明不可跨进程持久化，
   故各自从 artifacts 重新加载候选并**重跑全部 materialize gate**（code_check / constraint_audit /
   artifact_diff / runtime validation），任一未过即阻断并 emit 对应 `DiagnosticNode`，绝不伪造通过。
-  `materialize` 沿 `selects→` 边定位候选 Code，gate 通过后原子写入 `domains/`。
+  `materialize` 沿 `selects→` 边定位候选 Code，gate 通过后经 staging + 逐文件 rename 写入 `domains/`。
 
 **路线图（尚未实现的子命令）**：`pseudo-check` / `pseudo-outline` / `pseudo-scaffold`（`.pseudo`
 独立校验 / 大纲 / 脚手架）、`check` / `audit` / `diff` / `verify`（对图中节点单独跑某一 gate）；

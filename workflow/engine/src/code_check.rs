@@ -13,8 +13,8 @@ use sophia_graph_db::{DiagnosticItem, DiagnosticKind, DiagnosticPayload, Diagnos
 /// 对候选文件运行确定性 code_check，返回 `CodeCheck` 诊断 payload（`ok` 表示是否全过）。
 ///
 /// 阶段：① 语法层（每文件 `parse_str` + tree errors）；② 语法干净时进 HIR + 语义三层 +
-/// strip-assist 等价（`check_program`）。任一语法错误即跳过语义阶段（与 `check_program` 的
-/// 前置要求一致——语法错误时核心层行为未定义）。
+/// strip-assist 等价（`check_program`）。任一语法错误即跳过语义阶段；`check_program` 作为公共
+/// raw-source API 也会结构化返回语法错误，这里先过滤是为了保留更细的逐文件语法诊断。
 pub fn code_check(files: &[(String, String)]) -> DiagnosticPayload {
     let mut items = syntax_diagnostics(files);
     if items.is_empty() {

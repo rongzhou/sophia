@@ -1,18 +1,18 @@
-//! 原子文件写入。
+//! Staging + rename 文件写入。
 //!
-//! 见 docs/language_design.md 10.10：materialize 必须原子——先写临时目录，
-//! preflight 通过后再替换目标文件。这避免半写状态污染 `domains/`。
+//! 见 docs/language_design.md 10.10：materialize 先写临时目录，preflight / staging
+//! 通过后再替换目标文件。这避免写入阶段半成品污染 `domains/`。
 //!
 //! 实现：先把全部文件写入目标根下的隐藏 staging 目录（同一文件系统，保证 rename
-//! 原子且无跨设备拷贝），全部写成功后逐个 rename 到最终路径；任一步失败则清理
-//! staging，不触碰已有目标文件。
+//! 对单个文件原子且无跨设备拷贝），全部写成功后逐个 rename 到最终路径。staging 阶段
+//! 失败不触碰已有目标文件；rename 阶段是逐文件提交，文件集合不是事务。
 
 use crate::error::{MaterializeError, MaterializeResult};
 use std::path::Path;
 
-/// 把 `(相对路径, 内容)` 文件集合原子写入 `target_root`。
+/// 把 `(相对路径, 内容)` 文件集合经 staging 写入 `target_root`。
 ///
-/// 相对路径使用正斜杠；父目录按需创建。
+/// 相对路径使用正斜杠；父目录按需创建。单文件替换原子，集合非事务。
 pub fn atomic_write_all(target_root: &Path, files: &[(String, String)]) -> MaterializeResult<()> {
     let staging = target_root.join(".sophia-staging");
     // 清理可能残留的旧 staging。

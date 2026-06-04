@@ -777,7 +777,7 @@ Prompts must be rendered at call time (hard requirement): at each scheduler step
 - Initial phase: the interpreter’s runtime input/output validation passes for the candidate, and hidden verifiers do not leak into prompts.
 - From v1: the candidate’s WASM build and host-side preflight also pass.
 
-Materialize must be atomic: write to a temp dir first; replace target files only after preflight passes. Materialize ordering is guaranteed by compile-time type-state (see implementation docs).
+Materialize must write to a temp dir first and replace target files only after preflight/staging succeeds. Same-filesystem `rename` makes each file replacement atomic, but the file set is not transactional. Materialize ordering is guaranteed by compile-time type-state (see implementation docs).
 
 Gate re-run across processes: proofs of compile-time type-state (that a candidate has passed all gates) cannot be serialized and persisted across processes, while `select` and `materialize` are two separate CLI processes. Therefore each re-loads the candidate artifacts (`sophia-runs/graph/artifacts/`, bodies not yet materialized) and re-runs all gates to rebuild the proof. For the sole irreversible write, this is safer: writing is based on gate results at materialize time, not possibly stale historical selections. Candidate bodies live in artifacts rather than graph nodes (`CodeNode` only stores paths), keeping the graph light and immutable. For type-state details, see `language_implementation.md` §15 and `engineering_architecture.md` §9.2.
 

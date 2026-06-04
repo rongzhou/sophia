@@ -6,7 +6,7 @@
 
 use sophia_hir::{AsgIndex, IndexInput, LibraryContent, LibraryRegistry};
 use sophia_runtime::{run_action as run_exec, HostRegistry, Outcome, RuntimeError, Value};
-use sophia_semantic::{analyze_program, SemanticModel};
+use sophia_semantic::{analyze_program, SemanticDiagnostic, SemanticModel};
 use sophia_syntax::{parse_ast, Ast};
 
 /// 测试便捷封装：执行并返回 `(Outcome, HostRegistry)`。
@@ -138,6 +138,23 @@ impl Program {
             analysis.diagnostics
         );
         analysis.model
+    }
+
+    fn analyze_allowing_diagnostics(&self) -> (SemanticModel, Vec<SemanticDiagnostic>) {
+        let inputs: Vec<IndexInput> = self
+            .asts
+            .iter()
+            .enumerate()
+            .map(|(i, a)| IndexInput {
+                domain: "D",
+                path: Box::leak(format!("domains/D/n/unchecked-{i}.sophia").into_boxed_str()),
+                ast: a,
+            })
+            .collect();
+        let index = AsgIndex::build(inputs, &LibraryRegistry::empty()).expect("index");
+        let refs: Vec<&Ast> = self.asts.iter().collect();
+        let analysis = analyze_program(&refs, &index);
+        (analysis.model, analysis.diagnostics)
     }
 
     fn refs(&self) -> Vec<&Ast> {
@@ -331,6 +348,49 @@ fn raise_produces_domain_error() {
 }
 
 #[test]
+fn raise_missing_variant_field_is_runtime_error_if_unchecked_program_slips_through() {
+    // semantic 会报 MissingField；这里故意忽略 diagnostics，验证 runtime 不会产出结构不完整的 RaisedError。
+    let prog = Program::new(&[
+        "error E { variant Bad { reason: Text } }",
+        r#"action Fail {
+  input { x: Int }
+  output { y: Int }
+  errors { Bad }
+  body { raise Bad { } }
+}"#,
+    ]);
+    let (model, diags) = prog.analyze_allowing_diagnostics();
+    assert!(!diags.is_empty(), "坏程序应先被 semantic 拦截");
+    let err = run_action(&model, &prog.refs(), "Fail", vec![Value::Int(1)]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("variant `Bad` 缺字段 `reason`"),
+        "runtime 不应产出结构不完整的 RaisedError：{msg}"
+    );
+}
+
+#[test]
+fn returned_error_variant_unknown_field_is_runtime_error_if_unchecked_program_slips_through() {
+    // semantic 会报 UnknownField；这里故意忽略 diagnostics，验证 returned ErrorValue 也走同一契约守卫。
+    let prog = Program::new(&[
+        "error E { variant Bad { reason: Text } }",
+        r#"action Decide {
+  input { x: Int }
+  output { result: one of { Int, Bad } }
+  body { return Bad { reason = "no", ghost = "x" } }
+}"#,
+    ]);
+    let (model, diags) = prog.analyze_allowing_diagnostics();
+    assert!(!diags.is_empty(), "坏程序应先被 semantic 拦截");
+    let err = run_action(&model, &prog.refs(), "Decide", vec![Value::Int(1)]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("variant `Bad` 含未知字段 `ghost`"),
+        "runtime 不应产出含未知字段的 ErrorValue：{msg}"
+    );
+}
+
+#[test]
 fn entity_construction_and_field_access() {
     let prog = Program::new(&[
         "entity P { fields { x { type: Int } y { type: Int } } }",
@@ -482,6 +542,32 @@ fn transition_call_via_construction_syntax() {
         }
         other => panic!("期望 entity，得到 {other:?}"),
     }
+}
+
+#[test]
+fn transition_construct_missing_input_is_runtime_error_if_unchecked_program_slips_through() {
+    // semantic 会报 MissingField；这里故意忽略 diagnostics，验证 runtime 契约守卫不会再静默补 Unit。
+    let prog = Program::new(&[
+        r#"transition Add {
+  input { x: Int; delta: Int }
+  output { y: Int }
+  body { return x + delta }
+}"#,
+        r#"action Run {
+  input { x: Int }
+  output { y: Int }
+  body { return Add { x = x } }
+}"#,
+    ]);
+    let refs = prog.refs();
+    let (model, diags) = prog.analyze_allowing_diagnostics();
+    assert!(!diags.is_empty(), "坏程序应先被 semantic 拦截");
+    let err = run_action(&model, &refs, "Run", vec![Value::Int(5)]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("transition `Add` 缺少 input `delta`"),
+        "runtime 不应静默补 Unit：{msg}"
+    );
 }
 
 #[test]

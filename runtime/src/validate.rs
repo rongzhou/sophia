@@ -59,6 +59,11 @@ pub fn check_value(v: &Value, ty: &Ty, model: &SemanticModel) -> Result<(), Stri
                         .ok_or_else(|| format!("variant `{name}` 缺字段 `{fname}`"))?;
                     check_value(fv, fty, model)?;
                 }
+                for fname in fields.keys() {
+                    if decl.field_ty(fname).is_none() {
+                        return Err(format!("variant `{name}` 含未知字段 `{fname}`"));
+                    }
+                }
                 Ok(())
             }
             _ => type_err(&format!("error variant `{name}`"), v),

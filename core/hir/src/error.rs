@@ -30,6 +30,15 @@ pub enum HirError {
         second_path: String,
     },
 
+    /// 用户 `effect` 声明与内置 / 库 effect 操作冲突，或同一 effect 内重复声明 operation。
+    #[error("effect 操作冲突 `{family}.{op}`：{existing}；冲突声明位于 `{path}`")]
+    EffectOpConflict {
+        family: String,
+        op: String,
+        existing: String,
+        path: String,
+    },
+
     /// index 序列化失败。
     #[error("ASG index 序列化失败：{0}")]
     Serialization(String),

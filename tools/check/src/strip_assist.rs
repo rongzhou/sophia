@@ -8,7 +8,7 @@
 //! `SemanticModel` 并比对形式核心指纹（`formal_fingerprint`，确定性、无 span、无 assist）。
 //! 指纹一致即等价；不一致说明某处形式核心推导读取了 assist 字段（设计禁止）。
 
-use crate::{fingerprint, CheckError, CheckResult};
+use crate::{fingerprint, parse_checked, CheckError, CheckResult};
 use sophia_hir::{resolve_program, AsgIndex, LibraryRegistry, LibrarySources, ProgramInput};
 use sophia_semantic::analyze_program;
 use sophia_syntax::Ast;
@@ -38,7 +38,7 @@ pub fn check_strip_assist_equivalence(
     original_index: &sophia_hir::AsgIndex,
 ) -> CheckResult<StripAssistOutcome> {
     // 原始：模型指纹 + 语义诊断（用户 AST，库上下文由 original_index 提供）。
-    let original_asts: Vec<Ast> = parse_all(sources, false);
+    let original_asts: Vec<Ast> = parse_all(sources, false)?;
     let original_fp = ir_fingerprint(&original_asts, original_index);
 
     // 库源码（与原始侧并入 index 的同一批）——stripped 侧须对称并入，否则库节点 / 库 op 解析不对称。
@@ -46,7 +46,7 @@ pub fn check_strip_assist_equivalence(
         .map_err(|e| CheckError::IndexBuild(e.to_string()))?;
 
     // stripped：移除 assist 后重新构建 index 与指纹（并入同一批库源码 + 同一 registry）。
-    let stripped_asts: Vec<Ast> = parse_all(sources, true);
+    let stripped_asts: Vec<Ast> = parse_all(sources, true)?;
     let mut stripped_inputs: Vec<ProgramInput> = sources
         .iter()
         .zip(&stripped_asts)
@@ -71,18 +71,10 @@ pub fn check_strip_assist_equivalence(
 }
 
 /// 解析全部源码；`strip` 为真时移除 assist。
-fn parse_all(sources: &[(String, String, String)], strip: bool) -> Vec<Ast> {
+fn parse_all(sources: &[(String, String, String)], strip: bool) -> CheckResult<Vec<Ast>> {
     sources
         .iter()
-        .map(|(_, _, src)| {
-            let mut ast = sophia_syntax::parse_str(src.as_str())
-                .expect("parse")
-                .to_ast();
-            if strip {
-                ast.strip_assists();
-            }
-            ast
-        })
+        .map(|(_, path, src)| parse_checked(path, src, strip))
         .collect()
 }
 

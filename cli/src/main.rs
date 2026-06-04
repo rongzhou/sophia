@@ -218,7 +218,7 @@ enum GraphCmd {
         root: PathBuf,
     },
 
-    /// 物化一个已选中的候选到 `domains/`（重跑 gate + 原子写盘）。
+    /// 物化一个已选中的候选到 `domains/`（重跑 gate + staging/rename 写盘）。
     Materialize {
         /// SelectionNode ID。
         node: String,

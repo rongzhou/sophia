@@ -269,9 +269,53 @@ impl AsgIndex {
 
             // effect 声明：登记其操作到 effect 符号表（与内置族并入同一表）。
             if let Item::Effect(eff) = item {
+                if let Some(existing_op) = index
+                    .effect_ops
+                    .values()
+                    .find(|existing| existing.family == eff.name.text && existing.builtin)
+                {
+                    let existing_desc = if index.library_families.contains(&eff.name.text) {
+                        "库注册表已声明该 effect family"
+                    } else {
+                        "语言内置 effect family 已声明该 effect family"
+                    };
+                    return Err(HirError::EffectOpConflict {
+                        family: eff.name.text.clone(),
+                        op: existing_op.op.clone(),
+                        existing: existing_desc.to_string(),
+                        path: input.path.to_string(),
+                    });
+                }
+                let mut local_ops = BTreeSet::new();
                 for op in &eff.operations {
+                    let key = format!("{}.{}", eff.name.text, op.name.text);
+                    if !local_ops.insert(key.clone()) {
+                        return Err(HirError::EffectOpConflict {
+                            family: eff.name.text.clone(),
+                            op: op.name.text.clone(),
+                            existing: "同一 effect 声明内已存在同名 operation".to_string(),
+                            path: input.path.to_string(),
+                        });
+                    }
+                    if let Some(existing) = index.effect_ops.get(&key) {
+                        let existing = if existing.builtin {
+                            if index.library_ops.contains_key(&key) {
+                                "库注册表已声明该 effect op"
+                            } else {
+                                "语言内置 effect op 已声明该 effect op"
+                            }
+                        } else {
+                            "用户 effect 声明已声明该 effect op"
+                        };
+                        return Err(HirError::EffectOpConflict {
+                            family: eff.name.text.clone(),
+                            op: op.name.text.clone(),
+                            existing: existing.to_string(),
+                            path: input.path.to_string(),
+                        });
+                    }
                     index.effect_ops.insert(
-                        format!("{}.{}", eff.name.text, op.name.text),
+                        key,
                         EffectOpInfo {
                             family: eff.name.text.clone(),
                             op: op.name.text.clone(),

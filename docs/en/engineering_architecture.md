@@ -481,7 +481,7 @@ Conventions solidified:
 - Unified LLM backend flags: `--model` (required) / `--mode openai|ollama` / `--base-url` / `--api-key` (or env `SOPHIA_LLM_API_KEY`) → constructs `HttpLlmClient`. CLI uses a one-off current-thread Tokio runtime to cross async boundaries (core/tools remain sync).
 - Failures are not fabricated: backend unreachable/schema-invalid beyond retries → fail with `RawLlmNode` (with the pre-created `ContextSnapshot`).
 - Intermediate artifacts: `.pseudo` text and candidate `.sophia` bodies are saved under `sophia-runs/graph/artifacts/` (not materialized). Graph nodes store only paths.
-- Re-run gates at `select`/`materialize`: both are separate processes; type-state proofs cannot persist across processes; each reloads from artifacts and re-runs all gates (code_check/constraint_audit/artifact_diff/runtime validation). Any failure blocks and emits a `DiagnosticNode`. `materialize` locates the candidate via `selects→` and writes atomically to `domains/` upon passing.
+- Re-run gates at `select`/`materialize`: both are separate processes; type-state proofs cannot persist across processes; each reloads from artifacts and re-runs all gates (code_check/constraint_audit/artifact_diff/runtime validation). Any failure blocks and emits a `DiagnosticNode`. `materialize` locates the candidate via `selects→` and writes to `domains/` through staging + per-file rename upon passing.
 
 Roadmap (not yet implemented): `pseudo-check`/`pseudo-outline`/`pseudo-scaffold`; `check`/`audit`/`diff`/`verify` for graph nodes; CLI entries for higher-level actions (decompose/backtrack/revise/clarify).
 

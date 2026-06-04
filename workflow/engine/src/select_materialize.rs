@@ -11,7 +11,7 @@
 //!
 //! 分层纪律：`tools/materialize` 不依赖 workflow 图；MaterializeNode 由本编排层在
 //! gate 通过（即拿到 `CodeCandidate<Selected>`）后单独创建。编排层先写图上的物化锚点，再执行
-//! 文件写入，避免文件系统已经改变但图上完全无记录。物化的原子写入仍由 materialize crate 负责。
+//! 文件写入，避免文件系统已经改变但图上完全无记录。物化的 staging + rename 写入仍由 materialize crate 负责。
 
 use sophia_graph_db::{
     EdgeKind, GraphError, GraphStore, MaterializePayload, NodeId, NodeRole, SelectionPayload,
@@ -30,7 +30,7 @@ pub enum SelectMaterializeError {
     #[error("写图失败：{0}")]
     Graph(#[from] GraphError),
 
-    /// 原子物化写入失败。
+    /// staging + rename 物化写入失败。
     #[error("物化失败：{0}")]
     Materialize(#[from] MaterializeError),
 
@@ -54,7 +54,7 @@ pub struct SelectMaterializeOutcome {
     pub selection: NodeId,
     /// 新建的 MaterializeNode。
     pub materialize: NodeId,
-    /// 原子写入的结果（写入根目录与文件列表）。
+    /// staging + rename 写入的结果（写入根目录与文件列表）。
     pub written: MaterializeOutcome,
 }
 
@@ -181,12 +181,12 @@ pub fn run_ranked_selection(
     })
 }
 
-/// 物化一个已选中的候选：原子写盘 + 建 `MaterializeNode`（`materializes→ Selection`）。
+/// 物化一个已选中的候选：staging + rename 写盘 + 建 `MaterializeNode`（`materializes→ Selection`）。
 ///
 /// 入参 `candidate: CodeCandidate<Selected>` 同样是 gate 通过证明。`selection` 必须是
 /// 一个 `selects→ Code` 的 SelectionNode（前置校验）。
 ///
-/// 流程：原子物化 → 建 MaterializeNode（payload 记 `target_root_label` 与写入的相对
+/// 流程：staging + rename 写盘 → 建 MaterializeNode（payload 记 `target_root_label` 与写入的相对
 /// 文件列表）→ 连 `materializes→ Selection`。
 pub fn run_materialization(
     store: &mut GraphStore,
@@ -215,7 +215,7 @@ pub fn run_materialization(
 ///
 /// 流程（确定性，单一路径）：
 /// 1. 建 `SelectionNode`，连 `selects→ code_node`（[`run_selection`]）；
-/// 2. 原子物化 + 建 `MaterializeNode`，连 `materializes→ Selection`（[`run_materialization`]）。
+/// 2. staging + rename 写盘 + 建 `MaterializeNode`，连 `materializes→ Selection`（[`run_materialization`]）。
 ///
 /// 参数：
 /// - `code_node`：被选中的 `Code` 节点（`selects→` 指向它）；

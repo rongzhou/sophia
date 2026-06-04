@@ -337,6 +337,7 @@ impl<'a> Interpreter<'a> {
             for fi in fields {
                 fvals.insert(fi.name.text.clone(), self.eval(fi.value, env)?);
             }
+            self.validate_variant_fields(&name.text, &fvals)?;
             Ok(RaisedError {
                 variant: name.text.clone(),
                 fields: fvals,
@@ -542,10 +543,29 @@ impl<'a> Interpreter<'a> {
         }
         // transition 调用：以字段为命名实参，按 transition input 顺序重排后执行。
         if let Some(decl) = self.model.callables.get(name) {
-            let args: Vec<Value> = decl
-                .inputs
+            let inputs = decl.inputs.clone();
+            for field in fields.keys() {
+                if !inputs.iter().any(|(input, _)| input == field) {
+                    return Err(RuntimeError::Validation(format!(
+                        "transition `{name}` 无 input `{field}`"
+                    )));
+                }
+            }
+            for (input, _) in &inputs {
+                if !fields.contains_key(input) {
+                    return Err(RuntimeError::Validation(format!(
+                        "transition `{name}` 缺少 input `{input}`"
+                    )));
+                }
+            }
+            let args: Vec<Value> = inputs
                 .iter()
-                .map(|(pname, _)| fields.get(pname).cloned().unwrap_or(Value::Unit))
+                .map(|(pname, _)| {
+                    fields
+                        .get(pname)
+                        .cloned()
+                        .expect("transition 字段集合已由契约守卫检查")
+                })
                 .collect();
             return match self.run(name, args)? {
                 Outcome::Returned(v) => Ok(v),
@@ -554,6 +574,7 @@ impl<'a> Interpreter<'a> {
         }
         // error variant 被**返回**（作为 `one of` 成员，区别于 raise）：构造 ErrorValue。
         if self.model.variants.contains_key(name) {
+            self.validate_variant_fields(name, &fields)?;
             return Ok(Value::ErrorValue {
                 variant: name.to_string(),
                 fields,
@@ -562,6 +583,22 @@ impl<'a> Interpreter<'a> {
         // 可能是 qualified state value（如 `TodoStatus.Done`）误入构造路径：不应发生
         //（grammar 区分 qualified_name），防御性报错。
         Err(RuntimeError::Validation(format!("未知构造目标 `{name}`")))
+    }
+
+    fn validate_variant_fields(
+        &self,
+        variant: &str,
+        fields: &BTreeMap<String, Value>,
+    ) -> Result<(), RuntimeError> {
+        crate::validate::check_value(
+            &Value::ErrorValue {
+                variant: variant.to_string(),
+                fields: fields.clone(),
+            },
+            &sophia_semantic::Ty::ErrorVariant(variant.to_string()),
+            self.model,
+        )
+        .map_err(|e| RuntimeError::Validation(format!("error variant `{variant}`：{e}")))
     }
 
     fn eval_binary(&self, op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
