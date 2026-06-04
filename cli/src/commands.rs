@@ -3,16 +3,19 @@
 //! 见 docs/engineering_architecture.md 第九节。每个命令把已完成的库层
 //! （syntax / hir / semantic / runtime）组装为可执行流程，IO 与呈现集中于此。
 
+use std::collections::BTreeSet;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use sophia_hir::{
     action_context, resolve_item, resolve_program, task_context, AsgIndex, ContextClosure,
     LibraryRegistry, LibrarySources, ProgramInput,
 };
 use sophia_semantic::{analyze_one_callable, analyze_program, SemanticModel};
-use sophia_syntax::{Ast, Item, Span};
+use sophia_syntax::{Ast, Block, ElseBranch, Expr, ExprId, Item, Span, Stmt};
 
 /// CLI 用的**完整**库注册表：标准库 + 以**项目根**发现的三方库（启动时一次性扫描合并后冻结，
 /// 见 docs/stdlib_design.md §五.1）。三方库根 = `<root>/sophia_libs/` + `$SOPHIA_LIB_PATH`；发现
@@ -38,6 +41,344 @@ fn library_context(root: &Path) -> Result<(LibraryRegistry, LibrarySources)> {
 
 use crate::project::Project;
 use crate::render;
+
+const BUILD_MANIFEST_NAME: &str = "program.sophia-build.json";
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn registry_fingerprint(registry: &LibraryRegistry) -> String {
+    let mut h = Sha256::new();
+    for lib in registry.lib_names() {
+        h.update(b"lib\0");
+        h.update(lib.as_bytes());
+        if let Some(asset) = registry.prompt_asset(lib) {
+            h.update(b"\0summary\0");
+            h.update(asset.summary.as_bytes());
+            h.update(b"\0asset\0");
+            h.update(asset.asset_text.as_bytes());
+        }
+        if let Some(bytes) = registry.host_wasm(lib) {
+            h.update(b"\0host_wasm\0");
+            h.update(sha256_hex(bytes).as_bytes());
+        }
+    }
+    for src in registry.sophia_sources() {
+        h.update(b"source\0");
+        h.update(src.lib.as_bytes());
+        h.update(b"\0");
+        h.update(src.domain.as_bytes());
+        h.update(b"\0");
+        h.update(src.path.as_bytes());
+        h.update(b"\0");
+        h.update(src.source.as_bytes());
+    }
+    for op in registry.ops() {
+        h.update(b"op\0");
+        h.update(op.lib.as_bytes());
+        h.update(b"\0");
+        h.update(op.family.as_bytes());
+        h.update(b"\0");
+        h.update(op.op.as_bytes());
+        h.update(b"\0");
+        h.update(op.host_fn.as_bytes());
+        h.update(b"\0");
+        h.update(if op.effectful {
+            b"effectful".as_slice()
+        } else {
+            b"pure".as_slice()
+        });
+        for p in &op.params {
+            h.update(b"\0param\0");
+            h.update(type_desc_string(p).as_bytes());
+        }
+        h.update(b"\0returns\0");
+        h.update(type_desc_string(&op.returns).as_bytes());
+    }
+    let digest = h.finalize();
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn type_desc_string(desc: &sophia_library::TypeDesc) -> String {
+    match desc {
+        sophia_library::TypeDesc::Scalar(s) => s.as_str().to_string(),
+        sophia_library::TypeDesc::Intent { intent, inner } => {
+            format!("{intent}<{}>", inner.as_str())
+        }
+    }
+}
+
+fn collect_used_library_ops(
+    asts: &[&Ast],
+    registry: &LibraryRegistry,
+) -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    for ast in asts {
+        for item in &ast.items {
+            if let Item::Action(c) | Item::Transition(c) = item {
+                if let Some(body) = &c.body {
+                    collect_used_ops_block(body, ast, registry, &mut out);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn collect_used_ops_block(
+    block: &Block,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    for stmt in &block.stmts {
+        collect_used_ops_stmt(stmt, ast, registry, out);
+    }
+}
+
+fn collect_used_ops_stmt(
+    stmt: &Stmt,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    match stmt {
+        Stmt::Let { value, .. }
+        | Stmt::Set { value, .. }
+        | Stmt::Return { value, .. }
+        | Stmt::Raise { value, .. }
+        | Stmt::Print { value, .. }
+        | Stmt::Expr { value, .. } => collect_used_ops_expr(*value, ast, registry, out),
+        Stmt::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            collect_used_ops_expr(*condition, ast, registry, out);
+            collect_used_ops_block(consequence, ast, registry, out);
+            match alternative {
+                Some(ElseBranch::Block(b)) => collect_used_ops_block(b, ast, registry, out),
+                Some(ElseBranch::If(s)) => collect_used_ops_stmt(s, ast, registry, out),
+                None => {}
+            }
+        }
+        Stmt::Match { subject, arms, .. } => {
+            collect_used_ops_expr(*subject, ast, registry, out);
+            for arm in arms {
+                collect_used_ops_block(&arm.body, ast, registry, out);
+            }
+        }
+        Stmt::Repeat { count, body, .. } => {
+            collect_used_ops_expr(*count, ast, registry, out);
+            collect_used_ops_block(body, ast, registry, out);
+        }
+    }
+}
+
+fn collect_used_ops_expr(
+    id: ExprId,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    match ast.expr(id) {
+        Expr::MethodCall {
+            base, method, args, ..
+        } => {
+            if let Expr::Ident(root) = ast.expr(*base) {
+                if registry.op(&root.text, &method.text).is_some() {
+                    out.insert((root.text.clone(), method.text.clone()));
+                }
+            }
+            collect_used_ops_expr(*base, ast, registry, out);
+            for &arg in args {
+                collect_used_ops_expr(arg, ast, registry, out);
+            }
+        }
+        Expr::List { items, .. } => {
+            for &item in items {
+                collect_used_ops_expr(item, ast, registry, out);
+            }
+        }
+        Expr::Field { base, .. } => collect_used_ops_expr(*base, ast, registry, out),
+        Expr::Call { args, .. } => {
+            for &arg in args {
+                collect_used_ops_expr(arg, ast, registry, out);
+            }
+        }
+        Expr::Construct { fields, .. } => {
+            for field in fields {
+                collect_used_ops_expr(field.value, ast, registry, out);
+            }
+        }
+        Expr::Not { operand, .. } | Expr::Neg { operand, .. } => {
+            collect_used_ops_expr(*operand, ast, registry, out)
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_used_ops_expr(*left, ast, registry, out);
+            collect_used_ops_expr(*right, ast, registry, out);
+        }
+        Expr::Int { .. }
+        | Expr::Bool { .. }
+        | Expr::Null { .. }
+        | Expr::Ident(_)
+        | Expr::Str(_) => {}
+    }
+}
+
+fn write_build_bundle(
+    out_dir: &Path,
+    wasm_bytes: &[u8],
+    registry: &LibraryRegistry,
+    asts: &[&Ast],
+    model: &SemanticModel,
+) -> Result<()> {
+    let used_ops = collect_used_library_ops(asts, registry);
+    let mut imports = Vec::new();
+    for (family, op) in used_ops {
+        let contract = registry
+            .op(&family, &op)
+            .ok_or_else(|| anyhow::anyhow!("manifest 生成时发现未知库 op `{family}.{op}`"))?;
+        let params: Vec<String> = contract.params.iter().map(type_desc_string).collect();
+        let returns = type_desc_string(&contract.returns);
+        let mut entry = serde_json::json!({
+            "library": contract.lib,
+            "family": contract.family,
+            "op": contract.op,
+            "host_fn": contract.host_fn,
+            "module": format!("sophia_lib:{}", contract.lib),
+            "name": contract.host_fn,
+            "params": params,
+            "returns": returns,
+            "provider": if registry.host_wasm(&contract.lib).is_some() { "wasm" } else { "native" },
+        });
+        if let Some(host_bytes) = registry.host_wasm(&contract.lib) {
+            let rel = format!("hosts/{}/host.wasm", contract.lib);
+            let host_path = out_dir.join(&rel);
+            if let Some(parent) = host_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("创建 {} 失败", parent.display()))?;
+            }
+            std::fs::write(&host_path, host_bytes)
+                .with_context(|| format!("写入 {} 失败", host_path.display()))?;
+            entry["host_wasm"] = serde_json::Value::String(rel);
+            entry["host_wasm_sha256"] = serde_json::Value::String(sha256_hex(host_bytes));
+        }
+        imports.push(entry);
+    }
+
+    let all_import_names: Vec<String> = imports
+        .iter()
+        .map(|v| {
+            format!(
+                "{}.{}",
+                v["family"].as_str().unwrap(),
+                v["op"].as_str().unwrap()
+            )
+        })
+        .collect();
+    let mut exports = Vec::new();
+    for (name, decl) in &model.callables {
+        if matches!(decl.kind, sophia_syntax::CallableKind::Action) {
+            exports.push(serde_json::json!({
+                "kind": "action",
+                "name": name,
+                "reachable_imports": all_import_names,
+            }));
+        }
+    }
+
+    let manifest = serde_json::json!({
+        "schema_version": 1,
+        "sophia_version": env!("CARGO_PKG_VERSION"),
+        "registry_fingerprint": registry_fingerprint(registry),
+        "wasm_sha256": sha256_hex(wasm_bytes),
+        "imports": imports,
+        "exports": exports,
+    });
+    let raw = serde_json::to_string_pretty(&manifest).context("序列化 build manifest 失败")?;
+    let manifest_path = out_dir.join(BUILD_MANIFEST_NAME);
+    std::fs::write(&manifest_path, raw)
+        .with_context(|| format!("写入 {} 失败", manifest_path.display()))?;
+    Ok(())
+}
+
+fn validate_build_bundle(root: &Path, wasm_bytes: &[u8], registry: &LibraryRegistry) -> Result<()> {
+    let manifest_path = root.join("sophia-runs/build").join(BUILD_MANIFEST_NAME);
+    let raw = match std::fs::read_to_string(&manifest_path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            eprintln!(
+                "WASM build manifest 不存在：{}。请重新运行 `sophia build {}`。",
+                manifest_path.display(),
+                root.display()
+            );
+            return Err(anyhow::anyhow!("缺少 WASM build manifest"));
+        }
+        Err(e) => return Err(e).with_context(|| format!("读取 {} 失败", manifest_path.display())),
+    };
+    let manifest: serde_json::Value =
+        serde_json::from_str(&raw).context("解析 WASM build manifest 失败")?;
+    let want_wasm = manifest
+        .get("wasm_sha256")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("WASM build manifest 缺 wasm_sha256"))?;
+    let actual_wasm = sha256_hex(wasm_bytes);
+    if want_wasm != actual_wasm {
+        return Err(anyhow::anyhow!(
+            "WASM artifact hash 与 build manifest 不一致：manifest={want_wasm}, actual={actual_wasm}"
+        ));
+    }
+    let want_registry = manifest
+        .get("registry_fingerprint")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("WASM build manifest 缺 registry_fingerprint"))?;
+    let actual_registry = registry_fingerprint(registry);
+    if want_registry != actual_registry {
+        return Err(anyhow::anyhow!(
+            "当前 registry 与 build manifest 不一致：manifest={want_registry}, actual={actual_registry}；请重新运行 `sophia build`"
+        ));
+    }
+    let imports = manifest
+        .get("imports")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("WASM build manifest 缺 imports"))?;
+    for import in imports {
+        if import.get("provider").and_then(|v| v.as_str()) != Some("wasm") {
+            continue;
+        }
+        let rel = import
+            .get("host_wasm")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("WASM provider import 缺 host_wasm"))?;
+        let want = import
+            .get("host_wasm_sha256")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("WASM provider import 缺 host_wasm_sha256"))?;
+        let path = root.join("sophia-runs/build").join(rel);
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("读取 {} 失败", path.display()))?;
+        let actual = sha256_hex(&bytes);
+        if want != actual {
+            return Err(anyhow::anyhow!(
+                "host.wasm hash 与 build manifest 不一致：{} manifest={}, actual={}",
+                path.display(),
+                want,
+                actual
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunBackend {
+    Interpreter,
+    Wasm,
+}
 
 /// `sophia init`：创建标准目录结构与 sophia.toml（5.2）。
 pub fn init(dir: &Path, name: Option<&str>) -> Result<ExitCode> {
@@ -442,20 +783,25 @@ pub fn build(root: &Path) -> Result<ExitCode> {
     let out_path = out_dir.join("program.wasm");
     std::fs::write(&out_path, &bytes)
         .with_context(|| format!("写入 {} 失败", out_path.display()))?;
+    if let Err(e) = write_build_bundle(&out_dir, &bytes, &registry, &asts, &model) {
+        eprintln!("build：写入 WASM build bundle 失败：{e}");
+        return Ok(ExitCode::FAILURE);
+    }
     println!(
-        "build：已 emit WASM artifact {}（{} 字节，strip-assist artifact 等价）。",
+        "build：已 emit WASM artifact {}（{} 字节，strip-assist artifact 等价，manifest 已写入）。",
         out_path.display(),
         bytes.len()
     );
     Ok(ExitCode::SUCCESS)
 }
 
-/// `sophia run <action>`：解释执行某 action。
+/// `sophia run <action>`：执行某 action。
 pub fn run_action(
     root: &Path,
     action: &str,
     raw_args: &[String],
     with_trace: bool,
+    backend: RunBackend,
 ) -> Result<ExitCode> {
     let project = Project::load(root)?;
     if report_syntax_errors(&project) {
@@ -482,7 +828,14 @@ pub fn run_action(
     // 解析实参。
     let args = parse_args(raw_args).context("解析实参失败")?;
 
-    run_interpreter_action(&registry, &analysis.model, &asts, action, args, with_trace)
+    match backend {
+        RunBackend::Interpreter => {
+            run_interpreter_action(&registry, &analysis.model, &asts, action, args, with_trace)
+        }
+        RunBackend::Wasm => {
+            run_wasm_action(root, &registry, &analysis.model, action, args, with_trace)
+        }
+    }
 }
 
 /// 据入口 action 的声明 effect 判断是否需注入标准库 **native** host（真实网络 / 文件 IO）。
@@ -535,6 +888,67 @@ fn run_interpreter_action(
     }
 }
 
+/// 组装 host 注册表并执行 `sophia build` 产出的非浏览器 WASM artifact。
+///
+/// 前置的项目加载 / 库发现 / 名称解析 / 语义分析与解释器共用 [`run_action`] 的单一路径；本函数只负责
+/// 后端特有的 artifact 装载和 runner 调用。
+fn run_wasm_action(
+    root: &Path,
+    registry: &LibraryRegistry,
+    model: &sophia_semantic::SemanticModel,
+    action: &str,
+    args: Vec<sophia_runtime::Value>,
+    with_trace: bool,
+) -> Result<ExitCode> {
+    if with_trace {
+        eprintln!("WASM 后端暂不支持 --trace；请使用默认解释器后端。");
+        return Ok(ExitCode::FAILURE);
+    }
+
+    let wasm_path = root.join("sophia-runs/build/program.wasm");
+    let bytes = match std::fs::read(&wasm_path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            eprintln!(
+                "WASM artifact 不存在：{}。请先运行 `sophia build {}`。",
+                wasm_path.display(),
+                root.display()
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+        Err(e) => {
+            return Err(e).with_context(|| format!("读取 {} 失败", wasm_path.display()));
+        }
+    };
+
+    let runner = match sophia_runtime::WasmProgramRunner::new(&bytes, registry) {
+        Ok(runner) => runner,
+        Err(e) => {
+            eprintln!("WASM 运行器初始化失败：{e}");
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    if let Err(e) = validate_build_bundle(root, &bytes, registry) {
+        eprintln!("WASM build bundle 校验失败：{e}");
+        return Ok(ExitCode::FAILURE);
+    }
+
+    let mut host = sophia_runtime::HostRegistry::new();
+    sophia_stdlib::register_wasm_library_hosts(&mut host, registry)
+        .map_err(|e| anyhow::anyhow!("注册三方 WASM 库 host 失败：{e}"))?;
+    if needs_native_host(model, action) {
+        sophia_stdlib::register_native_hosts(&mut host);
+    }
+
+    match runner.run(model, action, &args, true, &mut host) {
+        Ok(outcome) => present_run(&host.console, outcome, &sophia_runtime::Trace::new(), false),
+        Err(e) => {
+            eprintln!("WASM 运行失败：{e}");
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
 /// 统一呈现一次 run 的结果：回放 console、可选 trace、返回值 / raise。
 fn present_run(
     console: &[String],
@@ -570,7 +984,12 @@ fn present_run(
 /// 4. 若提供 `--action`，则 `run` 它（带可选 `--arg`）；未提供则跳过运行步骤。
 ///
 /// 任一步失败即以失败退出码返回（忠实反映，不伪造通过）。
-pub fn smoke(root: &Path, action: Option<&str>, raw_args: &[String]) -> Result<ExitCode> {
+pub fn smoke(
+    root: &Path,
+    action: Option<&str>,
+    raw_args: &[String],
+    backend: RunBackend,
+) -> Result<ExitCode> {
     println!("== smoke：init → check → build → run ==");
 
     // 步骤 1：确保项目骨架存在（init 幂等）。
@@ -602,7 +1021,7 @@ pub fn smoke(root: &Path, action: Option<&str>, raw_args: &[String]) -> Result<E
     match action {
         Some(name) => {
             println!("[4/4] run {name}……");
-            if run_action(root, name, raw_args, false)? != ExitCode::SUCCESS {
+            if run_action(root, name, raw_args, false, backend)? != ExitCode::SUCCESS {
                 eprintln!("smoke 中止：run {name} 未通过。");
                 return Ok(ExitCode::FAILURE);
             }

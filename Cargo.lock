@@ -2081,12 +2081,14 @@ dependencies = [
  "async-trait",
  "clap",
  "serde_json",
+ "sha2",
  "sophia-audit",
  "sophia-check",
  "sophia-codegen",
  "sophia-engine",
  "sophia-graph-db",
  "sophia-hir",
+ "sophia-library",
  "sophia-llm",
  "sophia-lsp",
  "sophia-materialize",
@@ -2113,7 +2115,6 @@ dependencies = [
  "sophia-syntax",
  "thiserror",
  "wasm-encoder 0.243.0",
- "wasmi",
 ]
 
 [[package]]
@@ -2229,6 +2230,7 @@ dependencies = [
  "serde_json",
  "sophia-exec-ir",
  "sophia-hir",
+ "sophia-library",
  "sophia-semantic",
  "sophia-syntax",
  "thiserror",

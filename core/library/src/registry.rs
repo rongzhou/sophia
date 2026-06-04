@@ -135,8 +135,19 @@ impl LibraryRegistry {
             return Err(LibraryError::DuplicateLibrary { name: lib });
         }
 
-        // ops：解析 TypeDesc + 校验 family/op 冲突。
+        // ops：解析 TypeDesc + 校验 family/op 与 host_fn 冲突。
+        let mut host_fns: BTreeMap<String, String> = BTreeMap::new();
         for raw_op in &raw.ops {
+            let op_label = format!("{}.{}", raw_op.family, raw_op.op);
+            if let Some(first_op) = host_fns.get(&raw_op.host_fn) {
+                return Err(LibraryError::DuplicateHostFn {
+                    lib,
+                    host_fn: raw_op.host_fn.clone(),
+                    first_op: first_op.clone(),
+                    second_op: op_label,
+                });
+            }
+            host_fns.insert(raw_op.host_fn.clone(), op_label);
             let params = raw_op
                 .params
                 .iter()

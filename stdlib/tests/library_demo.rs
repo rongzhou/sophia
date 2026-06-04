@@ -30,26 +30,31 @@ fn fixture_root() -> PathBuf {
 }
 
 /// 在 hash_wasm 库目录写入 host.wasm（wasm-encoder 手工 emit,见 docs/stdlib_design.md §六.1）。
-/// 模块导出 `memory` + `wasm_hash_mix(i64,i64)->i64`,body 复刻 digest。确定字节、自包含。
+/// 模块导出 `memory` + `sophia_alloc` + `sophia_read_copy` + `wasm_hash_mix(args_ptr,args_len)`。
+/// `wasm_hash_mix` 读 ArgsWire、写 ValueWire result stash。确定字节、自包含。
 fn ensure_host_wasm() -> PathBuf {
     use wasm_encoder::{
-        CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction,
-        MemorySection, MemoryType, Module, TypeSection, ValType,
+        CodeSection, ConstExpr, ExportKind, ExportSection, Function, FunctionSection,
+        GlobalSection, GlobalType, Instruction, MemorySection, MemoryType, Module, TypeSection,
+        ValType,
     };
 
     let mut module = Module::new();
 
     let mut types = TypeSection::new();
+    types.ty().function([ValType::I32], [ValType::I32]); // sophia_alloc
+    types.ty().function([ValType::I32], []); // sophia_read_copy
     types
         .ty()
-        .function([ValType::I64, ValType::I64], [ValType::I64]);
+        .function([ValType::I32, ValType::I32], [ValType::I32]); // wasm_hash_mix
     module.section(&types);
 
     let mut funcs = FunctionSection::new();
     funcs.function(0);
+    funcs.function(1);
+    funcs.function(2);
     module.section(&funcs);
 
-    // 导出 memory（ABI 要求:host 模块导出 "memory";本 demo 标量直传不实际用它,但 ABI 约定须备）。
     let mut mems = MemorySection::new();
     mems.memory(MemoryType {
         minimum: 1,
@@ -60,30 +65,83 @@ fn ensure_host_wasm() -> PathBuf {
     });
     module.section(&mems);
 
+    let mut globals = GlobalSection::new();
+    globals.global(
+        GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i32_const(1024),
+    );
+    module.section(&globals);
+
     let mut exports = ExportSection::new();
     exports.export("memory", ExportKind::Memory, 0);
-    exports.export("wasm_hash_mix", ExportKind::Func, 0);
+    exports.export("sophia_alloc", ExportKind::Func, 0);
+    exports.export("sophia_read_copy", ExportKind::Func, 1);
+    exports.export("wasm_hash_mix", ExportKind::Func, 2);
     module.section(&exports);
 
-    // body: local acc(i64) = seed(param0); repeat 3 { acc = acc*31 + value(param1) }; return acc。
-    // 局部 0,1 = params(seed, value);局部 2 = acc。
     let mut code = CodeSection::new();
-    let locals = vec![(1u32, ValType::I64)]; // 1 个 i64 局部（acc）
-    let mut f = Function::new(locals);
-    // acc = seed
+
+    // sophia_alloc(len): bump 分配,返回旧 bump。
+    let mut alloc = Function::new(vec![(1u32, ValType::I32)]);
+    alloc.instruction(&Instruction::GlobalGet(0));
+    alloc.instruction(&Instruction::LocalSet(1));
+    alloc.instruction(&Instruction::GlobalGet(0));
+    alloc.instruction(&Instruction::LocalGet(0));
+    alloc.instruction(&Instruction::I32Add);
+    alloc.instruction(&Instruction::GlobalSet(0));
+    alloc.instruction(&Instruction::LocalGet(1));
+    alloc.instruction(&Instruction::End);
+    code.function(&alloc);
+
+    // sophia_read_copy(dst): 当前 provider 只返回 Int,stash 固定在 [8..17)。
+    let mut read_copy = Function::new(vec![]);
+    read_copy.instruction(&Instruction::LocalGet(0));
+    read_copy.instruction(&Instruction::I32Const(8));
+    read_copy.instruction(&Instruction::I32Load8U(mem(0, 0)));
+    read_copy.instruction(&Instruction::I32Store8(mem(0, 0)));
+    read_copy.instruction(&Instruction::LocalGet(0));
+    read_copy.instruction(&Instruction::I32Const(1));
+    read_copy.instruction(&Instruction::I32Add);
+    read_copy.instruction(&Instruction::I32Const(9));
+    read_copy.instruction(&Instruction::I64Load(mem(0, 0)));
+    read_copy.instruction(&Instruction::I64Store(mem(0, 0)));
+    read_copy.instruction(&Instruction::End);
+    code.function(&read_copy);
+
+    // wasm_hash_mix(args_ptr,args_len): decode ArgsWire(Int,Int),stash = ValueWire::Int(result),return 9。
+    // locals: 0=args_ptr,1=args_len,2=seed,3=value,4=acc。
+    let mut f = Function::new(vec![(3u32, ValType::I64)]);
     f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(5)); // argc(4) + tag(1)
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::I64Load(mem(0, 0)));
     f.instruction(&Instruction::LocalSet(2));
-    // 展开 3 次（demo 不必用循环结构,展开更简单确定）
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(14)); // 4 + (tag+int64) + tag
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::I64Load(mem(0, 0)));
+    f.instruction(&Instruction::LocalSet(3));
+    f.instruction(&Instruction::LocalGet(2));
+    f.instruction(&Instruction::LocalSet(4));
     for _ in 0..3 {
-        // acc = acc*31 + value
-        f.instruction(&Instruction::LocalGet(2));
+        f.instruction(&Instruction::LocalGet(4));
         f.instruction(&Instruction::I64Const(31));
         f.instruction(&Instruction::I64Mul);
-        f.instruction(&Instruction::LocalGet(1));
+        f.instruction(&Instruction::LocalGet(3));
         f.instruction(&Instruction::I64Add);
-        f.instruction(&Instruction::LocalSet(2));
+        f.instruction(&Instruction::LocalSet(4));
     }
-    f.instruction(&Instruction::LocalGet(2));
+    f.instruction(&Instruction::I32Const(8));
+    f.instruction(&Instruction::I32Const(2)); // ValueWire Int tag
+    f.instruction(&Instruction::I32Store8(mem(0, 0)));
+    f.instruction(&Instruction::I32Const(9));
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::I64Store(mem(0, 0)));
+    f.instruction(&Instruction::I32Const(9));
     f.instruction(&Instruction::End);
     code.function(&f);
     module.section(&code);
@@ -101,6 +159,14 @@ fn ensure_host_wasm() -> PathBuf {
     std::fs::write(&tmp, &bytes).expect("写入临时 host.wasm");
     std::fs::rename(&tmp, &path).expect("原子重命名 host.wasm");
     path
+}
+
+fn mem(offset: u64, align: u32) -> wasm_encoder::MemArg {
+    wasm_encoder::MemArg {
+        offset,
+        align,
+        memory_index: 0,
+    }
 }
 
 /// 单调纳秒戳（temp 文件唯一后缀）。
@@ -217,11 +283,12 @@ fn both_libraries_compute_equal_digest() {
 
     // host:hash_wasm 的 WasmHash.Mix 由 host.wasm 经 WasmHostFn 提供。
     let wasm_bytes = std::fs::read(&host_wasm_path).expect("读 host.wasm");
+    let mix = reg.op("WasmHash", "Mix").expect("WasmHash.Mix");
     let mut host = HostRegistry::new();
     host.register(
         "WasmHash",
         "Mix",
-        Box::new(WasmHostFn::new_i64_i64_i64(&wasm_bytes, "wasm_hash_mix").expect("WasmHostFn")),
+        Box::new(WasmHostFn::new(&wasm_bytes, mix).expect("WasmHostFn")),
     );
 
     let (seed, value) = (7i64, 2i64);

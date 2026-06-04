@@ -19,8 +19,10 @@ mod interp;
 mod trace;
 mod validate;
 mod value;
+mod value_wire;
 mod verify;
 mod wasm_host;
+mod wasm_program;
 
 pub use error::{RuntimeError, RuntimeResult};
 pub use host::{HostFn, HostRegistry};
@@ -31,6 +33,7 @@ pub use verify::{
     run_hidden_case, run_hidden_cases, ExpectedOutcome, HiddenCase, VerificationResult,
 };
 pub use wasm_host::WasmHostFn;
+pub use wasm_program::WasmProgramRunner;
 
 use sophia_syntax::Ast;
 

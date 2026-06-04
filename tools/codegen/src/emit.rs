@@ -1,10 +1,10 @@
-//! WASM 模块 emit（W2 标量/控制流/聚合/Text；W4 effect host import：Console/File/Http）。
+//! WASM 模块 emit（W2 标量/控制流/聚合/Text；W4 effect host import：Console + registry op）。
 //!
 //! 见 docs/wasm_codegen.md §四 / §五 / §六。把 [`CodegenInput`] 投影为 WASM 模块字节。
 //!
 //! **覆盖**：值 `Unit` / `Bool` / `Int` / `Null` / `Text` / `ErrorValue` / `Entity` / `State`；
-//! 全部纯逻辑语句/表达式（见 W2a–W2d）+ **effect**：`print`（Console.Write）/ `File.Read`·`File.Write` /
-//! `Http.Get`——经 host import 委派（命名空间 `sophia_host`，字节级 ABI），capability 边界在编译期
+//! 全部纯逻辑语句/表达式（见 W2a–W2d）+ **effect**：`print`（Console.Write）与注册表里的
+//! `Family.Op` 经 host import 委派（命名空间 `sophia_host`，ValueWire 字节 ABI），capability 边界在编译期
 //! 语义层兑现、真实 vs mock host 由实例化方提供。**诚实 `NotYetImplemented`**：`to_text` / `List` /
 //! `list.append`（无 v1 演示需求，YAGNI）。
 //!
@@ -14,8 +14,9 @@
 use crate::abi::{self, outcome, tag};
 use crate::contract::CodegenInput;
 use crate::error::{CodegenError, CodegenResult};
+use sophia_hir::{LibraryRegistry, OpContract, Scalar, TypeDesc};
 use sophia_syntax::{Ast, BinOp, Block, Callable, ElseBranch, Expr, ExprId, Item, Pattern, Stmt};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, ExportKind, ExportSection, Function,
     FunctionSection, GlobalSection, GlobalType, Instruction, MemArg, MemorySection, MemoryType,
@@ -27,58 +28,125 @@ const DATA_BASE: i32 = 8;
 /// 线性内存初始页数（每页 64KiB；差测试足够）。
 const MEM_PAGES: u64 = 16;
 
-/// effect host import 个数（函数索引最低段，见 docs/wasm_codegen.md §六）。所有 module **统一声明**
-/// 这 5 个 import（结构确定、索引算术简单）；**真实 vs mock 由 host 在实例化时选择**，capability
-/// 边界在编译期语义层 + host 提供层兑现。WASM 函数索引：imports 0..4 → prelude → callables。
-const IMPORT_COUNT: u32 = 5;
+/// 固定 host import：Console 是语言内置，read_copy 是 ValueWire 返回字节拷贝通道。
+const CONSOLE_WRITE_IMPORT: u32 = 0;
+const READ_COPY_IMPORT: u32 = 1;
+const OP_IMPORT_BASE: u32 = 2;
 
-/// effect host import 索引（命名空间 `sophia_host`，字节级 ABI——host 只处理字节缓冲，不识值布局）。
-mod imports {
-    /// `console_write(ptr, len)`：写一行（Console.Write）。
-    pub const CONSOLE_WRITE: u32 = 0;
-    /// `file_write(path_ptr, path_len, content_ptr, content_len)`：写文件（File.Write）。失败 trap。
-    pub const FILE_WRITE: u32 = 1;
-    /// `file_read(path_ptr, path_len) -> i32`：读文件，把内容暂存 host stash、返回字节长度。失败 trap。
-    pub const FILE_READ: u32 = 2;
-    /// `http_get(url_ptr, url_len) -> i32`：取响应体，暂存 host stash、返回字节长度。失败 trap。
-    pub const HTTP_GET: u32 = 3;
-    /// `read_copy(dst_ptr)`：把上次 file_read/http_get 暂存的字节拷贝到 dst。
-    pub const READ_COPY: u32 = 4;
+/// ValueWire 标签（host 边界稳定字节协议）。
+mod wire {
+    pub const UNIT: u8 = 0;
+    pub const BOOL: u8 = 1;
+    pub const INT: u8 = 2;
+    pub const TEXT: u8 = 3;
 }
 
-/// prelude 辅助函数索引（紧接 import 段，故全部 +[`IMPORT_COUNT`]）。callables 从
-/// `IMPORT_COUNT + PRELUDE_COUNT` 起。`VALUE_TAG` 等保 ABI 完整 / 差测试可读，`allow(dead_code)`。
+/// prelude 辅助函数相对索引。实际函数索引 = `import_count + helper::*`。
 #[allow(dead_code)]
 mod helper {
-    use super::IMPORT_COUNT as I;
-    pub const ALLOC: u32 = I;
-    pub const MAKE_INT: u32 = I + 1;
-    pub const MAKE_BOOL: u32 = I + 2;
-    pub const MAKE_NULL: u32 = I + 3;
-    pub const MAKE_UNIT: u32 = I + 4;
-    pub const GET_INT: u32 = I + 5;
-    pub const GET_BOOL: u32 = I + 6;
-    pub const VALUE_TAG: u32 = I + 7;
-    pub const VALUE_EQ: u32 = I + 8;
-    pub const WRAP_RETURNED: u32 = I + 9;
-    pub const WRAP_RAISED: u32 = I + 10;
-    pub const OUTCOME_KIND: u32 = I + 11;
-    pub const OUTCOME_VALUE: u32 = I + 12;
-    pub const RESET: u32 = I + 13;
-    pub const STR_EQ: u32 = I + 14;
-    pub const REC_FIELD: u32 = I + 15;
-    pub const REC_NAME_EQ: u32 = I + 16;
-    pub const MAKE_STATE: u32 = I + 17;
-    pub const STATE_NAME_EQ: u32 = I + 18;
-    pub const STATE_VALUE_EQ: u32 = I + 19;
-    pub const MAKE_TEXT: u32 = I + 20;
-    pub const TEXT_LENGTH: u32 = I + 21;
-    pub const TEXT_CONCAT: u32 = I + 22;
-    pub const GET_TEXT_PTR: u32 = I + 23;
-    pub const GET_TEXT_LEN: u32 = I + 24;
+    pub const ALLOC: u32 = 0;
+    pub const MAKE_INT: u32 = 1;
+    pub const MAKE_BOOL: u32 = 2;
+    pub const MAKE_NULL: u32 = 3;
+    pub const MAKE_UNIT: u32 = 4;
+    pub const GET_INT: u32 = 5;
+    pub const GET_BOOL: u32 = 6;
+    pub const VALUE_TAG: u32 = 7;
+    pub const VALUE_EQ: u32 = 8;
+    pub const WRAP_RETURNED: u32 = 9;
+    pub const WRAP_RAISED: u32 = 10;
+    pub const OUTCOME_KIND: u32 = 11;
+    pub const OUTCOME_VALUE: u32 = 12;
+    pub const RESET: u32 = 13;
+    pub const STR_EQ: u32 = 14;
+    pub const REC_FIELD: u32 = 15;
+    pub const REC_NAME_EQ: u32 = 16;
+    pub const MAKE_STATE: u32 = 17;
+    pub const STATE_NAME_EQ: u32 = 18;
+    pub const STATE_VALUE_EQ: u32 = 19;
+    pub const MAKE_TEXT: u32 = 20;
+    pub const TEXT_LENGTH: u32 = 21;
+    pub const TEXT_CONCAT: u32 = 22;
+    pub const GET_TEXT_PTR: u32 = 23;
+    pub const GET_TEXT_LEN: u32 = 24;
 }
 /// prelude 函数个数。
 const PRELUDE_COUNT: u32 = 25;
+
+fn helper_index(import_count: u32, relative: u32) -> u32 {
+    import_count + relative
+}
+
+#[derive(Debug, Clone)]
+struct HostImport {
+    contract: OpContract,
+    index: u32,
+}
+
+#[derive(Debug, Clone)]
+struct HostImports {
+    ops: BTreeMap<(String, String), HostImport>,
+}
+
+impl HostImports {
+    fn derive(input: &CodegenInput<'_>) -> CodegenResult<Self> {
+        let mut used = BTreeSet::new();
+        for ast in input.asts() {
+            collect_effect_calls_ast(ast, input.registry(), &mut used);
+        }
+        let mut ops = BTreeMap::new();
+        for (i, (family, op)) in used.into_iter().enumerate() {
+            let contract = input
+                .registry()
+                .op(&family, &op)
+                .ok_or_else(|| CodegenError::InvalidInput(format!("未知库 op `{family}.{op}`")))?
+                .clone();
+            validate_wire_contract(&contract)?;
+            ops.insert(
+                (family, op),
+                HostImport {
+                    contract,
+                    index: OP_IMPORT_BASE + i as u32,
+                },
+            );
+        }
+        Ok(HostImports { ops })
+    }
+
+    fn import_count(&self) -> u32 {
+        OP_IMPORT_BASE + self.ops.len() as u32
+    }
+
+    fn op_index(&self, family: &str, op: &str) -> Option<u32> {
+        self.ops
+            .get(&(family.to_string(), op.to_string()))
+            .map(|i| i.index)
+    }
+}
+
+fn validate_wire_contract(contract: &OpContract) -> CodegenResult<()> {
+    for param in &contract.params {
+        wire_scalar(param)?;
+    }
+    wire_scalar(&contract.returns)?;
+    Ok(())
+}
+
+fn wire_scalar(desc: &TypeDesc) -> CodegenResult<Scalar> {
+    match desc {
+        TypeDesc::Scalar(s) => Ok(*s),
+        TypeDesc::Intent { inner, .. } => Ok(*inner),
+    }
+}
+
+fn wire_tag(scalar: Scalar) -> u8 {
+    match scalar {
+        Scalar::Unit => wire::UNIT,
+        Scalar::Bool => wire::BOOL,
+        Scalar::Int => wire::INT,
+        Scalar::Text => wire::TEXT,
+    }
+}
 
 const I32_MEM: u32 = 2; // align = 2^2 = 4
 const I64_MEM: u32 = 3; // align = 2^3 = 8
@@ -94,6 +162,8 @@ fn mem(offset: u64, align: u32) -> MemArg {
 /// emit 一个程序为 WASM 模块字节。
 pub fn emit(input: &CodegenInput<'_>) -> CodegenResult<Vec<u8>> {
     let model = input.model();
+    let host_imports = HostImports::derive(input)?;
+    let import_count = host_imports.import_count();
 
     // callable 名（按名字典序，与 model.callables BTreeMap / ExecGraph 同序，输出确定）。
     let callable_names: Vec<&String> = model.callables.keys().collect();
@@ -131,9 +201,9 @@ pub fn emit(input: &CodegenInput<'_>) -> CodegenResult<Vec<u8>> {
     }
     let bump_base = interner.bump_base();
 
-    // ---- 类型段：import 类型（5）+ prelude（25）+ 每 callable（N）。type_idx == func_idx ----
+    // ---- 类型段：import 类型 + prelude（25）+ 每 callable（N）。type_idx == func_idx ----
     let mut types = TypeSection::new();
-    push_import_types(&mut types);
+    push_import_types(&mut types, &host_imports);
     push_prelude_types(&mut types);
     for name in &callable_names {
         let decl = &model.callables[*name];
@@ -141,39 +211,31 @@ pub fn emit(input: &CodegenInput<'_>) -> CodegenResult<Vec<u8>> {
         types.ty().function(params, [ValType::I32]);
     }
 
-    // ---- 导入段：effect host imports（命名空间 sophia_host，索引 0..IMPORT_COUNT-1）----
+    // ---- 导入段：Console + read_copy + 实际使用到的 registry effect op ----
     let mut imports_sec = wasm_encoder::ImportSection::new();
     imports_sec.import(
         "sophia_host",
         "console_write",
-        wasm_encoder::EntityType::Function(imports::CONSOLE_WRITE),
-    );
-    imports_sec.import(
-        "sophia_host",
-        "file_write",
-        wasm_encoder::EntityType::Function(imports::FILE_WRITE),
-    );
-    imports_sec.import(
-        "sophia_host",
-        "file_read",
-        wasm_encoder::EntityType::Function(imports::FILE_READ),
-    );
-    imports_sec.import(
-        "sophia_host",
-        "http_get",
-        wasm_encoder::EntityType::Function(imports::HTTP_GET),
+        wasm_encoder::EntityType::Function(CONSOLE_WRITE_IMPORT),
     );
     imports_sec.import(
         "sophia_host",
         "read_copy",
-        wasm_encoder::EntityType::Function(imports::READ_COPY),
+        wasm_encoder::EntityType::Function(READ_COPY_IMPORT),
     );
+    for import in host_imports.ops.values() {
+        imports_sec.import(
+            &format!("sophia_lib:{}", import.contract.lib),
+            &import.contract.host_fn,
+            wasm_encoder::EntityType::Function(import.index),
+        );
+    }
 
     // ---- 函数段：定义函数（prelude + callables）引用各自 type 索引（= 自身 func 索引）----
     let mut functions = FunctionSection::new();
     let defined = PRELUDE_COUNT + callable_names.len() as u32;
     for i in 0..defined {
-        functions.function(IMPORT_COUNT + i);
+        functions.function(import_count + i);
     }
 
     // ---- 内存段 ----
@@ -199,62 +261,113 @@ pub fn emit(input: &CodegenInput<'_>) -> CodegenResult<Vec<u8>> {
 
     // ---- 代码段 ----
     let mut code = CodeSection::new();
-    emit_prelude(&mut code, bump_base);
+    emit_prelude(&mut code, bump_base, import_count);
 
     // callable 名 → 函数索引（跨调用解析）。imports 在前，prelude 居中，callables 在后。
     let func_index: BTreeMap<String, u32> = callable_names
         .iter()
         .enumerate()
-        .map(|(i, n)| ((*n).clone(), IMPORT_COUNT + PRELUDE_COUNT + i as u32))
+        .map(|(i, n)| ((*n).clone(), import_count + PRELUDE_COUNT + i as u32))
         .collect();
 
     for name in &callable_names {
         let (ast, callable) = find_callable(input.asts(), name)
             .ok_or_else(|| CodegenError::InvalidInput(format!("callable `{name}` 无 AST")))?;
-        let func = emit_callable(
-            ast,
-            callable,
+        let ctx = EmitContext {
             model,
-            input.lib_index(),
-            &func_index,
-            &interner,
-        )?;
+            lib_index: input.lib_index(),
+            host_imports: &host_imports,
+            import_count,
+            func_index: &func_index,
+            interner: &interner,
+        };
+        let func = emit_callable(ast, callable, &ctx)?;
         code.function(&func);
     }
 
     // ---- 导出段：内存 + 测试 / host 可见的 helper + 全部 callable ----
     let mut exports = ExportSection::new();
     exports.export("memory", ExportKind::Memory, 0);
-    exports.export("sophia_make_int", ExportKind::Func, helper::MAKE_INT);
-    exports.export("sophia_make_bool", ExportKind::Func, helper::MAKE_BOOL);
-    exports.export("sophia_make_null", ExportKind::Func, helper::MAKE_NULL);
-    exports.export("sophia_value_tag", ExportKind::Func, helper::VALUE_TAG);
-    exports.export("sophia_get_int", ExportKind::Func, helper::GET_INT);
-    exports.export("sophia_get_bool", ExportKind::Func, helper::GET_BOOL);
+    exports.export(
+        "sophia_alloc",
+        ExportKind::Func,
+        helper_index(import_count, helper::ALLOC),
+    );
+    exports.export(
+        "sophia_make_int",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_INT),
+    );
+    exports.export(
+        "sophia_make_bool",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_BOOL),
+    );
+    exports.export(
+        "sophia_make_null",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_NULL),
+    );
+    exports.export(
+        "sophia_make_unit",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_UNIT),
+    );
+    exports.export(
+        "sophia_value_tag",
+        ExportKind::Func,
+        helper_index(import_count, helper::VALUE_TAG),
+    );
+    exports.export(
+        "sophia_get_int",
+        ExportKind::Func,
+        helper_index(import_count, helper::GET_INT),
+    );
+    exports.export(
+        "sophia_get_bool",
+        ExportKind::Func,
+        helper_index(import_count, helper::GET_BOOL),
+    );
     exports.export(
         "sophia_outcome_kind",
         ExportKind::Func,
-        helper::OUTCOME_KIND,
+        helper_index(import_count, helper::OUTCOME_KIND),
     );
     exports.export(
         "sophia_outcome_value",
         ExportKind::Func,
-        helper::OUTCOME_VALUE,
+        helper_index(import_count, helper::OUTCOME_VALUE),
     );
-    exports.export("sophia_rec_field", ExportKind::Func, helper::REC_FIELD);
-    exports.export("sophia_make_state", ExportKind::Func, helper::MAKE_STATE);
-    exports.export("sophia_make_text", ExportKind::Func, helper::MAKE_TEXT);
+    exports.export(
+        "sophia_rec_field",
+        ExportKind::Func,
+        helper_index(import_count, helper::REC_FIELD),
+    );
+    exports.export(
+        "sophia_make_state",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_STATE),
+    );
+    exports.export(
+        "sophia_make_text",
+        ExportKind::Func,
+        helper_index(import_count, helper::MAKE_TEXT),
+    );
     exports.export(
         "sophia_get_text_ptr",
         ExportKind::Func,
-        helper::GET_TEXT_PTR,
+        helper_index(import_count, helper::GET_TEXT_PTR),
     );
     exports.export(
         "sophia_get_text_len",
         ExportKind::Func,
-        helper::GET_TEXT_LEN,
+        helper_index(import_count, helper::GET_TEXT_LEN),
     );
-    exports.export("sophia_reset", ExportKind::Func, helper::RESET);
+    exports.export(
+        "sophia_reset",
+        ExportKind::Func,
+        helper_index(import_count, helper::RESET),
+    );
     for name in &callable_names {
         let decl = &model.callables[*name];
         let prefix = match decl.kind {
@@ -291,24 +404,18 @@ pub fn emit(input: &CodegenInput<'_>) -> CodegenResult<Vec<u8>> {
     Ok(module.finish())
 }
 
-/// import 段的函数类型（与 [`imports`] 索引一一对应）。
-fn push_import_types(types: &mut TypeSection) {
+/// import 段的函数类型。
+fn push_import_types(types: &mut TypeSection, host_imports: &HostImports) {
     // console_write(ptr, len)
     types.ty().function([ValType::I32, ValType::I32], []);
-    // file_write(path_ptr, path_len, content_ptr, content_len)
-    types
-        .ty()
-        .function([ValType::I32, ValType::I32, ValType::I32, ValType::I32], []);
-    // file_read(path_ptr, path_len) -> i32（字节长度）
-    types
-        .ty()
-        .function([ValType::I32, ValType::I32], [ValType::I32]);
-    // http_get(url_ptr, url_len) -> i32（字节长度）
-    types
-        .ty()
-        .function([ValType::I32, ValType::I32], [ValType::I32]);
     // read_copy(dst_ptr)
     types.ty().function([ValType::I32], []);
+    // registry op：ValueWire args bytes -> host stash result byte length。
+    for _ in host_imports.ops.values() {
+        types
+            .ty()
+            .function([ValType::I32, ValType::I32], [ValType::I32]);
+    }
 }
 
 /// 常量字符串 intern 器：把字符串顺序写入 data 缓冲，记录每串的 (ptr, len)。
@@ -433,6 +540,122 @@ fn intern_expr_strings(id: ExprId, ast: &Ast, interner: &mut StrInterner) {
     }
 }
 
+fn collect_effect_calls_ast(
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    for item in &ast.items {
+        if let Item::Action(c) | Item::Transition(c) = item {
+            if let Some(body) = &c.body {
+                collect_effect_calls_block(body, ast, registry, out);
+            }
+        }
+    }
+}
+
+fn collect_effect_calls_block(
+    block: &Block,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    for stmt in &block.stmts {
+        collect_effect_calls_stmt(stmt, ast, registry, out);
+    }
+}
+
+fn collect_effect_calls_stmt(
+    stmt: &Stmt,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    match stmt {
+        Stmt::Let { value, .. }
+        | Stmt::Set { value, .. }
+        | Stmt::Return { value, .. }
+        | Stmt::Raise { value, .. }
+        | Stmt::Print { value, .. }
+        | Stmt::Expr { value, .. } => collect_effect_calls_expr(*value, ast, registry, out),
+        Stmt::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            collect_effect_calls_expr(*condition, ast, registry, out);
+            collect_effect_calls_block(consequence, ast, registry, out);
+            match alternative {
+                Some(ElseBranch::Block(b)) => collect_effect_calls_block(b, ast, registry, out),
+                Some(ElseBranch::If(s)) => collect_effect_calls_stmt(s, ast, registry, out),
+                None => {}
+            }
+        }
+        Stmt::Match { subject, arms, .. } => {
+            collect_effect_calls_expr(*subject, ast, registry, out);
+            for arm in arms {
+                collect_effect_calls_block(&arm.body, ast, registry, out);
+            }
+        }
+        Stmt::Repeat { count, body, .. } => {
+            collect_effect_calls_expr(*count, ast, registry, out);
+            collect_effect_calls_block(body, ast, registry, out);
+        }
+    }
+}
+
+fn collect_effect_calls_expr(
+    id: ExprId,
+    ast: &Ast,
+    registry: &LibraryRegistry,
+    out: &mut BTreeSet<(String, String)>,
+) {
+    match ast.expr(id) {
+        Expr::MethodCall {
+            base, method, args, ..
+        } => {
+            if let Expr::Ident(root) = ast.expr(*base) {
+                if registry.op(&root.text, &method.text).is_some() {
+                    out.insert((root.text.clone(), method.text.clone()));
+                }
+            }
+            collect_effect_calls_expr(*base, ast, registry, out);
+            for &a in args {
+                collect_effect_calls_expr(a, ast, registry, out);
+            }
+        }
+        Expr::List { items, .. } => {
+            for &it in items {
+                collect_effect_calls_expr(it, ast, registry, out);
+            }
+        }
+        Expr::Field { base, .. } => collect_effect_calls_expr(*base, ast, registry, out),
+        Expr::Call { args, .. } => {
+            for &a in args {
+                collect_effect_calls_expr(a, ast, registry, out);
+            }
+        }
+        Expr::Construct { fields, .. } => {
+            for fi in fields {
+                collect_effect_calls_expr(fi.value, ast, registry, out);
+            }
+        }
+        Expr::Not { operand, .. } | Expr::Neg { operand, .. } => {
+            collect_effect_calls_expr(*operand, ast, registry, out)
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_effect_calls_expr(*left, ast, registry, out);
+            collect_effect_calls_expr(*right, ast, registry, out);
+        }
+        Expr::Int { .. }
+        | Expr::Bool { .. }
+        | Expr::Null { .. }
+        | Expr::Ident(_)
+        | Expr::Str(_) => {}
+    }
+}
+
 fn find_callable<'a>(asts: &'a [&'a Ast], name: &str) -> Option<(&'a Ast, &'a Callable)> {
     asts.iter().find_map(|&ast| {
         ast.items.iter().find_map(|it| match it {
@@ -502,36 +725,38 @@ fn push_prelude_types(types: &mut TypeSection) {
     types.ty().function([ValType::I32], [ValType::I32]);
 }
 
-fn emit_prelude(code: &mut CodeSection, bump_base: i32) {
+fn emit_prelude(code: &mut CodeSection, bump_base: i32, import_count: u32) {
     code.function(&f_alloc());
-    code.function(&f_make_int());
-    code.function(&f_make_bool());
-    code.function(&f_make_null_or_unit(tag::NULL));
-    code.function(&f_make_null_or_unit(tag::UNIT));
+    code.function(&f_make_int(import_count));
+    code.function(&f_make_bool(import_count));
+    code.function(&f_make_null_or_unit(tag::NULL, import_count));
+    code.function(&f_make_null_or_unit(tag::UNIT, import_count));
     code.function(&f_get_int());
     code.function(&f_get_bool());
     code.function(&f_value_tag());
-    code.function(&f_value_eq());
-    code.function(&f_wrap_outcome(outcome::RETURNED));
-    code.function(&f_wrap_outcome(outcome::RAISED));
+    code.function(&f_value_eq(import_count));
+    code.function(&f_wrap_outcome(outcome::RETURNED, import_count));
+    code.function(&f_wrap_outcome(outcome::RAISED, import_count));
     code.function(&f_outcome_field(abi::OFF_TAG)); // outcome_kind (kind @0)
     code.function(&f_outcome_field(abi::OFF_OUTCOME_VALUE)); // outcome_value (value @4)
     code.function(&f_reset(bump_base));
     code.function(&f_str_eq());
-    code.function(&f_rec_field());
-    code.function(&f_rec_name_eq());
-    code.function(&f_make_state());
+    code.function(&f_rec_field(import_count));
+    code.function(&f_rec_name_eq(import_count));
+    code.function(&f_make_state(import_count));
     code.function(&f_state_field_eq(
         abi::OFF_STATE_NAME_PTR,
         abi::OFF_STATE_NAME_LEN,
+        import_count,
     ));
     code.function(&f_state_field_eq(
         abi::OFF_STATE_VALUE_PTR,
         abi::OFF_STATE_VALUE_LEN,
+        import_count,
     ));
-    code.function(&f_make_text());
-    code.function(&f_text_length());
-    code.function(&f_text_concat());
+    code.function(&f_make_text(import_count));
+    code.function(&f_text_length(import_count));
+    code.function(&f_text_concat(import_count));
     code.function(&f_text_field(abi::OFF_TEXT_PTR));
     code.function(&f_text_field(abi::OFF_TEXT_LEN));
 }
@@ -553,10 +778,13 @@ fn f_alloc() -> Function {
 }
 
 /// `make_int(v:i64) -> handle`。param0=v:i64, local1=h:i32。
-fn f_make_int() -> Function {
+fn f_make_int(import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_INT));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(1));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::I32Const(tag::INT));
@@ -570,10 +798,13 @@ fn f_make_int() -> Function {
 }
 
 /// `make_bool(b:i32) -> handle`。param0=b:i32, local1=h:i32。
-fn f_make_bool() -> Function {
+fn f_make_bool(import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_BOOL));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(1));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::I32Const(tag::BOOL));
@@ -587,10 +818,13 @@ fn f_make_bool() -> Function {
 }
 
 /// `make_null() / make_unit() -> handle`（仅 tag）。local0=h:i32。
-fn f_make_null_or_unit(value_tag: i32) -> Function {
+fn f_make_null_or_unit(value_tag: i32, import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_TAGONLY));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(0));
     f.instruction(&Instruction::LocalGet(0));
     f.instruction(&Instruction::I32Const(value_tag));
@@ -628,7 +862,7 @@ fn f_value_tag() -> Function {
 }
 
 /// `value_eq(a, b) -> i32`（结构相等：Int / Bool / Null / Unit / Text）。local2=t:i32。
-fn f_value_eq() -> Function {
+fn f_value_eq(import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     // tag(a) != tag(b) → 0
     f.instruction(&Instruction::LocalGet(0));
@@ -679,7 +913,10 @@ fn f_value_eq() -> Function {
     f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_PTR, I32_MEM)));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
-    f.instruction(&Instruction::Call(helper::STR_EQ));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::STR_EQ,
+    )));
     f.instruction(&Instruction::Else);
     // Null / Unit：tag 相等即相等
     f.instruction(&Instruction::I32Const(1));
@@ -691,10 +928,13 @@ fn f_value_eq() -> Function {
 }
 
 /// `wrap_returned(v) / wrap_raised(v) -> outcome`。param0=v:i32, local1=oc:i32。
-fn f_wrap_outcome(kind: i32) -> Function {
+fn f_wrap_outcome(kind: i32, import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_OUTCOME));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(1));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::I32Const(kind));
@@ -776,7 +1016,7 @@ fn f_str_eq() -> Function {
 }
 
 /// `rec_name_eq(rec, name_ptr, name_len) -> i32`：记录名（variant 名）是否等于给定常量串。
-fn f_rec_name_eq() -> Function {
+fn f_rec_name_eq(import_count: u32) -> Function {
     let mut f = Function::new([]);
     f.instruction(&Instruction::LocalGet(0));
     f.instruction(&Instruction::I32Load(mem(abi::OFF_REC_NAME_PTR, I32_MEM)));
@@ -784,14 +1024,17 @@ fn f_rec_name_eq() -> Function {
     f.instruction(&Instruction::I32Load(mem(abi::OFF_REC_NAME_LEN, I32_MEM)));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::LocalGet(2));
-    f.instruction(&Instruction::Call(helper::STR_EQ));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::STR_EQ,
+    )));
     f.instruction(&Instruction::End);
     f
 }
 
 /// `rec_field(rec, key_ptr, key_len) -> val_handle`：按字段名查记录字段值，未命中返回 0。
 /// params 0..2；local3=n:i32, local4=i:i32, local5=base:i32。
-fn f_rec_field() -> Function {
+fn f_rec_field(import_count: u32) -> Function {
     let mut f = Function::new([(3, ValType::I32)]);
     // n = nfields
     f.instruction(&Instruction::LocalGet(0));
@@ -823,7 +1066,10 @@ fn f_rec_field() -> Function {
     f.instruction(&Instruction::I32Load(mem(abi::OFF_FIELD_KEY_LEN, I32_MEM)));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::LocalGet(2));
-    f.instruction(&Instruction::Call(helper::STR_EQ));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::STR_EQ,
+    )));
     f.instruction(&Instruction::If(BlockType::Empty));
     f.instruction(&Instruction::LocalGet(5));
     f.instruction(&Instruction::I32Load(mem(abi::OFF_FIELD_VAL, I32_MEM)));
@@ -843,10 +1089,13 @@ fn f_rec_field() -> Function {
 }
 
 /// `make_state(state_ptr, state_len, value_ptr, value_len) -> handle`。params 0..3, local4=h:i32。
-fn f_make_state() -> Function {
+fn f_make_state(import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_STATE));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(4));
     // tag
     f.instruction(&Instruction::LocalGet(4));
@@ -884,7 +1133,7 @@ fn f_make_state() -> Function {
 }
 
 /// `state_name_eq / state_value_eq(state, ptr, len) -> i32`：state / value 名等于给定常量串。
-fn f_state_field_eq(off_ptr: u64, off_len: u64) -> Function {
+fn f_state_field_eq(off_ptr: u64, off_len: u64, import_count: u32) -> Function {
     let mut f = Function::new([]);
     f.instruction(&Instruction::LocalGet(0));
     f.instruction(&Instruction::I32Load(mem(off_ptr, I32_MEM)));
@@ -892,16 +1141,22 @@ fn f_state_field_eq(off_ptr: u64, off_len: u64) -> Function {
     f.instruction(&Instruction::I32Load(mem(off_len, I32_MEM)));
     f.instruction(&Instruction::LocalGet(1));
     f.instruction(&Instruction::LocalGet(2));
-    f.instruction(&Instruction::Call(helper::STR_EQ));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::STR_EQ,
+    )));
     f.instruction(&Instruction::End);
     f
 }
 
 /// `make_text(bytes_ptr, byte_len) -> handle`。params 0..1, local2=h:i32。
-fn f_make_text() -> Function {
+fn f_make_text(import_count: u32) -> Function {
     let mut f = Function::new([(1, ValType::I32)]);
     f.instruction(&Instruction::I32Const(abi::SIZE_TEXT));
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(2));
     f.instruction(&Instruction::LocalGet(2));
     f.instruction(&Instruction::I32Const(tag::TEXT));
@@ -929,7 +1184,7 @@ fn f_text_field(offset: u64) -> Function {
 /// `text_length(h) -> Int handle`：UTF-8 字节序列的 **Unicode 标量计数**（与解释器
 /// `chars().count()` 一致，非字节数）——统计非延续字节（top 2 bits != `10`）。
 /// local1=ptr, local2=len, local3=i, local4=count, local5=byte。
-fn f_text_length() -> Function {
+fn f_text_length(import_count: u32) -> Function {
     let mut f = Function::new([(5, ValType::I32)]);
     // ptr = h.text_ptr; len = h.text_len
     f.instruction(&Instruction::LocalGet(0));
@@ -979,14 +1234,17 @@ fn f_text_length() -> Function {
                                       // make_int(count as i64)
     f.instruction(&Instruction::LocalGet(4));
     f.instruction(&Instruction::I64ExtendI32U);
-    f.instruction(&Instruction::Call(helper::MAKE_INT));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_INT,
+    )));
     f.instruction(&Instruction::End);
     f
 }
 
 /// `text_concat(a, b) -> Text handle`：在 bump 堆新建 `a.bytes ++ b.bytes`。
 /// local2=la, local3=lb, local4=dst, local5=i。
-fn f_text_concat() -> Function {
+fn f_text_concat(import_count: u32) -> Function {
     let mut f = Function::new([(4, ValType::I32)]);
     // la = a.len; lb = b.len
     f.instruction(&Instruction::LocalGet(0));
@@ -999,7 +1257,10 @@ fn f_text_concat() -> Function {
     f.instruction(&Instruction::LocalGet(2));
     f.instruction(&Instruction::LocalGet(3));
     f.instruction(&Instruction::I32Add);
-    f.instruction(&Instruction::Call(helper::ALLOC));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::ALLOC,
+    )));
     f.instruction(&Instruction::LocalSet(4));
     // copy a.bytes → dst[0..la]：i=0; while i<la: dst[i]=a.ptr[i]; i++
     f.instruction(&Instruction::I32Const(0));
@@ -1062,7 +1323,10 @@ fn f_text_concat() -> Function {
     f.instruction(&Instruction::LocalGet(2));
     f.instruction(&Instruction::LocalGet(3));
     f.instruction(&Instruction::I32Add);
-    f.instruction(&Instruction::Call(helper::MAKE_TEXT));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_TEXT,
+    )));
     f.instruction(&Instruction::End);
     f
 }
@@ -1111,10 +1375,109 @@ fn collect_lets_stmt(stmt: &Stmt, out: &mut Vec<String>) {
     }
 }
 
+fn max_effect_arg_count(block: &Block, ast: &Ast, host_imports: &HostImports) -> u32 {
+    block
+        .stmts
+        .iter()
+        .map(|stmt| max_effect_args_stmt(stmt, ast, host_imports))
+        .max()
+        .unwrap_or(0)
+}
+
+fn max_effect_args_stmt(stmt: &Stmt, ast: &Ast, host_imports: &HostImports) -> u32 {
+    match stmt {
+        Stmt::Let { value, .. }
+        | Stmt::Set { value, .. }
+        | Stmt::Return { value, .. }
+        | Stmt::Raise { value, .. }
+        | Stmt::Print { value, .. }
+        | Stmt::Expr { value, .. } => max_effect_args_expr(*value, ast, host_imports),
+        Stmt::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            let mut max = max_effect_args_expr(*condition, ast, host_imports)
+                .max(max_effect_arg_count(consequence, ast, host_imports));
+            if let Some(alt) = alternative {
+                max = max.max(match alt {
+                    ElseBranch::Block(b) => max_effect_arg_count(b, ast, host_imports),
+                    ElseBranch::If(s) => max_effect_args_stmt(s, ast, host_imports),
+                });
+            }
+            max
+        }
+        Stmt::Match { subject, arms, .. } => arms.iter().fold(
+            max_effect_args_expr(*subject, ast, host_imports),
+            |max, arm| max.max(max_effect_arg_count(&arm.body, ast, host_imports)),
+        ),
+        Stmt::Repeat { count, body, .. } => max_effect_args_expr(*count, ast, host_imports)
+            .max(max_effect_arg_count(body, ast, host_imports)),
+    }
+}
+
+fn max_effect_args_expr(id: ExprId, ast: &Ast, host_imports: &HostImports) -> u32 {
+    match ast.expr(id) {
+        Expr::MethodCall {
+            base, method, args, ..
+        } => {
+            let own = match ast.expr(*base) {
+                Expr::Ident(root) if host_imports.op_index(&root.text, &method.text).is_some() => {
+                    args.len() as u32
+                }
+                _ => 0,
+            };
+            args.iter().fold(
+                own.max(max_effect_args_expr(*base, ast, host_imports)),
+                |max, &arg| max.max(max_effect_args_expr(arg, ast, host_imports)),
+            )
+        }
+        Expr::List { items, .. } => items
+            .iter()
+            .map(|&it| max_effect_args_expr(it, ast, host_imports))
+            .max()
+            .unwrap_or(0),
+        Expr::Field { base, .. } => max_effect_args_expr(*base, ast, host_imports),
+        Expr::Call { args, .. } => args
+            .iter()
+            .map(|&a| max_effect_args_expr(a, ast, host_imports))
+            .max()
+            .unwrap_or(0),
+        Expr::Construct { fields, .. } => fields
+            .iter()
+            .map(|fi| max_effect_args_expr(fi.value, ast, host_imports))
+            .max()
+            .unwrap_or(0),
+        Expr::Not { operand, .. } | Expr::Neg { operand, .. } => {
+            max_effect_args_expr(*operand, ast, host_imports)
+        }
+        Expr::Binary { left, right, .. } => max_effect_args_expr(*left, ast, host_imports)
+            .max(max_effect_args_expr(*right, ast, host_imports)),
+        Expr::Int { .. }
+        | Expr::Bool { .. }
+        | Expr::Null { .. }
+        | Expr::Ident(_)
+        | Expr::Str(_) => 0,
+    }
+}
+
+/// 全模块 emit 共享上下文。
+struct EmitContext<'a> {
+    model: &'a sophia_semantic::SemanticModel,
+    lib_index: &'a sophia_hir::AsgIndex,
+    host_imports: &'a HostImports,
+    import_count: u32,
+    func_index: &'a BTreeMap<String, u32>,
+    interner: &'a StrInterner,
+}
+
 /// 单 callable 的 body emit 上下文。
 struct FnEmitter<'a> {
     ast: &'a Ast,
     model: &'a sophia_semantic::SemanticModel,
+    host_imports: &'a HostImports,
+    import_count: u32,
     func_index: &'a BTreeMap<String, u32>,
     interner: &'a StrInterner,
     /// 变量名 → WASM 局部索引（params 在前，lets 在后）。
@@ -1127,22 +1490,17 @@ struct FnEmitter<'a> {
     rec_scratch: u32,
     /// repeat 循环计数器暂存局部索引。
     loop_scratch: u32,
-    /// 标准库 I/O 暂存局部索引（path/content 句柄、读回长度、目标指针）。
+    /// host op / ValueWire 暂存局部索引。
     io_a: u32,
     io_b: u32,
+    /// host op 实参句柄暂存局部起点。
+    host_arg_base: u32,
     /// 当前 callable 的类型推导表（静态分派用，如 `Add` 的 Int/Text）。
     types: sophia_semantic::type_layer::TypeTable,
     instrs: Vec<Instruction<'static>>,
 }
 
-fn emit_callable(
-    ast: &Ast,
-    callable: &Callable,
-    model: &sophia_semantic::SemanticModel,
-    lib_index: &sophia_hir::AsgIndex,
-    func_index: &BTreeMap<String, u32>,
-    interner: &StrInterner,
-) -> CodegenResult<Function> {
+fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> CodegenResult<Function> {
     let body = callable
         .body
         .as_ref()
@@ -1165,17 +1523,21 @@ fn emit_callable(
     let loop_scratch = scratch + 3;
     let io_a = scratch + 4;
     let io_b = scratch + 5;
-    let declared_locals = let_names.len() as u32 + 6; // lets/bindings + 6 scratch
+    let host_arg_base = scratch + 6;
+    let host_arg_count = max_effect_arg_count(body, ast, ctx.host_imports);
+    let declared_locals = let_names.len() as u32 + 6 + host_arg_count; // lets/bindings + scratch + host args
 
     // 重算类型表（Table 模式，语义 6.2）：codegen 不要求 analyze_program 暴露它。
-    let out = sophia_semantic::type_layer::TypeChecker::new(model, ast, lib_index)
+    let out = sophia_semantic::type_layer::TypeChecker::new(ctx.model, ast, ctx.lib_index)
         .check_callable(&callable.name.text);
 
     let mut emitter = FnEmitter {
         ast,
-        model,
-        func_index,
-        interner,
+        model: ctx.model,
+        host_imports: ctx.host_imports,
+        import_count: ctx.import_count,
+        func_index: ctx.func_index,
+        interner: ctx.interner,
         locals,
         scratch,
         subj_scratch,
@@ -1183,15 +1545,18 @@ fn emit_callable(
         loop_scratch,
         io_a,
         io_b,
+        host_arg_base,
         types: out.table,
         instrs: Vec::new(),
     };
     emitter.emit_block(body)?;
     // 尾兜底：fall-through（Unit action 顺序结束）→ Returned(Unit)（复刻解释器 Signal::Next）。
-    emitter.instrs.push(Instruction::Call(helper::MAKE_UNIT));
     emitter
         .instrs
-        .push(Instruction::Call(helper::WRAP_RETURNED));
+        .push(Instruction::Call(emitter.h(helper::MAKE_UNIT)));
+    emitter
+        .instrs
+        .push(Instruction::Call(emitter.h(helper::WRAP_RETURNED)));
 
     let mut f = Function::new([(declared_locals, ValType::I32)]);
     for ins in &emitter.instrs {
@@ -1202,6 +1567,10 @@ fn emit_callable(
 }
 
 impl FnEmitter<'_> {
+    fn h(&self, relative: u32) -> u32 {
+        helper_index(self.import_count, relative)
+    }
+
     fn emit_block(&mut self, block: &Block) -> CodegenResult<()> {
         for stmt in &block.stmts {
             self.emit_stmt(stmt)?;
@@ -1225,7 +1594,8 @@ impl FnEmitter<'_> {
             }
             Stmt::Return { value, .. } => {
                 self.emit_expr(*value)?;
-                self.instrs.push(Instruction::Call(helper::WRAP_RETURNED));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::WRAP_RETURNED)));
                 self.instrs.push(Instruction::Return);
                 Ok(())
             }
@@ -1236,7 +1606,8 @@ impl FnEmitter<'_> {
                 ..
             } => {
                 self.emit_expr(*condition)?;
-                self.instrs.push(Instruction::Call(helper::GET_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
                 self.instrs.push(Instruction::If(BlockType::Empty));
                 self.emit_block(consequence)?;
                 self.instrs.push(Instruction::Else);
@@ -1261,7 +1632,8 @@ impl FnEmitter<'_> {
                     ));
                 };
                 self.emit_variant_value(&name.text, fields)?;
-                self.instrs.push(Instruction::Call(helper::WRAP_RAISED));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::WRAP_RAISED)));
                 self.instrs.push(Instruction::Return);
                 Ok(())
             }
@@ -1273,7 +1645,7 @@ impl FnEmitter<'_> {
                 // 但为稳妥，repeat 计数用独立 loop_scratch 局部）。
                 let counter = self.loop_scratch;
                 self.emit_expr(*count)?;
-                self.instrs.push(Instruction::Call(helper::GET_INT));
+                self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
                 self.instrs.push(Instruction::I32WrapI64);
                 self.instrs.push(Instruction::LocalSet(counter));
                 self.instrs.push(Instruction::Block(BlockType::Empty));
@@ -1300,10 +1672,12 @@ impl FnEmitter<'_> {
                 // （起步子集 print 的值建模为 Text / Sanitized<Text>，to_string 即其文本）。
                 self.emit_expr(*value)?;
                 self.instrs.push(Instruction::LocalTee(self.rec_scratch));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_PTR));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_TEXT_PTR)));
                 self.instrs.push(Instruction::LocalGet(self.rec_scratch));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_LEN));
-                self.instrs.push(Instruction::Call(imports::CONSOLE_WRITE));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_TEXT_LEN)));
+                self.instrs.push(Instruction::Call(CONSOLE_WRITE_IMPORT));
                 Ok(())
             }
         }
@@ -1345,7 +1719,8 @@ impl FnEmitter<'_> {
                 self.instrs.push(Instruction::I32Const(tag::BOOL));
                 self.instrs.push(Instruction::I32Eq);
                 self.instrs.push(Instruction::LocalGet(self.subj_scratch));
-                self.instrs.push(Instruction::Call(helper::GET_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
                 self.instrs.push(Instruction::I32Const(i32::from(*value)));
                 self.instrs.push(Instruction::I32Eq);
                 self.instrs.push(Instruction::I32And);
@@ -1373,7 +1748,8 @@ impl FnEmitter<'_> {
                     self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                     self.instrs.push(Instruction::I32Const(ptr));
                     self.instrs.push(Instruction::I32Const(len));
-                    self.instrs.push(Instruction::Call(helper::REC_NAME_EQ));
+                    self.instrs
+                        .push(Instruction::Call(self.h(helper::REC_NAME_EQ)));
                     self.instrs.push(Instruction::I32And);
                     Ok(())
                 } else if self.model.states.contains_key(&ty.text) {
@@ -1384,7 +1760,8 @@ impl FnEmitter<'_> {
                     self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                     self.instrs.push(Instruction::I32Const(ptr));
                     self.instrs.push(Instruction::I32Const(len));
-                    self.instrs.push(Instruction::Call(helper::STATE_NAME_EQ));
+                    self.instrs
+                        .push(Instruction::Call(self.h(helper::STATE_NAME_EQ)));
                     self.instrs.push(Instruction::I32And);
                     Ok(())
                 } else {
@@ -1402,7 +1779,8 @@ impl FnEmitter<'_> {
                 self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                 self.instrs.push(Instruction::I32Const(ptr));
                 self.instrs.push(Instruction::I32Const(len));
-                self.instrs.push(Instruction::Call(helper::REC_NAME_EQ));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::REC_NAME_EQ)));
                 self.instrs.push(Instruction::I32And);
                 Ok(())
             }
@@ -1416,12 +1794,14 @@ impl FnEmitter<'_> {
                 self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                 self.instrs.push(Instruction::I32Const(sptr));
                 self.instrs.push(Instruction::I32Const(slen));
-                self.instrs.push(Instruction::Call(helper::STATE_NAME_EQ));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::STATE_NAME_EQ)));
                 self.instrs.push(Instruction::I32And);
                 self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                 self.instrs.push(Instruction::I32Const(vptr));
                 self.instrs.push(Instruction::I32Const(vlen));
-                self.instrs.push(Instruction::Call(helper::STATE_VALUE_EQ));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::STATE_VALUE_EQ)));
                 self.instrs.push(Instruction::I32And);
                 Ok(())
             }
@@ -1444,7 +1824,8 @@ impl FnEmitter<'_> {
                     self.instrs.push(Instruction::LocalGet(self.subj_scratch));
                     self.instrs.push(Instruction::I32Const(ptr));
                     self.instrs.push(Instruction::I32Const(len));
-                    self.instrs.push(Instruction::Call(helper::REC_FIELD));
+                    self.instrs
+                        .push(Instruction::Call(self.h(helper::REC_FIELD)));
                     self.instrs.push(Instruction::LocalSet(idx));
                 }
                 Ok(())
@@ -1455,7 +1836,8 @@ impl FnEmitter<'_> {
 
     fn push_subj_tag(&mut self) {
         self.instrs.push(Instruction::LocalGet(self.subj_scratch));
-        self.instrs.push(Instruction::Call(helper::VALUE_TAG));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::VALUE_TAG)));
     }
 
     fn emit_expr(&mut self, id: ExprId) -> CodegenResult<()> {
@@ -1465,16 +1847,19 @@ impl FnEmitter<'_> {
                     .parse()
                     .map_err(|_| CodegenError::InvalidInput(format!("非法整数字面量 `{text}`")))?;
                 self.instrs.push(Instruction::I64Const(v));
-                self.instrs.push(Instruction::Call(helper::MAKE_INT));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_INT)));
                 Ok(())
             }
             Expr::Bool { value, .. } => {
                 self.instrs.push(Instruction::I32Const(i32::from(*value)));
-                self.instrs.push(Instruction::Call(helper::MAKE_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
                 Ok(())
             }
             Expr::Null { .. } => {
-                self.instrs.push(Instruction::Call(helper::MAKE_NULL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_NULL)));
                 Ok(())
             }
             Expr::Ident(name) => {
@@ -1484,17 +1869,20 @@ impl FnEmitter<'_> {
             }
             Expr::Not { operand, .. } => {
                 self.emit_expr(*operand)?;
-                self.instrs.push(Instruction::Call(helper::GET_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
                 self.instrs.push(Instruction::I32Eqz);
-                self.instrs.push(Instruction::Call(helper::MAKE_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
                 Ok(())
             }
             Expr::Neg { operand, .. } => {
                 self.emit_expr(*operand)?;
-                self.instrs.push(Instruction::Call(helper::GET_INT));
+                self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
                 self.instrs.push(Instruction::I64Const(-1));
                 self.instrs.push(Instruction::I64Mul);
-                self.instrs.push(Instruction::Call(helper::MAKE_INT));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_INT)));
                 Ok(())
             }
             Expr::Binary {
@@ -1506,7 +1894,8 @@ impl FnEmitter<'_> {
                 let (ptr, len) = self.interner.lookup(&s.value);
                 self.instrs.push(Instruction::I32Const(ptr));
                 self.instrs.push(Instruction::I32Const(len));
-                self.instrs.push(Instruction::Call(helper::MAKE_TEXT));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_TEXT)));
                 Ok(())
             }
             Expr::List { .. } => Err(unsupported("list（待后续增量）")),
@@ -1539,15 +1928,18 @@ impl FnEmitter<'_> {
         match op {
             And | Or => {
                 self.emit_expr(left)?;
-                self.instrs.push(Instruction::Call(helper::GET_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
                 self.emit_expr(right)?;
-                self.instrs.push(Instruction::Call(helper::GET_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
                 self.instrs.push(if op == And {
                     Instruction::I32And
                 } else {
                     Instruction::I32Or
                 });
-                self.instrs.push(Instruction::Call(helper::MAKE_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
                 Ok(())
             }
             Eq | Ne => {
@@ -1557,18 +1949,20 @@ impl FnEmitter<'_> {
                 self.require_scalar_eq(right)?;
                 self.emit_expr(left)?;
                 self.emit_expr(right)?;
-                self.instrs.push(Instruction::Call(helper::VALUE_EQ));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::VALUE_EQ)));
                 if op == Ne {
                     self.instrs.push(Instruction::I32Eqz);
                 }
-                self.instrs.push(Instruction::Call(helper::MAKE_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
                 Ok(())
             }
             Lt | Le | Gt | Ge => {
                 self.emit_expr(left)?;
-                self.instrs.push(Instruction::Call(helper::GET_INT));
+                self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
                 self.emit_expr(right)?;
-                self.instrs.push(Instruction::Call(helper::GET_INT));
+                self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
                 self.instrs.push(match op {
                     Lt => Instruction::I64LtS,
                     Le => Instruction::I64LeS,
@@ -1576,7 +1970,8 @@ impl FnEmitter<'_> {
                     Ge => Instruction::I64GeS,
                     _ => unreachable!(),
                 });
-                self.instrs.push(Instruction::Call(helper::MAKE_BOOL));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
                 Ok(())
             }
             Add => {
@@ -1587,7 +1982,8 @@ impl FnEmitter<'_> {
                     Some(Ty::Text) => {
                         self.emit_expr(left)?;
                         self.emit_expr(right)?;
-                        self.instrs.push(Instruction::Call(helper::TEXT_CONCAT));
+                        self.instrs
+                            .push(Instruction::Call(self.h(helper::TEXT_CONCAT)));
                         Ok(())
                     }
                     _ => Err(unsupported("Add 非 Int / Text（List 追加待后续增量）")),
@@ -1605,17 +2001,17 @@ impl FnEmitter<'_> {
         op: Instruction<'static>,
     ) -> CodegenResult<()> {
         self.emit_expr(left)?;
-        self.instrs.push(Instruction::Call(helper::GET_INT));
+        self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
         self.emit_expr(right)?;
-        self.instrs.push(Instruction::Call(helper::GET_INT));
+        self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
         self.instrs.push(op);
-        self.instrs.push(Instruction::Call(helper::MAKE_INT));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::MAKE_INT)));
         Ok(())
     }
 
-    /// emit 标准库 I/O 方法调用：`File.Read(path)` / `File.Write(path, content)` / `Http.Get(url)`
-    /// （特殊根 method_call，见 docs/file_lib.md / docs/http_lib.md）。其它方法（如 `list.append`）
-    /// 待后续增量。值在运行时是 Text（intent 擦除），经字节级 host import 委派。
+    /// emit 库 effect op：`Family.Op(args)`。import 表由 registry + 实际使用面派生；不存在
+    /// `File`/`Http` 专用分支。
     fn emit_method_call(
         &mut self,
         base: ExprId,
@@ -1624,69 +2020,213 @@ impl FnEmitter<'_> {
     ) -> CodegenResult<()> {
         let Expr::Ident(root) = self.ast.expr(base) else {
             return Err(unsupported(
-                "方法调用（非标准库特殊根，list.append 待后续增量）",
+                "方法调用（非库特殊根，list.append 待后续增量）",
             ));
         };
-        match (root.text.as_str(), method) {
-            ("Http", "Get") => {
-                // Http.Get(url) -> Raw<Text>：取 url 字节 → http_get（返回长度）→ alloc + read_copy +
-                // make_text。host 失败时 trap（解释器为硬错误阻断，差测试 mock host 命中才返回）。
-                self.emit_io_read(args, imports::HTTP_GET, "Http.Get")
-            }
-            ("File", "Read") => self.emit_io_read(args, imports::FILE_READ, "File.Read"),
-            ("File", "Write") => {
-                // File.Write(path, content) -> Unit：取两段字节 → file_write → make_unit。
-                if args.len() != 2 {
-                    return Err(CodegenError::InvalidInput("File.Write 需 2 实参".into()));
-                }
-                // path bytes
-                self.emit_expr(args[0])?;
-                self.instrs.push(Instruction::LocalTee(self.io_a));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_PTR));
-                self.instrs.push(Instruction::LocalGet(self.io_a));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_LEN));
-                // content bytes
-                self.emit_expr(args[1])?;
-                self.instrs.push(Instruction::LocalTee(self.io_b));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_PTR));
-                self.instrs.push(Instruction::LocalGet(self.io_b));
-                self.instrs.push(Instruction::Call(helper::GET_TEXT_LEN));
-                self.instrs.push(Instruction::Call(imports::FILE_WRITE));
-                self.instrs.push(Instruction::Call(helper::MAKE_UNIT));
-                Ok(())
-            }
-            (fam, m) => Err(unsupported(&format!(
-                "标准库操作 `{fam}.{m}`（待后续增量）"
-            ))),
-        }
+        let Some(import) = self
+            .host_imports
+            .ops
+            .get(&(root.text.clone(), method.to_string()))
+            .cloned()
+        else {
+            return Err(unsupported(&format!(
+                "方法调用 `{}`.`{method}`（非库 op，待后续增量）",
+                root.text
+            )));
+        };
+        self.emit_effect_op(&import.contract, import.index, args)
     }
 
-    /// File.Read / Http.Get 的共用 emit：取单个 Text 实参的字节 → import（返回长度，存 io_a）→
-    /// `alloc(len)`（存 io_b）→ `read_copy(io_b)` → `make_text(io_b, len)`。
-    fn emit_io_read(&mut self, args: &[ExprId], import: u32, op: &str) -> CodegenResult<()> {
-        if args.len() != 1 {
-            return Err(CodegenError::InvalidInput(format!("{op} 需 1 实参")));
+    fn emit_effect_op(
+        &mut self,
+        contract: &OpContract,
+        import_index: u32,
+        args: &[ExprId],
+    ) -> CodegenResult<()> {
+        if args.len() != contract.params.len() {
+            return Err(CodegenError::InvalidInput(format!(
+                "{}.{} 需 {} 实参，实际 {}",
+                contract.family,
+                contract.op,
+                contract.params.len(),
+                args.len()
+            )));
         }
-        // arg bytes → import → len（存 io_a）
-        self.emit_expr(args[0])?;
-        self.instrs.push(Instruction::LocalTee(self.rec_scratch));
-        self.instrs.push(Instruction::Call(helper::GET_TEXT_PTR));
-        self.instrs.push(Instruction::LocalGet(self.rec_scratch));
-        self.instrs.push(Instruction::Call(helper::GET_TEXT_LEN));
-        self.instrs.push(Instruction::Call(import));
-        self.instrs.push(Instruction::LocalSet(self.io_a));
-        // dst = alloc(len)（存 io_b）
+        for (i, &arg) in args.iter().enumerate() {
+            self.emit_expr(arg)?;
+            self.instrs
+                .push(Instruction::LocalSet(self.host_arg_base + i as u32));
+        }
+
+        self.emit_wire_args_len(contract)?;
+        self.instrs.push(Instruction::Call(self.h(helper::ALLOC)));
+        self.instrs.push(Instruction::LocalSet(self.io_a)); // args_ptr
         self.instrs.push(Instruction::LocalGet(self.io_a));
-        self.instrs.push(Instruction::Call(helper::ALLOC));
-        self.instrs.push(Instruction::LocalSet(self.io_b));
-        // read_copy(dst)
-        self.instrs.push(Instruction::LocalGet(self.io_b));
-        self.instrs.push(Instruction::Call(imports::READ_COPY));
-        // make_text(dst, len)
-        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs
+            .push(Instruction::I32Const(contract.params.len() as i32));
+        self.instrs.push(Instruction::I32Store(mem(0, I32_MEM)));
         self.instrs.push(Instruction::LocalGet(self.io_a));
-        self.instrs.push(Instruction::Call(helper::MAKE_TEXT));
+        self.instrs.push(Instruction::I32Const(4));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::LocalSet(self.io_b)); // cursor
+        for (i, param) in contract.params.iter().enumerate() {
+            let scalar = wire_scalar(param)?;
+            self.emit_wire_value(self.host_arg_base + i as u32, scalar)?;
+        }
+
+        self.instrs.push(Instruction::LocalGet(self.io_a));
+        self.emit_wire_args_len(contract)?;
+        self.instrs.push(Instruction::Call(import_index));
+        self.instrs.push(Instruction::LocalSet(self.scratch)); // result_len
+        self.instrs.push(Instruction::LocalGet(self.scratch));
+        self.instrs.push(Instruction::Call(self.h(helper::ALLOC)));
+        self.instrs.push(Instruction::LocalSet(self.io_b)); // result_ptr
+        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs.push(Instruction::Call(READ_COPY_IMPORT));
+        self.emit_wire_result(wire_scalar(&contract.returns)?)
+    }
+
+    fn emit_wire_args_len(&mut self, contract: &OpContract) -> CodegenResult<()> {
+        self.instrs.push(Instruction::I32Const(4)); // argc
+        for (i, param) in contract.params.iter().enumerate() {
+            match wire_scalar(param)? {
+                Scalar::Unit => self.instrs.push(Instruction::I32Const(1)),
+                Scalar::Bool => self.instrs.push(Instruction::I32Const(2)),
+                Scalar::Int => self.instrs.push(Instruction::I32Const(9)),
+                Scalar::Text => {
+                    self.instrs.push(Instruction::I32Const(5));
+                    self.instrs
+                        .push(Instruction::LocalGet(self.host_arg_base + i as u32));
+                    self.instrs
+                        .push(Instruction::Call(self.h(helper::GET_TEXT_LEN)));
+                    self.instrs.push(Instruction::I32Add);
+                }
+            }
+            self.instrs.push(Instruction::I32Add);
+        }
         Ok(())
+    }
+
+    fn emit_wire_value(&mut self, value_local: u32, scalar: Scalar) -> CodegenResult<()> {
+        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs
+            .push(Instruction::I32Const(wire_tag(scalar) as i32));
+        self.instrs.push(Instruction::I32Store8(mem(0, 0)));
+        self.bump_cursor(1);
+        match scalar {
+            Scalar::Unit => {}
+            Scalar::Bool => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::LocalGet(value_local));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
+                self.instrs.push(Instruction::I32Store8(mem(0, 0)));
+                self.bump_cursor(1);
+            }
+            Scalar::Int => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::LocalGet(value_local));
+                self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
+                self.instrs.push(Instruction::I64Store(mem(0, 0)));
+                self.bump_cursor(8);
+            }
+            Scalar::Text => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::LocalGet(value_local));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_TEXT_LEN)));
+                self.instrs.push(Instruction::I32Store(mem(0, I32_MEM)));
+                self.bump_cursor(4);
+                self.emit_copy_text_bytes(value_local)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_copy_text_bytes(&mut self, value_local: u32) -> CodegenResult<()> {
+        self.instrs.push(Instruction::I32Const(0));
+        self.instrs.push(Instruction::LocalSet(self.loop_scratch));
+        self.instrs.push(Instruction::Block(BlockType::Empty));
+        self.instrs.push(Instruction::Loop(BlockType::Empty));
+        self.instrs.push(Instruction::LocalGet(self.loop_scratch));
+        self.instrs.push(Instruction::LocalGet(value_local));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::GET_TEXT_LEN)));
+        self.instrs.push(Instruction::I32GeU);
+        self.instrs.push(Instruction::BrIf(1));
+        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs.push(Instruction::LocalGet(self.loop_scratch));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::LocalGet(value_local));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::GET_TEXT_PTR)));
+        self.instrs.push(Instruction::LocalGet(self.loop_scratch));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::I32Load8U(mem(0, 0)));
+        self.instrs.push(Instruction::I32Store8(mem(0, 0)));
+        self.instrs.push(Instruction::LocalGet(self.loop_scratch));
+        self.instrs.push(Instruction::I32Const(1));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::LocalSet(self.loop_scratch));
+        self.instrs.push(Instruction::Br(0));
+        self.instrs.push(Instruction::End);
+        self.instrs.push(Instruction::End);
+        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs.push(Instruction::LocalGet(value_local));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::GET_TEXT_LEN)));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::LocalSet(self.io_b));
+        Ok(())
+    }
+
+    fn emit_wire_result(&mut self, scalar: Scalar) -> CodegenResult<()> {
+        self.assert_wire_tag(self.io_b, scalar);
+        match scalar {
+            Scalar::Unit => self
+                .instrs
+                .push(Instruction::Call(self.h(helper::MAKE_UNIT))),
+            Scalar::Bool => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::I32Load8U(mem(1, 0)));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_BOOL)));
+            }
+            Scalar::Int => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::I64Load(mem(1, 0)));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_INT)));
+            }
+            Scalar::Text => {
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::I32Const(5));
+                self.instrs.push(Instruction::I32Add);
+                self.instrs.push(Instruction::LocalGet(self.io_b));
+                self.instrs.push(Instruction::I32Load(mem(1, 0)));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::MAKE_TEXT)));
+            }
+        }
+        Ok(())
+    }
+
+    fn assert_wire_tag(&mut self, ptr_local: u32, scalar: Scalar) {
+        self.instrs.push(Instruction::LocalGet(ptr_local));
+        self.instrs.push(Instruction::I32Load8U(mem(0, 0)));
+        self.instrs
+            .push(Instruction::I32Const(wire_tag(scalar) as i32));
+        self.instrs.push(Instruction::I32Ne);
+        self.instrs.push(Instruction::If(BlockType::Empty));
+        self.instrs.push(Instruction::Unreachable);
+        self.instrs.push(Instruction::End);
+    }
+
+    fn bump_cursor(&mut self, n: i32) {
+        self.instrs.push(Instruction::LocalGet(self.io_b));
+        self.instrs.push(Instruction::I32Const(n));
+        self.instrs.push(Instruction::I32Add);
+        self.instrs.push(Instruction::LocalSet(self.io_b));
     }
 
     fn emit_call(&mut self, callee: &str, args: &[ExprId]) -> CodegenResult<()> {
@@ -1710,7 +2250,8 @@ impl FnEmitter<'_> {
         self.instrs.push(Instruction::Call(idx));
         // propagation：raised 则原样上抛；returned 则取其 value。
         self.instrs.push(Instruction::LocalTee(self.scratch));
-        self.instrs.push(Instruction::Call(helper::OUTCOME_KIND));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::OUTCOME_KIND)));
         self.instrs.push(Instruction::I32Const(outcome::RAISED));
         self.instrs.push(Instruction::I32Eq);
         self.instrs.push(Instruction::If(BlockType::Empty));
@@ -1718,7 +2259,8 @@ impl FnEmitter<'_> {
         self.instrs.push(Instruction::Return);
         self.instrs.push(Instruction::End);
         self.instrs.push(Instruction::LocalGet(self.scratch));
-        self.instrs.push(Instruction::Call(helper::OUTCOME_VALUE));
+        self.instrs
+            .push(Instruction::Call(self.h(helper::OUTCOME_VALUE)));
         Ok(())
     }
 
@@ -1788,7 +2330,7 @@ impl FnEmitter<'_> {
         // alloc(size)
         let size = abi::REC_HEADER_SIZE + nfields * abi::REC_FIELD_SIZE;
         self.instrs.push(Instruction::I32Const(size));
-        self.instrs.push(Instruction::Call(helper::ALLOC));
+        self.instrs.push(Instruction::Call(self.h(helper::ALLOC)));
         self.instrs.push(Instruction::LocalSet(rec));
         // header: tag
         self.instrs.push(Instruction::LocalGet(rec));
@@ -1853,7 +2395,8 @@ impl FnEmitter<'_> {
                     self.instrs.push(Instruction::I32Const(slen));
                     self.instrs.push(Instruction::I32Const(vptr));
                     self.instrs.push(Instruction::I32Const(vlen));
-                    self.instrs.push(Instruction::Call(helper::MAKE_STATE));
+                    self.instrs
+                        .push(Instruction::Call(self.h(helper::MAKE_STATE)));
                     return Ok(());
                 }
             }
@@ -1866,12 +2409,14 @@ impl FnEmitter<'_> {
                 self.emit_expr(base)?;
                 self.instrs.push(Instruction::I32Const(kptr));
                 self.instrs.push(Instruction::I32Const(klen));
-                self.instrs.push(Instruction::Call(helper::REC_FIELD));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::REC_FIELD)));
                 Ok(())
             }
             Some(Ty::Text) if field == "length" => {
                 self.emit_expr(base)?;
-                self.instrs.push(Instruction::Call(helper::TEXT_LENGTH));
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::TEXT_LENGTH)));
                 Ok(())
             }
             _ => Err(unsupported(

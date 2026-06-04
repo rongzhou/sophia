@@ -1041,7 +1041,7 @@
     `cli/src/commands.rs::build`（一次性组装完整上下文并复用 registry-aware IR / artifact 门禁）；
     `tools/codegen/tests/diff.rs`（显式 registry + 纯 Sophia 库 source emit 覆盖）；
     `cli/tests/pipeline.rs`（项目内 `sophia_libs` 纯 Sophia 库 build 覆盖）；
-    `docs/cn/wasm_host_runtime.md` / `wasm_codegen.md` / `dev_checklist_v1.md` 同步 API 形态。
+    `docs/cn/wasm_codegen.md` / `dev_checklist_v1.md` 同步 API 形态。
   - 验证：`cargo test -p sophia-codegen`、`cargo test -p sophia-cli` 通过；全工作区验证见提交 / PR 记录。
   - 状态：Accepted
 
@@ -1059,6 +1059,41 @@
     `with_base_url` / `with_repair_hint` 是 LLM 请求对象的 builder / 派生方法，无并行兼容入口；example 层
     `with_retry` 是 retry wrapper 构造器，不参与生产路径。
   - 验证：`cargo test --workspace` 与 `cargo check --workspace --examples` 通过。
+  - 状态：Accepted
+
+- 2026-06-03 — 三方 `host.wasm` 迁移为 ValueWire provider ABI（补齐 WASM runner 缺口 3）
+  - 决策：删除解释模式三方 WASM host 的 direct i64 功能路径：`runtime::WasmHostFn::new_i64_i64_i64`
+    不再保留，`WasmHostFn::new(wasm_bytes, op_contract)` 成为唯一入口。provider 必须导出 `memory`、
+    `sophia_alloc(len)->ptr`、`sophia_read_copy(dst)` 与清单 `host_fn(args_ptr,args_len)->result_len`；
+    实参与返回统一经 ValueWire 编码（Unit/Bool/Int/Text，intent 擦除为内层标量）。`runtime` 新增内部
+    `value_wire` 模块，VM runner 与三方 provider 共用同一 encode/decode，避免双协议。
+  - 理由：WASM 运行方案的缺口 3 要求解释模式与 VM 模式都能接入三方 `host.wasm`
+    provider；旧 `(Int,Int)->Int` 直传 ABI 虽可演示 digest，但与 VM import 的 ValueWire ABI 分叉，违反
+    “单一路线，拒绝多路径与向后兼容负担”。正确做法是直接迁移 fixture 与注册路径，不提供 fallback。
+  - 影响：`runtime/src/wasm_host.rs`（ValueWire provider 调用、导出校验、trap/内存错误硬错误）；
+    `runtime/src/wasm_program.rs`（复用 `value_wire`）；`stdlib/src/native_host.rs`（移除 ABI 子集签名拒绝，
+    仅按装载方式注册 provider）；`stdlib/tests/library_demo.rs`（`hash_wasm` fixture 改生成 provider ABI）；
+    `tools/codegen/tests/diff.rs`（新增 VM 动态 import → HostRegistry → 三方 provider 差测试）；
+    文档同步 `stdlib_design` / `stdlib_implementation` / `wasm_codegen`。
+  - 验证：`cargo test -p sophia-runtime`（含 Text→Text provider 单测）、`cargo test -p sophia-stdlib`、
+    `cargo test -p sophia-codegen` 通过。失败语义保持硬错误：装载失败、导出缺失、签名不符、wasm trap、
+    ValueWire 类型不匹配均不伪造成功。
+  - 状态：Accepted
+
+- 2026-06-03 — WASM build bundle manifest 与运行前漂移校验
+  - 决策：在不引入第二条运行模型的前提下，采纳运行方案中优于当前实现的 bundle 审计能力：
+    `sophia build` 除 `program.wasm` 外写 `program.sophia-build.json`，记录 `wasm_sha256`、
+    `registry_fingerprint`、动态 import 清单、provider 类型，并把三方 `host.wasm` 拷贝到
+    `sophia-runs/build/hosts/<library>/host.wasm` 记录 hash。`sophia run --backend wasm` 运行前校验 manifest
+    存在、program.wasm hash、当前 registry fingerprint 与 bundle 内 host.wasm hash；不一致即硬错误提示重建。
+  - 理由：文档指出的“裸 `program.wasm` 不是完整部署单元”确实比当前实现更优。此前 runner 只依赖当前项目
+    registry，无法发现 build 后三方 host 资产漂移。manifest/hash gate 可以补上最关键的审计与防漂移能力。
+    同时保留现有 `run` 单一路径：仍先加载项目源码并做语义检查来获得 `SemanticModel`，不做完全离线 bundle
+    loader，也不提供 `--allow-registry-drift` fallback，避免形成第二套执行语义。
+  - 影响：`cli/src/commands.rs` 新增 registry fingerprint / used-op 扫描 / manifest 写入与校验 helper；
+    `cli/Cargo.toml` 直接依赖工作区 `sha2`；`cli/tests/pipeline.rs` 覆盖 manifest 写入、缺 manifest 拒绝、
+    registry fingerprint drift 拒绝；`docs/cn/wasm_codegen.md` / `dev_checklist_v1.md` 同步落地状态与未来边界。
+  - 验证：`cargo test -p sophia-cli --test pipeline` 通过。
   - 状态：Accepted
 
 ## 记录模板（供后续条目使用）

@@ -49,6 +49,15 @@ pub enum LibraryError {
         second: String,
     },
 
+    /// 同一库内 host 分派键冲突。
+    #[error("库 `{lib}` 的 host_fn `{host_fn}` 被 `{first_op}` 与 `{second_op}` 同时使用")]
+    DuplicateHostFn {
+        lib: String,
+        host_fn: String,
+        first_op: String,
+        second_op: String,
+    },
+
     /// Sophia 源码库 domain 冲突。
     #[error("库 domain 冲突：`{domain}` 被库 `{first}` 与 `{second}` 同时占用")]
     DuplicateDomain {

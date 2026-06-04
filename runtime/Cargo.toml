@@ -7,6 +7,7 @@ license.workspace = true
 description = "同步解释器与 HostRegistry；Sophia runtime 语义不含 async/await"
 
 [dependencies]
+sophia-library.workspace = true
 sophia-semantic.workspace = true
 sophia-syntax.workspace = true
 sophia-exec-ir.workspace = true

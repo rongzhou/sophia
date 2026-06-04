@@ -187,6 +187,42 @@ asset = "bad.md"
 }
 
 #[test]
+fn rejects_duplicate_host_fn_within_library() {
+    let c = LibraryContent {
+        dir_name: "dup_host".into(),
+        manifest_toml: r#"
+[library]
+name = "dup_host"
+summary = "x"
+abi_version = 1
+
+[[op]]
+family = "Dup"
+op = "A"
+params = ["Int"]
+returns = "Int"
+host_fn = "same"
+
+[[op]]
+family = "Dup"
+op = "B"
+params = ["Int"]
+returns = "Int"
+host_fn = "same"
+
+[prompt]
+asset = "dup.md"
+"#
+        .into(),
+        asset_text: "x".into(),
+        sophia_sources: vec![],
+        host_wasm: None,
+    };
+    let err = LibraryRegistry::build(vec![c]).unwrap_err();
+    assert!(matches!(err, LibraryError::DuplicateHostFn { .. }));
+}
+
+#[test]
 fn loads_sophia_source_library_into_lib_domain() {
     let c = LibraryContent {
         dir_name: "geo".into(),

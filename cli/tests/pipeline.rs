@@ -63,6 +63,129 @@ fn check_and_run_well_formed_action() {
 }
 
 #[test]
+fn run_wasm_backend_executes_built_artifact() {
+    let dir = temp_project("run_wasm");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应通过，stderr：{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "wasm run 应通过，stderr：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("=> 42"), "应输出 => 42，实际：{stdout}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_wasm_backend_requires_build_artifact() {
+    let dir = temp_project("run_wasm_missing");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "未 build 时 wasm run 应失败");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("请先运行"), "应提示先 build：{stderr}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_wasm_backend_uses_runtime_input_validation() {
+    let dir = temp_project("run_wasm_bad_input");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应通过，stderr：{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "text:oops", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "错误实参类型应被 runtime validation 拒绝"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("input `n`"),
+        "应在 wasm 执行前给出统一 input validation 诊断：{stderr}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_wasm_backend_rejects_trace() {
+    let dir = temp_project("run_wasm_trace");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应通过，stderr：{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm", "--trace"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wasm backend 不应伪造 trace");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("暂不支持 --trace"), "应诚实拒绝：{stderr}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn run_trace_projects_execution_graph() {
     // `sophia run --trace`：跨调用程序应打印 Execution Graph 执行 Trace 投影（§9.4）。
     let dir = temp_project("run_trace");
@@ -500,6 +623,97 @@ fn build_emits_wasm_artifact() {
     let bytes = std::fs::read(&wasm).unwrap();
     assert_eq!(&bytes[0..4], b"\0asm", "应是合法 WASM 魔数");
     assert_eq!(&bytes[4..8], &[1, 0, 0, 0], "WASM 版本应为 1");
+    let manifest = dir.join("sophia-runs/build/program.sophia-build.json");
+    assert!(manifest.exists(), "应产出 build manifest");
+    let manifest_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest).unwrap()).unwrap();
+    assert_eq!(manifest_json["schema_version"], 1);
+    assert!(
+        manifest_json["wasm_sha256"].as_str().unwrap().len() == 64,
+        "manifest 应记录 wasm sha256"
+    );
+    assert!(
+        manifest_json["registry_fingerprint"]
+            .as_str()
+            .unwrap()
+            .len()
+            == 64,
+        "manifest 应记录 registry fingerprint"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_wasm_backend_requires_build_manifest() {
+    let dir = temp_project("run_wasm_missing_manifest");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应通过，stderr：{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    std::fs::remove_file(dir.join("sophia-runs/build/program.sophia-build.json")).unwrap();
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "缺 manifest 时 wasm run 应失败");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("build manifest"),
+        "应提示缺少 build manifest：{stderr}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn run_wasm_backend_rejects_registry_fingerprint_drift() {
+    let dir = temp_project("run_wasm_registry_drift");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应通过，stderr：{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let manifest_path = dir.join("sophia-runs/build/program.sophia-build.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    manifest["registry_fingerprint"] = serde_json::Value::String("0".repeat(64));
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let out = sophia()
+        .args(["run", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "registry drift 时 wasm run 应失败");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("registry") && stderr.contains("不一致"),
+        "应提示 registry fingerprint 不一致：{stderr}"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -596,6 +810,45 @@ fn smoke_passes_for_well_formed_project_and_runs_action() {
         "应报 smoke 通过：{stdout}"
     );
     assert!(stdout.contains("=> 42"), "run 步骤应输出 => 42：{stdout}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn smoke_wasm_backend_builds_and_runs_artifact() {
+    let dir = temp_project("smoke_wasm");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    write_file(
+        &dir,
+        "domains/MathDomain/actions/AddOne.sophia",
+        "action AddOne { input { n: Int } output { r: Int } body { return n + 1 } }",
+    );
+
+    let out = sophia()
+        .args(["smoke", "--action", "AddOne", "--root"])
+        .arg(&dir)
+        .args(["--arg", "int:41", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "wasm smoke 应通过，stderr：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("OK：smoke 通过"),
+        "应报 smoke 通过：{stdout}"
+    );
+    assert!(
+        stdout.contains("=> 42"),
+        "wasm run 步骤应输出 => 42：{stdout}"
+    );
+    assert!(
+        dir.join("sophia-runs/build/program.sophia-build.json")
+            .exists(),
+        "wasm smoke 应产出 build manifest"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

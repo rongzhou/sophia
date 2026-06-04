@@ -107,9 +107,10 @@ console_write` 捕获——语言内置，不经库注册表。
 - **三方 WASM host**（`sophia-stdlib::register_wasm_library_hosts(&mut host, &registry)`）：遍历注册表里
   携带 `host.wasm` 字节的库（= 三方 WASM-effect 库），为其每个 effect-op 注册一个 `runtime::WasmHostFn`
   ——内部持 `host.wasm` 的 `wasmi` 实例（`wasmi` 已提为 `sophia-runtime` 正式依赖），按统一字节 ABI 转发；
-  `host.wasm` 导出 `memory` + 每 op 一个与 `host_fn` 同名的函数（标量 i64 直传 / 文本经 ptr-len + stash +
-  read_copy，见 `stdlib_design.md` §五.4 / §六.1）。当前 ABI 子集 `(Int, Int) -> Int`；超出子集的签名 /
-  装载失败诚实 `Err`（不静默跳过、不伪造 host）。区分准则 = 装载方式（注册表是否持 `host.wasm`），与标准库
+  `host.wasm` 导出 `memory` + `sophia_alloc(len)` + `sophia_read_copy(dst)` + 每 op 一个与 `host_fn` 同名的
+  `host_fn(args_ptr,args_len)->result_len`；实参与返回均为 ValueWire（Unit/Bool/Int/Text，intent 擦除为内层标量），
+  见 `stdlib_design.md` §五.4 / §六.1。装载失败 / 导出缺失 / 签名不符 / wasm trap 诚实 `Err`
+  （不静默跳过、不伪造 host）。区分准则 = 装载方式（注册表是否持 `host.wasm`），与标准库
   native host 互补不重叠。仅加载三方 WASM 库时实例化，标准库 native host 零 wasm 开销。
 - **CLI `sophia run` 组装**（`commands::run_interpreter_action`）：先 `register_wasm_library_hosts`（无三方 WASM 库时
   no-op），再据入口 action 声明 effect 按需 `register_native_hosts`（`Http.Get` / `File.*` 才注册，纯逻辑
@@ -165,7 +166,7 @@ console_write` 捕获——语言内置，不经库注册表。
   扫约定根 → 读清单 + 资产 + `.sophia` 源码 + `host.wasm` → 合并注册表，确定性排序）；`hir::LibrarySources`
   （库 Sophia 源码解析为 owned AST，并入 index / model / 执行）+ `HirError::LibrarySourceParse`；
   `AsgIndex.library_domains` + `is_library_domain` + `resolve` 跨 domain 豁免；`runtime::WasmHostFn`
-  （`wasmi` 加载 `host.wasm`，`(i64,i64)->i64` 形态，`wasmi` 提为 runtime 正式依赖 + `wasm-encoder` dev-dep）。
+  （`wasmi` 加载 `host.wasm`，ValueWire provider 形态，`wasmi` 提为 runtime 正式依赖 + `wasm-encoder` dev-dep）。
   两演示库 fixture（`stdlib/tests/fixtures/sophia_libs/hash_sophia`、`hash_wasm`）+ 集成测试
   `stdlib/tests/library_demo.rs`（`host.wasm` 由 wasm-encoder 测试时生成、`.gitignore` 忽略）。验收发现 +
   跨 domain 豁免 + 两库等价 digest，全确定进门禁。CLI 生产接线（`full_registry_for(root)` + 库源码并入命令 inputs +
@@ -173,7 +174,7 @@ console_write` 捕获——语言内置，不经库注册表。
 - 2026-05-31 — **CLI 生产路径接线落地（P2 收尾）**。`discover` 新增 `project_roots(root)` /
   `full_registry_for(root)`（以项目根而非进程 CWD 解析 `<root>/sophia_libs/`，CLI 命令以 `--root` 定位项目）；
   `native_host` 新增 `register_wasm_library_hosts(host, registry)`（遍历注册表 `host.wasm` 库注册 `WasmHostFn`，
-  ABI 子集 `(Int,Int)->Int` 校验 + 装载失败诚实 `Err`）。`commands` 的 `library_registry` 改签名为
+  provider 装载失败诚实 `Err`）。`commands` 的 `library_registry` 改签名为
   `library_registry(root) -> Result<LibraryRegistry>`（= `full_registry_for`）+ 新增 `library_context(root)`
   返回 `(registry, LibrarySources)`；`check` / `run` / `index` / `graph` / `context` / `repair-context` 经它
   发现三方库并把库 `.sophia` 并入 inputs/asts；`run_interpreter_action` 统一注册 WASM host（无条件）+ native host（按

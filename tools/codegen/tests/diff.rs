@@ -1,7 +1,7 @@
 //! 差测试（W3 起的核心）：解释器（oracle）vs WASM 后端逐 case 等价。
 //!
 //! 见 docs/wasm_codegen.md §七。对每个程序 + 每组实参：① 解释器执行得 `Outcome`（oracle）；
-//! ② codegen emit `.wasm`、用纯 Rust 解释执行器 `wasmi` 执行得 `Outcome'`；③ 断言两者等价。
+//! ② codegen emit `.wasm`、用 `sophia-runtime` 的非浏览器 runner 执行得 `Outcome'`；③ 断言两者等价。
 //!
 //! **首要不变量**：解释器是唯一语义真相源。任何不一致 = WASM 后端有 bug，**绝不**调和 / 伪造一致。
 //!
@@ -9,111 +9,13 @@
 //! 跨调用），故差测试程序限于该子集；含 match / Text / effect 等的程序待后续增量纳入。
 
 use sophia_codegen::{emit_module, CodegenInput};
-use sophia_hir::{resolve_program, ProgramInput};
-use sophia_runtime::{run_action, HostRegistry, Outcome, Value};
+use sophia_hir::{resolve_program, LibraryContent, LibraryRegistry, ProgramInput};
+use sophia_runtime::{run_action, HostRegistry, Outcome, Value, WasmProgramRunner};
 use sophia_semantic::{analyze_program, SemanticModel};
-use sophia_stdlib::{register_mock_hosts, standard_registry, MockBuckets};
+use sophia_stdlib::{
+    register_mock_hosts, register_wasm_library_hosts, standard_registry, MockBuckets,
+};
 use sophia_syntax::{parse_ast, Ast};
-use wasmi::{Caller, Engine, Linker, Module, Store};
-
-/// 差测试 host 状态：mock 文件 / 网络桶（与 `InMemoryHost` 同语义）+ 读回 stash + console 捕获。
-///
-/// 与 sophia 解释器 oracle 用**同一份** seed 数据（path→content / url→body），保证两后端公平。
-/// `file_read` / `http_get` 未命中 mock → host trap（解释器为硬错误阻断，绝不伪造）。
-#[derive(Default)]
-struct HostState {
-    files: std::collections::BTreeMap<String, String>,
-    http: std::collections::BTreeMap<String, String>,
-    /// 上次 file_read / http_get 暂存的字节（供 read_copy 拷回 WASM 内存）。
-    stash: Vec<u8>,
-    console: Vec<String>,
-}
-
-/// 在 linker 上注册 5 个 effect host import（字节级 ABI，桥接 mock 文件 / 网络桶）。
-fn link_host(linker: &mut Linker<HostState>) {
-    linker
-        .func_wrap(
-            "sophia_host",
-            "console_write",
-            |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
-                let s = read_mem_string(&mut caller, ptr, len);
-                caller.data_mut().console.push(s);
-            },
-        )
-        .unwrap();
-    linker
-        .func_wrap(
-            "sophia_host",
-            "file_write",
-            |mut caller: Caller<'_, HostState>, pp: i32, pl: i32, cp: i32, cl: i32| {
-                let path = read_mem_string(&mut caller, pp, pl);
-                let content = read_mem_string(&mut caller, cp, cl);
-                caller.data_mut().files.insert(path, content);
-            },
-        )
-        .unwrap();
-    linker
-        .func_wrap(
-            "sophia_host",
-            "file_read",
-            |mut caller: Caller<'_, HostState>, pp: i32, pl: i32| -> Result<i32, wasmi::Error> {
-                let path = read_mem_string(&mut caller, pp, pl);
-                match caller.data().files.get(&path).cloned() {
-                    Some(content) => {
-                        let bytes = content.into_bytes();
-                        let n = bytes.len() as i32;
-                        caller.data_mut().stash = bytes;
-                        Ok(n)
-                    }
-                    None => Err(wasmi::Error::new(format!("no mock file: {path}"))),
-                }
-            },
-        )
-        .unwrap();
-    linker
-        .func_wrap(
-            "sophia_host",
-            "http_get",
-            |mut caller: Caller<'_, HostState>, up: i32, ul: i32| -> Result<i32, wasmi::Error> {
-                let url = read_mem_string(&mut caller, up, ul);
-                match caller.data().http.get(&url).cloned() {
-                    Some(body) => {
-                        let bytes = body.into_bytes();
-                        let n = bytes.len() as i32;
-                        caller.data_mut().stash = bytes;
-                        Ok(n)
-                    }
-                    None => Err(wasmi::Error::new(format!("no mock http: {url}"))),
-                }
-            },
-        )
-        .unwrap();
-    linker
-        .func_wrap(
-            "sophia_host",
-            "read_copy",
-            |mut caller: Caller<'_, HostState>, dst: i32| {
-                let bytes = std::mem::take(&mut caller.data_mut().stash);
-                let mem = caller
-                    .get_export("memory")
-                    .and_then(|e| e.into_memory())
-                    .expect("memory");
-                mem.write(&mut caller, dst as usize, &bytes).unwrap();
-            },
-        )
-        .unwrap();
-}
-
-/// 从 WASM 线性内存读出 UTF-8 字符串。
-fn read_mem_string(caller: &mut Caller<'_, HostState>, ptr: i32, len: i32) -> String {
-    let mem = caller
-        .get_export("memory")
-        .and_then(|e| e.into_memory())
-        .expect("memory");
-    let mut buf = vec![0u8; len as usize];
-    mem.read(&*caller, ptr as usize, &mut buf).unwrap();
-    String::from_utf8(buf).unwrap()
-}
 
 /// 差测试实参（Int / State / Text；entity 入参在 W2c 经"标量入参 + 内部构造"规避）。
 #[derive(Debug, Clone)]
@@ -158,6 +60,13 @@ enum ScalarOutcome {
 }
 
 fn analyze(sources: &[(&str, &str)]) -> (Vec<Ast>, SemanticModel) {
+    analyze_with_registry(sources, &standard_registry())
+}
+
+fn analyze_with_registry(
+    sources: &[(&str, &str)],
+    registry: &LibraryRegistry,
+) -> (Vec<Ast>, SemanticModel) {
     let asts: Vec<Ast> = sources
         .iter()
         .map(|(_, s)| parse_ast(*s).unwrap())
@@ -171,7 +80,7 @@ fn analyze(sources: &[(&str, &str)]) -> (Vec<Ast>, SemanticModel) {
             ast,
         })
         .collect();
-    let (index, _d) = resolve_program(&inputs, &standard_registry()).expect("resolve");
+    let (index, _d) = resolve_program(&inputs, registry).expect("resolve");
     let refs: Vec<&Ast> = asts.iter().collect();
     let analysis = analyze_program(&refs, &index);
     assert!(
@@ -180,6 +89,181 @@ fn analyze(sources: &[(&str, &str)]) -> (Vec<Ast>, SemanticModel) {
         analysis.diagnostics
     );
     (asts, analysis.model)
+}
+
+fn wasm_hash_registry() -> LibraryRegistry {
+    LibraryRegistry::build(vec![LibraryContent {
+        dir_name: "hash_wasm".into(),
+        manifest_toml: r#"
+[library]
+name = "hash_wasm"
+summary = "WASM hash test host"
+abi_version = 1
+
+[[op]]
+family = "WasmHash"
+op = "Mix"
+params = ["Int", "Int"]
+returns = "Int"
+effectful = false
+host_fn = "wasm_hash_mix"
+
+[prompt]
+asset = "hash_wasm.md"
+"#
+        .into(),
+        asset_text: "hash wasm test".into(),
+        sophia_sources: vec![],
+        host_wasm: None,
+    }])
+    .expect("hash_wasm registry")
+}
+
+fn wasm_hash_provider_registry() -> LibraryRegistry {
+    LibraryRegistry::build(vec![LibraryContent {
+        dir_name: "hash_wasm".into(),
+        manifest_toml: r#"
+[library]
+name = "hash_wasm"
+summary = "WASM hash test host"
+abi_version = 1
+
+[[op]]
+family = "WasmHash"
+op = "Mix"
+params = ["Int", "Int"]
+returns = "Int"
+effectful = false
+host_fn = "wasm_hash_mix"
+
+[prompt]
+asset = "hash_wasm.md"
+"#
+        .into(),
+        asset_text: "hash wasm test".into(),
+        sophia_sources: vec![],
+        host_wasm: Some(hash_provider_wasm()),
+    }])
+    .expect("hash_wasm provider registry")
+}
+
+fn hash_provider_wasm() -> Vec<u8> {
+    use wasm_encoder::{
+        CodeSection, ConstExpr, ExportKind, ExportSection, Function, FunctionSection,
+        GlobalSection, GlobalType, Instruction, MemorySection, MemoryType, Module, TypeSection,
+        ValType,
+    };
+
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function([ValType::I32], [ValType::I32]); // sophia_alloc
+    types.ty().function([ValType::I32], []); // sophia_read_copy
+    types
+        .ty()
+        .function([ValType::I32, ValType::I32], [ValType::I32]); // wasm_hash_mix
+    module.section(&types);
+
+    let mut funcs = FunctionSection::new();
+    funcs.function(0);
+    funcs.function(1);
+    funcs.function(2);
+    module.section(&funcs);
+
+    let mut mems = MemorySection::new();
+    mems.memory(MemoryType {
+        minimum: 1,
+        maximum: None,
+        memory64: false,
+        shared: false,
+        page_size_log2: None,
+    });
+    module.section(&mems);
+
+    let mut globals = GlobalSection::new();
+    globals.global(
+        GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
+            shared: false,
+        },
+        &ConstExpr::i32_const(1024),
+    );
+    module.section(&globals);
+
+    let mut exports = ExportSection::new();
+    exports.export("memory", ExportKind::Memory, 0);
+    exports.export("sophia_alloc", ExportKind::Func, 0);
+    exports.export("sophia_read_copy", ExportKind::Func, 1);
+    exports.export("wasm_hash_mix", ExportKind::Func, 2);
+    module.section(&exports);
+
+    let mut code = CodeSection::new();
+    let mut alloc = Function::new(vec![(1u32, ValType::I32)]);
+    alloc.instruction(&Instruction::GlobalGet(0));
+    alloc.instruction(&Instruction::LocalSet(1));
+    alloc.instruction(&Instruction::GlobalGet(0));
+    alloc.instruction(&Instruction::LocalGet(0));
+    alloc.instruction(&Instruction::I32Add);
+    alloc.instruction(&Instruction::GlobalSet(0));
+    alloc.instruction(&Instruction::LocalGet(1));
+    alloc.instruction(&Instruction::End);
+    code.function(&alloc);
+
+    let mut read_copy = Function::new(vec![]);
+    read_copy.instruction(&Instruction::LocalGet(0));
+    read_copy.instruction(&Instruction::I32Const(8));
+    read_copy.instruction(&Instruction::I32Load8U(mem(0, 0)));
+    read_copy.instruction(&Instruction::I32Store8(mem(0, 0)));
+    read_copy.instruction(&Instruction::LocalGet(0));
+    read_copy.instruction(&Instruction::I32Const(1));
+    read_copy.instruction(&Instruction::I32Add);
+    read_copy.instruction(&Instruction::I32Const(9));
+    read_copy.instruction(&Instruction::I64Load(mem(0, 0)));
+    read_copy.instruction(&Instruction::I64Store(mem(0, 0)));
+    read_copy.instruction(&Instruction::End);
+    code.function(&read_copy);
+
+    let mut mix = Function::new(vec![(3u32, ValType::I64)]);
+    mix.instruction(&Instruction::LocalGet(0));
+    mix.instruction(&Instruction::I32Const(5));
+    mix.instruction(&Instruction::I32Add);
+    mix.instruction(&Instruction::I64Load(mem(0, 0)));
+    mix.instruction(&Instruction::LocalSet(2));
+    mix.instruction(&Instruction::LocalGet(0));
+    mix.instruction(&Instruction::I32Const(14));
+    mix.instruction(&Instruction::I32Add);
+    mix.instruction(&Instruction::I64Load(mem(0, 0)));
+    mix.instruction(&Instruction::LocalSet(3));
+    mix.instruction(&Instruction::LocalGet(2));
+    mix.instruction(&Instruction::LocalSet(4));
+    for _ in 0..3 {
+        mix.instruction(&Instruction::LocalGet(4));
+        mix.instruction(&Instruction::I64Const(31));
+        mix.instruction(&Instruction::I64Mul);
+        mix.instruction(&Instruction::LocalGet(3));
+        mix.instruction(&Instruction::I64Add);
+        mix.instruction(&Instruction::LocalSet(4));
+    }
+    mix.instruction(&Instruction::I32Const(8));
+    mix.instruction(&Instruction::I32Const(2));
+    mix.instruction(&Instruction::I32Store8(mem(0, 0)));
+    mix.instruction(&Instruction::I32Const(9));
+    mix.instruction(&Instruction::LocalGet(4));
+    mix.instruction(&Instruction::I64Store(mem(0, 0)));
+    mix.instruction(&Instruction::I32Const(9));
+    mix.instruction(&Instruction::End);
+    code.function(&mix);
+    module.section(&code);
+
+    module.finish()
+}
+
+fn mem(offset: u64, align: u32) -> wasm_encoder::MemArg {
+    wasm_encoder::MemArg {
+        offset,
+        align,
+        memory_index: 0,
+    }
 }
 
 /// 解释器 oracle 执行（带 effect 前置：stdlib mock host，与 WASM 后端共享同一份 seed）。
@@ -200,6 +284,10 @@ fn run_interp(
     let mut host = HostRegistry::new();
     register_mock_hosts(&mut host, &buckets);
     let (outcome, _trace) = run_action(model, asts, entry, args, &mut host).expect("解释执行");
+    outcome_to_scalar(outcome)
+}
+
+fn outcome_to_scalar(outcome: Outcome) -> ScalarOutcome {
     match outcome {
         Outcome::Returned(Value::Int(i)) => ScalarOutcome::Int(i),
         Outcome::Returned(Value::Bool(b)) => ScalarOutcome::Bool(b),
@@ -229,7 +317,7 @@ fn int_fields(fields: &std::collections::BTreeMap<String, Value>) -> Vec<(String
         .collect()
 }
 
-/// WASM 后端执行：emit + wasmi 加载执行 + 读回结局。
+/// WASM 后端执行：emit + runtime 非浏览器 runner 加载执行 + 读回结局。
 fn run_wasm(
     model: &SemanticModel,
     asts: &[&Ast],
@@ -237,235 +325,31 @@ fn run_wasm(
     args: &[Arg],
     entry_is_action: bool,
     seeds: &Seeds,
+    registry: &LibraryRegistry,
 ) -> ScalarOutcome {
-    let input = CodegenInput::new(model, asts, &sophia_stdlib::standard_registry());
+    let input = CodegenInput::new(model, asts, registry);
     let bytes = emit_module(&input).expect("emit wasm");
-
-    let engine = Engine::default();
-    let module = Module::new(&engine, &bytes[..]).expect("wasmi 加载模块");
-    let mut linker = Linker::<HostState>::new(&engine);
-    link_host(&mut linker);
-    let mut state = HostState::default();
+    let runner = WasmProgramRunner::new(&bytes, registry).expect("wasm runner");
+    let buckets = MockBuckets::new();
     for (p, c) in &seeds.files {
-        state.files.insert(p.to_string(), c.to_string());
+        buckets.seed_file(*p, *c);
     }
     for (u, b) in &seeds.http {
-        state.http.insert(u.to_string(), b.to_string());
+        buckets.seed_http(*u, *b);
     }
-    let mut store = Store::new(&engine, state);
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .expect("实例化")
-        .start(&mut store)
-        .expect("start");
-
-    let memory = instance.get_memory(&store, "memory").expect("memory 导出");
-
-    let make_int = instance
-        .get_typed_func::<i64, i32>(&store, "sophia_make_int")
-        .expect("make_int");
-    let make_state = instance
-        .get_typed_func::<(i32, i32, i32, i32), i32>(&store, "sophia_make_state")
-        .expect("make_state");
-    let make_text = instance
-        .get_typed_func::<(i32, i32), i32>(&store, "sophia_make_text")
-        .expect("make_text");
-
-    // 构造实参句柄。State / Text 参数：把名字 / 字节写入预留高地址区（page 15，远离 bump 堆），
-    // 再 make_state / make_text——差测试夹具向 WASM 注入聚合 / 文本入参的确定性手段。
-    let mut scratch_off: i32 = 15 * 65536;
-    let mut handles: Vec<i32> = Vec::new();
-    for a in args {
-        match a {
-            Arg::Int(i) => handles.push(make_int.call(&mut store, *i).expect("make_int call")),
-            Arg::State(s, v) => {
-                let sp = scratch_off;
-                memory.write(&mut store, sp as usize, s.as_bytes()).unwrap();
-                let vp = sp + s.len() as i32;
-                memory.write(&mut store, vp as usize, v.as_bytes()).unwrap();
-                scratch_off = vp + v.len() as i32;
-                handles.push(
-                    make_state
-                        .call(&mut store, (sp, s.len() as i32, vp, v.len() as i32))
-                        .expect("make_state call"),
-                );
-            }
-            Arg::Text(t) => {
-                let tp = scratch_off;
-                memory.write(&mut store, tp as usize, t.as_bytes()).unwrap();
-                scratch_off = tp + t.len() as i32;
-                handles.push(
-                    make_text
-                        .call(&mut store, (tp, t.len() as i32))
-                        .expect("make_text call"),
-                );
-            }
-        }
-    }
-
-    // 调用入口。入口参数数 0..=3 覆盖现有差测试。
-    let prefix = if entry_is_action {
-        "action_"
-    } else {
-        "transition_"
-    };
-    let fname = format!("{prefix}{entry}");
-    let outcome_handle: i32 = call_entry(&mut store, &instance, &fname, &handles);
-
-    // 读回 Outcome：kind + value。
-    let outcome_kind = instance
-        .get_typed_func::<i32, i32>(&store, "sophia_outcome_kind")
-        .expect("outcome_kind");
-    let outcome_value = instance
-        .get_typed_func::<i32, i32>(&store, "sophia_outcome_value")
-        .expect("outcome_value");
-    let value_tag = instance
-        .get_typed_func::<i32, i32>(&store, "sophia_value_tag")
-        .expect("value_tag");
-    let get_int = instance
-        .get_typed_func::<i32, i64>(&store, "sophia_get_int")
-        .expect("get_int");
-    let get_bool = instance
-        .get_typed_func::<i32, i32>(&store, "sophia_get_bool")
-        .expect("get_bool");
-
-    let kind = outcome_kind.call(&mut store, outcome_handle).unwrap();
-    let v = outcome_value.call(&mut store, outcome_handle).unwrap();
-    let tag = value_tag.call(&mut store, v).unwrap();
-    // kind: 0=Returned, 1=Raised。tag: 2=Int,1=Bool,4=Null,0=Unit,6=ErrorValue,7=Entity,8=State。
-    match (kind, tag) {
-        (0, 2) => ScalarOutcome::Int(get_int.call(&mut store, v).unwrap()),
-        (0, 1) => ScalarOutcome::Bool(get_bool.call(&mut store, v).unwrap() != 0),
-        (0, 4) => ScalarOutcome::Null,
-        (0, 0) => ScalarOutcome::Unit,
-        (0, 3) => ScalarOutcome::Text(read_text(&store, &memory, v)),
-        (0, 8) => {
-            let (s, val) = read_state(&store, &memory, v);
-            ScalarOutcome::State(s, val)
-        }
-        (0, 7) => {
-            let (name, fields) = read_record(&mut store, &instance, &memory, v, &get_int);
-            ScalarOutcome::Entity(name, fields)
-        }
-        (0, 6) => {
-            let (variant, fields) = read_record(&mut store, &instance, &memory, v, &get_int);
-            ScalarOutcome::ErrorValue(variant, fields)
-        }
-        (1, 6) => {
-            let (variant, fields) = read_record(&mut store, &instance, &memory, v, &get_int);
-            ScalarOutcome::Raised(variant, fields)
-        }
-        other => panic!("差测试读回未知 (kind,tag) {other:?}"),
-    }
-}
-
-/// 读回一个 Text 值：bytes_ptr/byte_len（从内存读 UTF-8 字节）。
-fn read_text(store: &Store<HostState>, memory: &wasmi::Memory, t: i32) -> String {
-    let data = memory.data(store);
-    let read_i32 = |off: i32| -> i32 {
-        let o = off as usize;
-        i32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
-    };
-    // [tag@0][bytes_ptr@4][byte_len@8]
-    let p = read_i32(t + 4);
-    let len = read_i32(t + 8);
-    String::from_utf8(data[p as usize..(p + len) as usize].to_vec()).unwrap()
-}
-
-/// 读回一个 State 值：state 名 + value 名（从内存读字节）。
-fn read_state(store: &Store<HostState>, memory: &wasmi::Memory, st: i32) -> (String, String) {
-    let data = memory.data(store);
-    let read_i32 = |off: i32| -> i32 {
-        let o = off as usize;
-        i32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
-    };
-    let read_str = |ptr: i32, len: i32| -> String {
-        let p = ptr as usize;
-        String::from_utf8(data[p..p + len as usize].to_vec()).unwrap()
-    };
-    // [tag@0][state_ptr@4][state_len@8][value_ptr@12][value_len@16]
-    let sp = read_i32(st + 4);
-    let sl = read_i32(st + 8);
-    let vp = read_i32(st + 12);
-    let vl = read_i32(st + 16);
-    (read_str(sp, sl), read_str(vp, vl))
-}
-
-/// 读回一个 ErrorValue 记录：variant 名（从内存读字节）+ Int 字段（按名排序）。
-fn read_record(
-    store: &mut Store<HostState>,
-    instance: &wasmi::Instance,
-    memory: &wasmi::Memory,
-    rec: i32,
-    get_int: &wasmi::TypedFunc<i32, i64>,
-) -> (String, Vec<(String, i64)>) {
-    // 先在一个借用作用域内从内存读出 variant 名 + 各字段元信息（key 名 + val 句柄）。
-    let (variant, field_meta): (String, Vec<(String, i32)>) = {
-        let data = memory.data(&*store);
-        let read_i32 = |off: i32| -> i32 {
-            let o = off as usize;
-            i32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
+    let mut host = HostRegistry::new();
+    register_mock_hosts(&mut host, &buckets);
+    host.register_fn("WasmHash", "Mix", |args| {
+        let [Value::Int(a), Value::Int(b)] = args else {
+            return Err("WasmHash.Mix 参数 ABI 不匹配".into());
         };
-        let read_str = |ptr: i32, len: i32| -> String {
-            let p = ptr as usize;
-            String::from_utf8(data[p..p + len as usize].to_vec()).unwrap()
-        };
-        // header: [tag@0][name_ptr@4][name_len@8][nfields@12]
-        let name_ptr = read_i32(rec + 4);
-        let name_len = read_i32(rec + 8);
-        let nfields = read_i32(rec + 12);
-        let variant = read_str(name_ptr, name_len);
-        // 各字段 [key_ptr@0][key_len@4][val@8]，每项 12 字节，从 rec+16 起。
-        let mut meta = Vec::new();
-        for i in 0..nfields {
-            let base = rec + 16 + i * 12;
-            let kptr = read_i32(base);
-            let klen = read_i32(base + 4);
-            let val = read_i32(base + 8);
-            meta.push((read_str(kptr, klen), val));
-        }
-        (variant, meta)
-    };
-    // 借用结束后再调用 get_int 取各字段 Int 值。
-    let mut fields: Vec<(String, i64)> = field_meta
-        .into_iter()
-        .map(|(k, valh)| (k, get_int.call(&mut *store, valh).unwrap()))
-        .collect();
-    fields.sort_by(|a, b| a.0.cmp(&b.0));
-    let _ = instance;
-    (variant, fields)
-}
-
-/// 按实参个数选用对应 arity 的 typed func 调用入口。
-fn call_entry(
-    store: &mut Store<HostState>,
-    instance: &wasmi::Instance,
-    fname: &str,
-    handles: &[i32],
-) -> i32 {
-    match handles.len() {
-        0 => instance
-            .get_typed_func::<(), i32>(&*store, fname)
-            .expect(fname)
-            .call(store, ())
-            .unwrap(),
-        1 => instance
-            .get_typed_func::<i32, i32>(&*store, fname)
-            .expect(fname)
-            .call(store, handles[0])
-            .unwrap(),
-        2 => instance
-            .get_typed_func::<(i32, i32), i32>(&*store, fname)
-            .expect(fname)
-            .call(store, (handles[0], handles[1]))
-            .unwrap(),
-        3 => instance
-            .get_typed_func::<(i32, i32, i32), i32>(&*store, fname)
-            .expect(fname)
-            .call(store, (handles[0], handles[1], handles[2]))
-            .unwrap(),
-        n => panic!("差测试入口暂支持 0..=3 参，得到 {n}"),
-    }
+        Ok(Value::Int(a * 31 + b * 17))
+    });
+    let values: Vec<Value> = args.iter().map(Arg::to_value).collect();
+    let outcome = runner
+        .run(model, entry, &values, entry_is_action, &mut host)
+        .expect("wasm runner 执行");
+    outcome_to_scalar(outcome)
 }
 
 /// 差测试的执行前置环境（mock 文件 / 网络桶；两后端共享同一份，保证公平）。
@@ -496,6 +380,7 @@ fn assert_equiv_seeded(
 ) {
     let (asts, model) = analyze(sources);
     let refs: Vec<&Ast> = asts.iter().collect();
+    let registry = standard_registry();
     let interp = run_interp(
         &model,
         &refs,
@@ -503,7 +388,7 @@ fn assert_equiv_seeded(
         args.iter().map(|a| a.to_value()).collect(),
         seeds,
     );
-    let wasm = run_wasm(&model, &refs, entry, args, action, seeds);
+    let wasm = run_wasm(&model, &refs, entry, args, action, seeds, &registry);
     assert_eq!(
         interp, wasm,
         "解释器 vs WASM 不一致：entry={entry} args={args:?}（解释器为 oracle）"
@@ -922,6 +807,83 @@ fn diff_http_get_intent_d2() {
         &[Arg::Text("https://example.test/doc")],
         true,
         &seeds,
+    );
+}
+
+#[test]
+fn diff_registry_dynamic_import_for_third_party_op() {
+    // 非 File/Http 的 registry op：codegen 必须从 registry 派生 import，而不是走标准库硬编码分支。
+    let registry = wasm_hash_registry();
+    let act = "action ViaWasm {\n\
+       input { a: Int; b: Int }\n\
+       output { y: Int }\n\
+       body { return WasmHash.Mix(a, b) }\n\
+     }";
+    let sources = &[("d/actions/ViaWasm.sophia", act)];
+    let (asts, model) = analyze_with_registry(sources, &registry);
+    let refs: Vec<&Ast> = asts.iter().collect();
+    let mut host = HostRegistry::new();
+    host.register_fn("WasmHash", "Mix", |args| {
+        let [Value::Int(a), Value::Int(b)] = args else {
+            return Err("WasmHash.Mix 参数 ABI 不匹配".into());
+        };
+        Ok(Value::Int(a * 31 + b * 17))
+    });
+    let (outcome, _trace) = run_action(
+        &model,
+        &refs,
+        "ViaWasm",
+        vec![Value::Int(7), Value::Int(11)],
+        &mut host,
+    )
+    .expect("解释执行");
+    let interp = match outcome {
+        Outcome::Returned(Value::Int(i)) => ScalarOutcome::Int(i),
+        other => panic!("ViaWasm 应返回 Int，得到 {other:?}"),
+    };
+    let wasm = run_wasm(
+        &model,
+        &refs,
+        "ViaWasm",
+        &[Arg::Int(7), Arg::Int(11)],
+        true,
+        &Seeds::default(),
+        &registry,
+    );
+    assert_eq!(interp, wasm);
+}
+
+#[test]
+fn diff_dynamic_import_uses_third_party_value_wire_provider() {
+    // VM 模式真实链路：program.wasm import → HostRegistry → 三方 host.wasm provider。
+    // 这里不注册 Rust 闭包，避免把 provider ABI 的缺口藏起来。
+    let registry = wasm_hash_provider_registry();
+    let act = "action ViaWasm {\n\
+       input { a: Int; b: Int }\n\
+       output { y: Int }\n\
+       body { return WasmHash.Mix(a, b) }\n\
+     }";
+    let sources = &[("d/actions/ViaWasm.sophia", act)];
+    let (asts, model) = analyze_with_registry(sources, &registry);
+    let refs: Vec<&Ast> = asts.iter().collect();
+    let input = CodegenInput::new(&model, &refs, &registry);
+    let bytes = emit_module(&input).expect("emit wasm");
+    let runner = WasmProgramRunner::new(&bytes, &registry).expect("wasm runner");
+
+    let mut host = HostRegistry::new();
+    register_wasm_library_hosts(&mut host, &registry).expect("注册三方 ValueWire provider");
+    let outcome = runner
+        .run(
+            &model,
+            "ViaWasm",
+            &[Value::Int(7), Value::Int(11)],
+            true,
+            &mut host,
+        )
+        .expect("provider VM 执行");
+    assert_eq!(
+        outcome,
+        Outcome::Returned(Value::Int((7 * 31 + 11) * 31 * 31 + 11 * 31 + 11))
     );
 }
 

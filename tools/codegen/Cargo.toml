@@ -18,4 +18,3 @@ wasm-encoder.workspace = true
 [dev-dependencies]
 sophia-library.workspace = true
 sophia-runtime.workspace = true
-wasmi.workspace = true

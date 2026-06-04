@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Sophia 命令行工具。
 #[derive(Debug, Parser)]
@@ -91,7 +91,7 @@ enum Command {
         root: PathBuf,
     },
 
-    /// 执行 action（解释执行）。
+    /// 执行 action。
     Run {
         /// action 名称。
         action: String,
@@ -104,6 +104,9 @@ enum Command {
         /// 打印 Execution Graph 执行 Trace 投影（§9.4：节点 / 调用边 / 结局）。
         #[arg(long)]
         trace: bool,
+        /// 执行后端：默认解释器；`wasm` 执行 `sophia build` 产出的 program.wasm。
+        #[arg(long, value_enum, default_value_t = CliRunBackend::Interpreter)]
+        backend: CliRunBackend,
     },
 
     /// 一键烟雾测试（init → check → build → run），确定性、不调用 LLM。
@@ -117,6 +120,9 @@ enum Command {
         /// run 步骤的实参（形如 `int:3`；仅在指定 `--action` 时使用）。
         #[arg(long = "arg")]
         args: Vec<String>,
+        /// run 步骤执行后端：默认解释器；`wasm` 会先 build 再执行产物。
+        #[arg(long, value_enum, default_value_t = CliRunBackend::Interpreter)]
+        backend: CliRunBackend,
     },
 
     /// 生成 LLM 修复上下文（结构化诊断 + 相关节点闭包），不调用 LLM。
@@ -131,6 +137,12 @@ enum Command {
 
     /// 以 stdio 运行 Language Server（hover / diagnostics / goto definition）。
     Lsp,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliRunBackend {
+    Interpreter,
+    Wasm,
 }
 
 /// Development Graph 工作流子命令。
@@ -314,8 +326,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
             root,
             args,
             trace,
-        } => commands::run_action(&root, &action, &args, trace),
-        Command::Smoke { root, action, args } => commands::smoke(&root, action.as_deref(), &args),
+            backend,
+        } => commands::run_action(&root, &action, &args, trace, backend.into()),
+        Command::Smoke {
+            root,
+            action,
+            args,
+            backend,
+        } => commands::smoke(&root, action.as_deref(), &args, backend.into()),
         Command::RepairContext { error, root } => commands::repair_context(&root, &error),
         Command::Lsp => {
             // LSP 是长驻 stdio 服务，需要 tokio 运行时承载（与确定性命令的同步路径分开）。
@@ -325,6 +343,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 .context("构造 LSP tokio 运行时")?
                 .block_on(sophia_lsp::run_stdio());
             Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+impl From<CliRunBackend> for commands::RunBackend {
+    fn from(value: CliRunBackend) -> Self {
+        match value {
+            CliRunBackend::Interpreter => commands::RunBackend::Interpreter,
+            CliRunBackend::Wasm => commands::RunBackend::Wasm,
         }
     }
 }

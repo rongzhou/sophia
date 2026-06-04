@@ -358,6 +358,30 @@ Purpose: record small engineering decisions that are not fully specified in the 
   - Rationale: Host type (native vs WASM) is determined by shipped artifacts, not manifest; include sources so library nodes parse/execute; use same registry for original/stripped builds.
   - Impact: Update stdlib discovery/host registration; CLI commands include sources and register hosts; tools/check/codegen made registry-aware; tests adjusted; docs synced. Verified by smoke: both Sophia/WASM paths yield same digest. All 372 tests passed. Status: Accepted
 
+- 2026-06-03 — WASM build context uses one registry-aware artifact path
+  - Decision: Every artifact emit entry must receive its registry explicitly. Deterministic tests pass `standard_registry()`, and CLI production build passes `full_registry_for(root)` plus merged `LibrarySources`. No compatibility branch or fallback registry is retained.
+  - Rationale: CLI `check`/`run` already used the full project registry, but `build` had drifted back to `standard_registry()` and omitted library sources. That let third-party pure-Sophia projects pass `check`/`run` and fail in `build`, violating the single-path rule.
+  - Impact: `tools/codegen` build APIs are registry-aware; `cli/src/commands.rs::build` assembles the same context as production commands; codegen and CLI pipeline tests cover pure-Sophia library build.
+  - Status: Accepted
+
+- 2026-06-03 — `*_with_*` interface audit and single-path convergence
+  - Decision: Remove compatibility-style project interfaces: `CodegenInput::with_registry`, `resolve_program_with_libraries`, `AsgIndex::with_libraries`, and the split runtime `run_action_with_host`/empty-host helper. Callers now pass the required `LibraryRegistry` / `HostRegistry` explicitly. CLI private host assembly is named `run_interpreter_action` to avoid implying a parallel public entry.
+  - Rationale: These methods were mostly default-context wrappers over the real contextual path, which creates drift. Context source must be explicit: empty registry for no libraries, `standard_registry()` for deterministic gates, full registry for CLI production.
+  - Impact: Core, runtime, codegen, CLI, and tests now use a single contextual API surface.
+  - Status: Accepted
+
+- 2026-06-03 — Third-party `host.wasm` migrated to ValueWire provider ABI
+  - Decision: Remove the direct i64 provider path. `runtime::WasmHostFn::new(wasm_bytes, op_contract)` is the only entry. Providers export `memory`, `sophia_alloc`, `sophia_read_copy`, and `host_fn(args_ptr,args_len)->result_len`; arguments and returns use ValueWire (Unit/Bool/Int/Text; intents erased).
+  - Rationale: Interpreter mode and VM mode must both call third-party `host.wasm` providers through the same ABI. Keeping `(Int,Int)->Int` as a demo path would create a second protocol and long-term compatibility burden.
+  - Impact: `runtime::value_wire`, `runtime::wasm_host`, `runtime::wasm_program`, `stdlib::native_host`, `hash_wasm` fixture, and codegen diff tests are aligned on ValueWire.
+  - Status: Accepted
+
+- 2026-06-03 — WASM build bundle manifest and run-time drift validation
+  - Decision: `sophia build` writes `program.sophia-build.json`, records `wasm_sha256`, `registry_fingerprint`, dynamic imports, provider kinds, and third-party host wasm hashes, and copies host assets under `sophia-runs/build/hosts/<library>/host.wasm`. `sophia run --backend wasm` validates manifest, program hash, current registry fingerprint, and host asset hashes before execution.
+  - Rationale: A bare `program.wasm` is not a complete deployment unit once dynamic host imports and third-party providers exist. Manifest/hash validation adds the needed auditability without introducing a second execution model.
+  - Impact: CLI build/run/smoke and pipeline tests now cover manifest writing, missing-manifest rejection, registry drift rejection, and host asset validation. Offline bundle loading and registry-drift fallbacks remain intentionally out of scope.
+  - Status: Accepted
+
 ## Recording template (for future entries)
 
 - YYYY-MM-DD — <short title>

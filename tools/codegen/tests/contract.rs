@@ -49,7 +49,8 @@ fn input_graph_matches_model_callables() {
         ),
     ]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
+    let registry = sophia_stdlib::standard_registry();
+    let input = CodegenInput::new(&model, &refs, &registry);
 
     // 模型与图一致：每个 callable 一个执行节点。
     for name in model.callables.keys() {
@@ -76,7 +77,8 @@ fn emit_supported_program_produces_wasm_bytes() {
         "action Id { input { n: Int } output { y: Int } body { return n } }",
     )]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
+    let registry = sophia_stdlib::standard_registry();
+    let input = CodegenInput::new(&model, &refs, &registry);
 
     let bytes = emit_module(&input).expect("W2 标量程序应 emit 出 WASM");
     assert_eq!(&bytes[0..4], b"\0asm", "应以 WASM 魔数开头");
@@ -91,7 +93,8 @@ fn emit_is_honest_not_yet_implemented_for_unsupported() {
         "action Pack { input { a: Int; b: Int } output { xs: list of Int } body { return [a, b] } }",
     )]);
     let refs: Vec<&Ast> = asts.iter().collect();
-    let input = CodegenInput::new(&model, &refs, &sophia_stdlib::standard_registry());
+    let registry = sophia_stdlib::standard_registry();
+    let input = CodegenInput::new(&model, &refs, &registry);
 
     let result = emit_module(&input);
     assert!(

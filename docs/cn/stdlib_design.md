@@ -8,8 +8,8 @@
 >
 > **状态：活文档。** 库随演示需求增量。当前：库插件模型已落地（清单驱动 + `LibraryRegistry` +
 > 路线 B host 注册表）；标准库 `Http` / `File`（已落地，见 `http_lib.md` / `file_lib.md`）。
-> WASM 生产执行、动态 host import、三方 `host.wasm` 在 VM 模式下的 provider ABI 与 CLI runner 设计见
-> `wasm_host_runtime.md`。
+> WASM 生产执行、动态 host import、三方 `host.wasm` 在 VM 模式下的 provider ABI 与 CLI runner 边界见
+> `wasm_codegen.md` §六 / §八 / §十一。
 
 ---
 
@@ -220,8 +220,9 @@ host 是 `HostRegistry: Map<(family, op), Box<dyn HostFn>>`（不是固定方法
 - **三方 WASM 库**：`sophia-stdlib::register_wasm_library_hosts(host, registry)` 遍历注册表里携带
   `host.wasm` 字节的库（= 三方 WASM-effect 库），为其每个 effect-op 注册一个 `WasmHostFn`——内部持
   `host.wasm` 的 `wasmi` 实例，按统一字节 ABI 转发。区分准则 = **装载方式**（注册表是否持 `host.wasm`），
-  与标准库 native host 互补不重叠。当前 ABI 子集 `(Int, Int) -> Int`（标量 i64 直传）；超出子集的签名 /
-  装载失败一律诚实 `Err` 阻断（不静默跳过、不伪造 host），待 ABI 随需扩展。
+  与标准库 native host 互补不重叠。ABI 为 ValueWire provider：`memory` + `sophia_alloc(len)` +
+  `sophia_read_copy(dst)` + `host_fn(args_ptr,args_len)->result_len`；Unit/Bool/Int/Text 与 intent 擦除已覆盖。
+  装载失败 / 导出缺失 / 签名不符 / wasm trap 一律诚实 `Err` 阻断（不静默跳过、不伪造 host）。
 - **诚实性红线**：mock 未命中 / 真实失败 / wasm trap 一律 `Err` 阻断，解释器物化为硬错误，绝不伪造。
 
 路线 B 的回报：**native 与 WASM host 在解释器看来同构为 `Box<dyn HostFn>`**——解释器对「effect 背后是
@@ -254,8 +255,8 @@ surface 与 host 都**不与执行模式绑定**，故四象限全部可用：
 
 > **已落地（P2）**：两个演示库 `hash_sophia`（纯 Sophia 源码库）/ `hash_wasm`（WASM-effect 库,
 > `host.wasm` 经 `WasmHostFn`）计算同一确定 digest,`cargo test` 验收发现 + 跨 domain 豁免 + 两库结果逐位
-> 相等。WASM host ABI（统一字节级契约,标量 i64 直传 / 文本经 ptr-len + stash + read_copy,export 方向）见
-> §五.4。VM 模式 import←`host.wasm` 链接随差测试扩展。
+> 相等。WASM host ABI（统一 ValueWire provider 契约，export 方向）见 §五.4；VM 模式 import←`host.wasm`
+> 链路已有差测试覆盖。
 
 ---
 
@@ -327,9 +328,9 @@ surface 与 host 都**不与执行模式绑定**，故四象限全部可用：
   `check` / `run` / `index` / `graph` / `context` / `repair-context` 各命令经 `library_context(root)` 把库随附
   Sophia 源码（`LibrarySources`）并入 program inputs + asts（纯 Sophia 库节点须建模才可解析 / 执行）。
   `sophia run` 经 `sophia-stdlib::register_wasm_library_hosts` 据注册表 `host.wasm` 注册三方 WASM host
-  （`WasmHostFn`），与标准库 native host 互补（按装载方式区分）；ABI 子集外签名 / 装载失败诚实 `Err`。
+  （`WasmHostFn`），与标准库 native host 互补（按装载方式区分）；provider 装载失败诚实 `Err`。
   `tools/check::check_strip_assist_equivalence` 改为 registry-aware（两侧对称并入库源码 + 同一 registry，
   否则用户引用库节点会让 strip 前后解析不对称误判）。**确定性子门禁**（`check_program` / `codegen` / LSP /
   graph gate 与 LLM 工作流命令）仍只用 `standard_registry`。手动 smoke（项目带 `./sophia_libs/{hash_sophia,
-  hash_wasm}`）：`check` 通过、`run ViaSophia` / `run ViaWasm` 均得同一 digest 210523。全工作区 372 passed
-  （+3 WASM host 注册测试：标准库 no-op、ABI 子集外拒绝、非法 wasm 字节拒绝）/ 0 failed，clippy 0 警告，fmt clean。
+  hash_wasm}`）：`check` 通过、`run ViaSophia` / `run ViaWasm` 均得同一 digest 210523。后续已迁移为
+  ValueWire provider ABI，并以 runtime Text provider 单测 + codegen VM provider 差测试覆盖。

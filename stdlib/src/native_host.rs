@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use sophia_library::{LibraryRegistry, OpContract, Scalar, TypeDesc};
+use sophia_library::LibraryRegistry;
 use sophia_runtime::{HostRegistry, Value, WasmHostFn};
 
 /// `Http.Get` 真实 host 的固定超时（秒）。挂死的连接快速失败而非无限等待。
@@ -81,9 +81,8 @@ pub fn register_native_hosts(host: &mut HostRegistry) {
 /// 即三方 WASM-effect 库,其每个 effect-op 由 host.wasm 对应导出函数（清单 `host_fn`）实现;标准库
 /// （`File`/`Http`,无 host.wasm）的 native host 由 [`register_native_hosts`] 注册,二者互补不重叠。
 ///
-/// 本 demo ABI 子集:op 签名 `(Int, Int) -> Int`,标量 i64 直传（见 `WasmHostFn`）。遇到超出该子集
-/// 的签名（含 `Text` / `Unit` / intent 包装）一律诚实 `Err`——不静默跳过、不伪造 host,待 ABI 随需
-/// 扩展后再支持。host.wasm 加载 / 导出缺失 / 签名不符同样 `Err`,启动期暴露。
+/// `WasmHostFn` 使用统一 ValueWire provider ABI；host.wasm 加载 / 导出缺失 / 签名不符同样 `Err`,
+/// 启动期暴露。
 pub fn register_wasm_library_hosts(
     host: &mut HostRegistry,
     registry: &LibraryRegistry,
@@ -93,8 +92,7 @@ pub fn register_wasm_library_hosts(
         let Some(wasm_bytes) = registry.host_wasm(&op.lib) else {
             continue;
         };
-        ensure_i64_i64_i64_abi(op)?;
-        let wasm_host = WasmHostFn::new_i64_i64_i64(wasm_bytes, &op.host_fn).map_err(|e| {
+        let wasm_host = WasmHostFn::new(wasm_bytes, op).map_err(|e| {
             format!(
                 "三方 WASM 库 `{}` 的 op `{}.{}`（host_fn `{}`）host.wasm 装载失败：{e}",
                 op.lib, op.family, op.op, op.host_fn
@@ -103,23 +101,6 @@ pub fn register_wasm_library_hosts(
         host.register(op.family.clone(), op.op.clone(), Box::new(wasm_host));
     }
     Ok(())
-}
-
-/// 校验一个 op 契约符合本 demo WASM ABI 子集 `(Int, Int) -> Int`（标量 i64 直传）。
-///
-/// 超出子集（参数 / 返回含 `Text`/`Bool`/`Unit`/intent 包装,或参数个数 ≠ 2）一律诚实 `Err`——
-/// `WasmHostFn` 当前只实现 `(i64,i64)->i64`,不为未实现的 ABI 伪造 host。
-fn ensure_i64_i64_i64_abi(op: &OpContract) -> Result<(), String> {
-    let is_int = |t: &TypeDesc| matches!(t, TypeDesc::Scalar(Scalar::Int));
-    if op.params.len() == 2 && op.params.iter().all(is_int) && is_int(&op.returns) {
-        Ok(())
-    } else {
-        Err(format!(
-            "三方 WASM 库 `{}` 的 op `{}.{}` 签名超出当前 WASM host ABI 子集 (Int, Int) -> Int；\
-             更复杂签名（Text / intent / 多参）随 ABI 扩展后支持（见 docs/stdlib_design.md §六.1）",
-            op.lib, op.family, op.op
-        ))
-    }
 }
 
 /// 标准库 op 的**确定性 mock** 桶（path/url → 内容）。供测试 / 差测试预置数据。
@@ -247,41 +228,7 @@ mod tests {
         assert!(!host.has_op("Http", "Get"));
     }
 
-    /// 构造一个带 host.wasm 但签名超出 ABI 子集的三方库注册表 → 注册应诚实 `Err`（不伪造 host）。
-    #[test]
-    fn wasm_host_registration_rejects_out_of_abi_signature() {
-        // op 签名含 Text 参数,超出 (Int, Int) -> Int 子集。host.wasm 字节随意（ABI 校验在加载前）。
-        let content = LibraryContent {
-            dir_name: "badwasm".into(),
-            manifest_toml: r#"
-[library]
-name = "badwasm"
-summary = "签名超 ABI 子集的 WASM 库"
-abi_version = 1
-[[op]]
-family = "BadWasm"
-op = "Hash"
-params = ["Text"]
-returns = "Int"
-effectful = false
-host_fn = "bad_hash"
-[prompt]
-asset = "x.md"
-"#
-            .into(),
-            asset_text: "x".into(),
-            sophia_sources: vec![],
-            host_wasm: Some(vec![0, 1, 2, 3]),
-        };
-        let reg = LibraryRegistry::build(vec![content]).expect("build badwasm registry");
-        let mut host = HostRegistry::new();
-        let err =
-            register_wasm_library_hosts(&mut host, &reg).expect_err("签名超 ABI 子集应诚实 Err");
-        assert!(err.contains("ABI 子集"), "应报 ABI 子集不符：{err}");
-        assert!(!host.has_op("BadWasm", "Hash"), "失败时不应注册 host");
-    }
-
-    /// 签名符合 ABI 子集但 host.wasm 非法字节 → 加载失败诚实 `Err`（启动期暴露,不静默跳过）。
+    /// host.wasm 非法字节 → 加载失败诚实 `Err`（启动期暴露,不静默跳过）。
     #[test]
     fn wasm_host_registration_rejects_invalid_wasm_bytes() {
         let content = LibraryContent {

@@ -86,7 +86,8 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
       无 v1 演示需求触发（YAGNI 占位）。
 - [x] **A3 差测试（differential testing）**：同一 `.sophia` 经解释器与 WASM 后端执行，逐 hidden case
       比对结果一致（解释器为 oracle）；接入 CI 的确定性部分。**已完成（确定性核心）**——差测试夹具
-      `tools/codegen/tests/diff.rs`：emit + `wasmi` 执行 + 与解释器 oracle 逐 case 比对，19 个等价测试
+      `tools/codegen/tests/diff.rs`：emit + `sophia-runtime::WasmProgramRunner` 执行 + 与解释器 oracle 逐 case 比对，
+      24 个等价测试
       **覆盖全部 8 类值 + 全部语句/表达式形态 + 全部 effect**（benchmark L1–L6〔D1/D2/D3〕+ G2/G5 的程序
       形态：纯逻辑 / 错误代数 / `one of` / match / entity / state / Text / repeat / Console·Http·File +
       intent 转换）。在 `cargo test --workspace` 内、已接入 CI 确定性门禁。
@@ -95,14 +96,17 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
       产物上守 codegen，但仅在有 API key 时跑（example，不进 cargo test）。差测试现用**手写程序覆盖
       上述形态**，非字面复用 LLM 生成的候选（后者无静态 `.sophia` 源、无法直接复用）。见下「从 v0 结转」。
 - [x] **A4 effect / I/O 经 WASM imports**：副作用通过 host import 暴露；capability 边界在 host import 层
-      兑现（与解释器 `EffectHost` 同一份语义）。**已完成**——5 个 `sophia_host` import（console_write /
-      file_write / file_read / http_get / read_copy，字节级 ABI）；所有 module 统一声明、真实 vs mock host
-      由实例化方提供；差测试经纯 Rust mock host（seed_file/seed_http 同 `InMemoryHost`、未命中 trap）跑通
-      G2 Console / D2 Http+intent / D3 File 往返。
+      兑现（与解释器 `HostRegistry` 同一份语义）。**已完成**——固定 import 只保留
+      `sophia_host.console_write` / `sophia_host.read_copy`；库 operation 按当前 `LibraryRegistry` 动态生成
+      `sophia_lib:<library>.<host_fn>` import，并经 `ValueWire` 传参 / 返回。标准库 File/Http 与三方
+      `host.wasm` provider 都注册进 `HostRegistry`，codegen 不再硬编码 File/Http 分支；失败为硬错误 /
+      trap，绝不伪造成功。差测试和 CLI WASM 后端复用 `sophia-runtime::WasmProgramRunner`。
 - [x] **A5 strip-assist artifact 比对**：strip-assist 等价门禁扩展到 WASM artifact 字节级比对；
       `sophia build` 从 v0 空操作变为真正 emit。**已完成**——`sophia-codegen::check_artifact_strip_equivalence`
       （移除 assist 前后 emit 的 `.wasm` 逐字节相等，判据 3）；CLI `build` check 通过 → artifact 门禁 →
-      emit `program.wasm`；`smoke` 串通；未覆盖构造诚实报告不伪造。
+      emit `program.wasm` + `program.sophia-build.json` + 三方 `hosts/<lib>/host.wasm`；`run --backend wasm`
+      与 `smoke --backend wasm` 直接执行 build artifact，并校验 wasm hash、registry fingerprint 与三方 host
+      asset hash；未覆盖构造诚实报告不伪造。
 - [ ] **A6 增量查询架构**（Salsa 思想）：支撑 LSP 低延迟；与 codegen 解耦，可并行推进。**尚未开始**
 
 
@@ -673,7 +677,7 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   `HirError::LibrarySourceParse`。**跨 domain 豁免**（唯一触及语言核心）:`AsgIndex.library_domains` +
   `is_library_domain` + `resolve` 对「用户 → 库 domain」放行 `ImplicitCrossDomain`（用户↔用户仍受检）。
   **WASM host**:`wasmi` 提为 `sophia-runtime` 正式依赖 + `runtime::WasmHostFn`（持 `host.wasm` 实例,统一
-  字节 ABI,标量 i64 直传;`wasm-encoder` dev-dep 测试时生成 host.wasm）。**两演示库**:`hash_sophia`（纯
+  ValueWire provider ABI;`wasm-encoder` dev-dep 测试时生成 host.wasm）。**两演示库**:`hash_sophia`（纯
   Sophia 源码库,action `SophiaDigest`）/ `hash_wasm`（WASM-effect 库,op `WasmHash.Mix`,`effectful=false`）
   计算同一确定 digest。集成测试 `stdlib/tests/library_demo.rs` 验收:发现 + 注册表合并 + 跨 domain 豁免 +
   纯 Sophia 库执行 + WASM 库经 WasmHostFn 执行 + 两库逐位相等,全确定进门禁。**否决 sqlite 作首例**（沙箱
@@ -687,13 +691,34 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
   经新增 `library_context(root)` 把库随附 Sophia 源码（`LibrarySources`）并入 program inputs + asts——纯
   Sophia 库节点（如 `SophiaDigest`）须建模才可解析/执行;owned AST 在命令函数作用域持有,活到 resolve+analyze+run
   全程。③ `native_host` 新增 `register_wasm_library_hosts(host, registry)`(遍历注册表 `host.wasm` 库注册
-  `WasmHostFn`,ABI 子集 `(Int,Int)->Int` 校验 + 装载失败诚实 `Err`);`sophia run` 的 `run_interpreter_action` 统一
+  `WasmHostFn`,provider 装载失败诚实 `Err`);`sophia run` 的 `run_interpreter_action` 统一
   注册三方 WASM host（无条件,据 registry.host_wasm）+ 标准库 native host（按入口 effect 按需）,替换原
   `run_with_default_host`/`run_with_real_host`。④ `tools/check::check_strip_assist_equivalence` 改 registry-aware
   （`(sources, registry, index)`,两侧对称并入库源码 + 同一 registry,否则用户引用库节点会让 strip 前后名称
   解析不对称误判）;`check_program` 并入库源码。⑤ graph gate（hidden-case 模型构建）/ design / implement-loop
   与 LSP / codegen 仍用 `standard_registry`（确定性子门禁,三方发现是启动行为不进门禁）。**手动 smoke**:项目带
   `./sophia_libs/{hash_sophia,hash_wasm}`,`check` 通过、`run ViaSophia`/`run ViaWasm` 均得同一 digest 210523。
-  全工作区 **372 passed / 0 failed**（+3 WASM host 注册单测:标准库 no-op、ABI 子集外拒绝、非法 wasm 字节拒绝）,
+  全工作区 **372 passed / 0 failed**（+WASM host 注册单测:标准库 no-op、非法 wasm 字节拒绝）,
   clippy（`-D warnings`）0 警告,fmt clean。库文档（`stdlib_design` §五.1/§五.3/变更记录、`stdlib_implementation`
   §2.3/§三/变更记录）措辞由「后续项」改「已落地」。
+- 2026-06-03 — **三方 `host.wasm` ValueWire provider ABI 落地（补齐 WASM runner 缺口 3）**。删除
+  `runtime::WasmHostFn::new_i64_i64_i64` 直传 ABI，唯一入口改为 `WasmHostFn::new(wasm_bytes, op_contract)`；
+  provider 必须导出 `memory` / `sophia_alloc` / `sophia_read_copy` / `host_fn(args_ptr,args_len)->result_len`。
+  `runtime::value_wire` 成为 VM runner 与三方 provider 共享的 Unit/Bool/Int/Text 编解码实现，intent 在边界擦除。
+  `hash_wasm` fixture 改生成 provider ABI；`register_wasm_library_hosts` 不再拒绝 Text/Unit/intent 签名，失败只来自
+  装载 / 导出 / 签名 / trap / ValueWire 类型不匹配等硬错误。新增 runtime Text→Text provider 单测与 codegen
+  VM 动态 import → HostRegistry → 三方 provider 差测试。
+- 2026-06-03 — **WASM build bundle manifest 初版落地**。复盘 WASM 运行方案后确认 P1-P4 主线
+  已等同或优于文档，P5 的 manifest / host asset hash gate 仍是文档方案更优，遂在 CLI 协调层补齐：
+  `sophia build` 写 `program.sophia-build.json` + 拷贝三方 `hosts/<lib>/host.wasm`，manifest 记录
+  `registry_fingerprint`、`wasm_sha256`、动态 import 清单、provider 类型与 host wasm hash；`run --backend wasm`
+  运行前校验 manifest 存在、program.wasm hash、当前 registry fingerprint 与 host asset hash，不一致硬错误提示重建。
+  保留现有单一路径：仍从当前项目源码 / registry 构建 `SemanticModel`，不实现离线 bundle loader / registry drift
+  fallback。新增 CLI pipeline 覆盖 manifest 写入、缺 manifest 拒绝、registry fingerprint drift 拒绝。
+- 2026-06-03 — **WASM 运行目标收尾与文档归档**。确认目标边界为「归拢路径，支持直接执行项目 build 生成物」：
+  `sophia run --backend wasm` 与 `sophia smoke --backend wasm` 均执行 `sophia-runs/build/program.wasm`，并通过
+  manifest 校验 `wasm_sha256`、`registry_fingerprint` 与三方 host asset hash；解释器、codegen 差测试和 CLI
+  WASM backend 复用 `sophia-runtime::WasmProgramRunner` / `HostRegistry` / `ValueWire` 单一路径。已完成问题合并
+  到本 checklist，未来可扩展方向（entry-scoped artifact、离线 bundle loader、任意 `.wasm` 路径、trace
+  instrumentation、浏览器 / Node loader、ValueWire 扩展）移入 `wasm_codegen.md` §十一；删除独立运行方案文档，
+  避免重复状态源。

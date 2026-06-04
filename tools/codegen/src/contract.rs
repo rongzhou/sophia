@@ -29,7 +29,7 @@
 //! - **不引入新 IR 层**：没有 lowered body IR、没有 codegen 专用中间表示（YAGNI + 避免双真相源）。
 
 use sophia_exec_ir::ExecGraph;
-use sophia_hir::AsgIndex;
+use sophia_hir::{AsgIndex, LibraryRegistry};
 use sophia_semantic::SemanticModel;
 use sophia_syntax::Ast;
 
@@ -51,6 +51,8 @@ pub struct CodegenInput<'a> {
     /// emit 重算 `TypeTable` 时类型层据此对 `Lib.Op(args)` 给出返回类型（表驱动，见
     /// docs/stdlib_design.md）；nodes 来自 `model`，故这里只需 library-only index。
     lib_index: AsgIndex,
+    /// 完整库注册表。emit 阶段据此从实际使用到的库 op 派生 host import 表。
+    registry: &'a LibraryRegistry,
 }
 
 impl<'a> CodegenInput<'a> {
@@ -62,7 +64,7 @@ impl<'a> CodegenInput<'a> {
     pub fn new(
         model: &'a SemanticModel,
         asts: &'a [&'a Ast],
-        registry: &sophia_hir::LibraryRegistry,
+        registry: &'a LibraryRegistry,
     ) -> Self {
         let graph = ExecGraph::from_model(model, asts);
         let lib_index = AsgIndex::new(registry);
@@ -71,6 +73,7 @@ impl<'a> CodegenInput<'a> {
             asts,
             graph,
             lib_index,
+            registry,
         }
     }
 
@@ -92,5 +95,10 @@ impl<'a> CodegenInput<'a> {
     /// 库契约 index（只读，供 emit 重算 TypeTable 时类型层查 `library_op`）。
     pub fn lib_index(&self) -> &AsgIndex {
         &self.lib_index
+    }
+
+    /// 完整库注册表（只读）。
+    pub fn registry(&self) -> &LibraryRegistry {
+        self.registry
     }
 }

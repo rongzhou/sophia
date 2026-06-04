@@ -10,4 +10,5 @@
 - `WasmHash.Mix(seed, value)`：输入两个整数，输出整数 digest（同 `SophiaDigest`）。纯计算
   （`effectful = false`），调用形态为特殊根 `WasmHash.Mix(s, v)`，无需 effect / capability 声明。
 
-> host 由库目录下的 `host.wasm` 提供（导出 `wasm_hash_mix(i64, i64) -> i64`，统一字节 ABI）。
+> host 由库目录下的 `host.wasm` 提供（导出 `memory`、`sophia_alloc`、`sophia_read_copy`、
+> `wasm_hash_mix(args_ptr, args_len) -> result_len`，统一 ValueWire ABI）。
