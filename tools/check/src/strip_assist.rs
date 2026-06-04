@@ -31,19 +31,22 @@ pub struct StripAssistOutcome {
 ///
 /// 比对覆盖**整个 Semantic IR 的可观测投影**（design 5.1 要求 Semantic IR 不变）：
 /// 形式核心指纹（声明 IR）+ 语义三层诊断输出（type/effect/contract 分析结果）。
-/// 任一不同即判定 strip-assist 改变了形式核心 / IR。指纹只覆盖**用户源码**（库源码两侧相同、相消）。
+/// 任一不同即判定 strip-assist 改变了形式核心 / IR。指纹覆盖用户源码 + 库源码的完整语义投影；
+/// 库源码两侧相同，但纳入指纹能保证库节点 / 库诊断不会在 strip-assist 门禁里被遗漏。
 pub fn check_strip_assist_equivalence(
     sources: &[(String, String, String)],
     registry: &LibraryRegistry,
     original_index: &sophia_hir::AsgIndex,
 ) -> CheckResult<StripAssistOutcome> {
-    // 原始：模型指纹 + 语义诊断（用户 AST，库上下文由 original_index 提供）。
-    let original_asts: Vec<Ast> = parse_all(sources, false)?;
-    let original_fp = ir_fingerprint(&original_asts, original_index);
-
     // 库源码（与原始侧并入 index 的同一批）——stripped 侧须对称并入，否则库节点 / 库 op 解析不对称。
     let lib_srcs = LibrarySources::from_registry(registry)
         .map_err(|e| CheckError::IndexBuild(e.to_string()))?;
+
+    // 原始：模型指纹 + 语义诊断（用户 AST + 库 AST，index 由调用方传入且已包含两者）。
+    let original_asts: Vec<Ast> = parse_all(sources, false)?;
+    let mut original_refs: Vec<&Ast> = original_asts.iter().collect();
+    original_refs.extend(lib_srcs.asts());
+    let original_fp = ir_fingerprint(&original_refs, original_index);
 
     // stripped：移除 assist 后重新构建 index 与指纹（并入同一批库源码 + 同一 registry）。
     let stripped_asts: Vec<Ast> = parse_all(sources, true)?;
@@ -55,7 +58,9 @@ pub fn check_strip_assist_equivalence(
     stripped_inputs.extend(lib_srcs.program_inputs());
     let (stripped_index, _diags) = resolve_program(&stripped_inputs, registry)
         .map_err(|e| CheckError::IndexBuild(e.to_string()))?;
-    let stripped_fp = ir_fingerprint(&stripped_asts, &stripped_index);
+    let mut stripped_refs: Vec<&Ast> = stripped_asts.iter().collect();
+    stripped_refs.extend(lib_srcs.asts());
+    let stripped_fp = ir_fingerprint(&stripped_refs, &stripped_index);
 
     if original_fp == stripped_fp {
         Ok(StripAssistOutcome {
@@ -79,10 +84,9 @@ fn parse_all(sources: &[(String, String, String)], strip: bool) -> CheckResult<V
 }
 
 /// Semantic IR 指纹：声明模型形式核心指纹 + 语义三层诊断（确定性顺序）。
-fn ir_fingerprint(asts: &[Ast], index: &AsgIndex) -> String {
-    let refs: Vec<&Ast> = asts.iter().collect();
-    let model_fp = fingerprint(&refs, index);
-    let analysis = analyze_program(&refs, index);
+fn ir_fingerprint(asts: &[&Ast], index: &AsgIndex) -> String {
+    let model_fp = fingerprint(asts, index);
+    let analysis = analyze_program(asts, index);
     let diag_fp: String = analysis
         .diagnostics
         .iter()

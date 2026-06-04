@@ -5,8 +5,9 @@
 //!
 //! **首要不变量**：解释器是唯一语义真相源。任何不一致 = WASM 后端有 bug，**绝不**调和 / 伪造一致。
 //!
-//! W2 覆盖标量核心（Int / Bool / Null + 算术 / 比较 / 布尔 / 一元 / if-else / let-set / return /
-//! 跨调用），故差测试程序限于该子集；含 match / Text / effect 等的程序待后续增量纳入。
+//! 差测试覆盖当前 WASM 后端能力：标量核心、错误代数、one-of / match、Entity、State、Text、
+//! repeat、Console.Write、标准库 mock host 与三方 ValueWire provider。未覆盖能力必须诚实
+//! `NotYetImplemented`，不能在差测试里调和结果。
 
 use sophia_codegen::{emit_module, CodegenInput};
 use sophia_hir::{resolve_program, LibraryContent, LibraryRegistry, ProgramInput};

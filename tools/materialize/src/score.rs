@@ -168,13 +168,33 @@ fn bool_score(pass: bool) -> f64 {
 
 /// 统计候选源码中声明的 effect / capability 数（capability_minimality 的可度量信号）。
 ///
-/// 起步阶段用轻量文本计数：`effects {` 块与 `capability:` 绑定的出现次数。这是确定性的
-/// 结构性度量（非语义分析）——权限声明越多，最小权限分越低。
+/// 优先走 Sophia AST：顶层 `effect` 声明 + action/transition 的 `capability:` 绑定与
+/// `effects { ... }` 声明。
+/// 若候选源码尚不可解析，评分层不放大错误，保守退回旧的文本计数；真正的语法/语义失败由
+/// compile gate 决断。
 fn effect_capability_decls(files: &[(String, String)]) -> usize {
     files
         .iter()
-        .map(|(_, content)| {
-            content.matches("effects {").count() + content.matches("capability:").count()
+        .map(|(_, content)| structured_effect_capability_decls(content))
+        .sum()
+}
+
+fn structured_effect_capability_decls(content: &str) -> usize {
+    let Ok(ast) = sophia_syntax::parse_ast(content) else {
+        return text_effect_capability_decls(content);
+    };
+    ast.items
+        .iter()
+        .map(|item| match item {
+            sophia_syntax::Item::Effect(_) => 1,
+            sophia_syntax::Item::Action(c) | sophia_syntax::Item::Transition(c) => {
+                usize::from(c.capability.is_some()) + c.effects.len()
+            }
+            _ => 0,
         })
         .sum()
+}
+
+fn text_effect_capability_decls(content: &str) -> usize {
+    content.matches("effect ").count() + content.matches("capability:").count()
 }

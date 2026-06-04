@@ -2232,7 +2232,7 @@ impl FnEmitter<'_> {
 
     fn emit_call(&mut self, callee: &str, args: &[ExprId]) -> CodegenResult<()> {
         if callee == "to_text" {
-            return Err(unsupported("to_text（Text 待后续增量）"));
+            return Err(unsupported("to_text 内建转换（待后续增量）"));
         }
         let Some(&idx) = self.func_index.get(callee) else {
             return Err(CodegenError::InvalidInput(format!(

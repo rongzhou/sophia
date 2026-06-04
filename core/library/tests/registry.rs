@@ -223,6 +223,31 @@ asset = "dup.md"
 }
 
 #[test]
+fn rejects_manifest_source_content_mismatch() {
+    let c = LibraryContent {
+        dir_name: "pure".into(),
+        manifest_toml: r#"
+[library]
+name = "pure"
+summary = "x"
+abi_version = 1
+
+[surface]
+sophia_sources = ["src/A.sophia"]
+
+[prompt]
+asset = "pure.md"
+"#
+        .into(),
+        asset_text: "x".into(),
+        sophia_sources: vec![("src/B.sophia".into(), "action B {}".into())],
+        host_wasm: None,
+    };
+    let err = LibraryRegistry::build(vec![c]).unwrap_err();
+    assert!(matches!(err, LibraryError::SophiaSourcesMismatch { .. }));
+}
+
+#[test]
 fn loads_sophia_source_library_into_lib_domain() {
     let c = LibraryContent {
         dir_name: "geo".into(),
@@ -239,7 +264,7 @@ asset = "geo.md"
         .into(),
         asset_text: "x".into(),
         sophia_sources: vec![(
-            "geo/actions/Area.sophia".into(),
+            "src/area.sophia".into(),
             "action Area { input { w: Int; h: Int } output { a: Int } body { return w * h } }"
                 .into(),
         )],

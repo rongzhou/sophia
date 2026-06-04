@@ -24,7 +24,7 @@ asset = "math.md"
         .into(),
         asset_text: "x".into(),
         sophia_sources: vec![(
-            "math_lib/src/inc.sophia".into(),
+            "src/inc.sophia".into(),
             "action Inc { input { n: Int } output { r: Int } body { return n + 1 } }".into(),
         )],
         host_wasm: None,

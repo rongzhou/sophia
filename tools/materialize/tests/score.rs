@@ -116,6 +116,40 @@ fn fewer_capability_decls_score_higher_minimality() {
 }
 
 #[test]
+fn capability_minimality_ignores_text_mentions_when_parseable() {
+    let plain = files(
+        "action A { input { x: Int } output { y: Int } body { print \"capability:\" return x } }",
+    );
+    let bound =
+        files("action A { capability: C input { x: Int } output { y: Int } body { return x } }");
+    let score_plain = score_candidate(
+        &ScoreInputs {
+            compile_pass: true,
+            tests_pass: true,
+            constraints_pass: true,
+            files: &plain,
+            pseudocode_clarity: None,
+        },
+        &ScoreWeights::default(),
+    );
+    let score_bound = score_candidate(
+        &ScoreInputs {
+            compile_pass: true,
+            tests_pass: true,
+            constraints_pass: true,
+            files: &bound,
+            pseudocode_clarity: None,
+        },
+        &ScoreWeights::default(),
+    );
+
+    assert!(
+        score_plain.capability_minimality > score_bound.capability_minimality,
+        "字符串里的 capability: 不应按权限声明计数"
+    );
+}
+
+#[test]
 fn ranking_is_deterministic_with_stable_tiebreak() {
     // 完全相同的候选：overall 相等 → 按原始下标升序（确定性平局打破）。
     let fs = files("action A { input { x: Int } output { y: Int } body { return x } }");

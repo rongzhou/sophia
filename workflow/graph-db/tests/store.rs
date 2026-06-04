@@ -421,6 +421,10 @@ fn concurrent_open_stores_allocate_distinct_node_ids() {
 fn node_id_roundtrip() {
     assert_eq!(NodeId(1).as_string(), "N0001");
     assert_eq!(NodeId::parse("N0042"), Some(NodeId(42)));
+    assert_eq!(NodeId::parse("N0000"), None);
+    assert_eq!(NodeId::parse("N1"), None);
+    assert_eq!(NodeId::parse("N01"), None);
+    assert_eq!(NodeId::parse("N00001"), None);
     assert_eq!(NodeId::parse("bad"), None);
 }
 

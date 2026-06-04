@@ -69,6 +69,10 @@ pub enum LibraryError {
     /// 清单 name 与目录名不一致。
     #[error("库目录名 `{dir}` 与清单 name `{name}` 不一致")]
     NameMismatch { dir: String, name: String },
+
+    /// 清单声明的 Sophia 源码路径集合与调用方提供的源码集合不一致。
+    #[error("库 `{lib}` 的 Sophia 源码集合与清单不一致：{reason}")]
+    SophiaSourcesMismatch { lib: String, reason: String },
 }
 
 /// 库层结果别名。

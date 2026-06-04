@@ -113,6 +113,9 @@ struct CandidateFile {
 #[derive(Debug, Clone, Deserialize)]
 struct ImplementResult {
     files: Vec<CandidateFile>,
+    #[serde(rename = "changes")]
+    #[serde(default)]
+    _changes: Vec<String>,
 }
 
 /// 设计步骤产物：新建的 PseudocodeNode 与其 `.pseudo` 正文（供上层落盘）。
@@ -125,6 +128,65 @@ pub struct PseudocodeArtifact {
     /// design 阶段 LLM 从库目录选中的标准库名（implement / repair 据此注入完整库资产）。
     /// 默认空 = 不用库。见 docs/stdlib_design.md §三。
     pub libraries: Vec<String>,
+}
+
+#[cfg(test)]
+mod schema_contract_tests {
+    use super::*;
+
+    fn assert_schema_accepts(schema_name: &str, value: &Value) {
+        let schema = step_schema(schema_name);
+        let validator = jsonschema::validator_for(&schema).expect("schema should compile");
+        assert!(
+            validator.is_valid(value),
+            "{schema_name} should accept {value}"
+        );
+    }
+
+    #[test]
+    fn design_schema_deserializes_to_dto() {
+        let value = serde_json::json!({
+            "purpose": "solve",
+            "pseudocode": "return input",
+            "libraries": []
+        });
+        assert_schema_accepts("design_result", &value);
+        let dto: DesignResult = serde_json::from_value(value).unwrap();
+        assert_eq!(dto.purpose, "solve");
+    }
+
+    #[test]
+    fn decompose_schema_deserializes_to_dto() {
+        let value = serde_json::json!({
+            "rationale": "split",
+            "children": [
+                {"title": "A", "description": "first"},
+                {"title": "B", "description": "second"}
+            ]
+        });
+        assert_schema_accepts("decompose_result", &value);
+        let dto: DecomposeResult = serde_json::from_value(value).unwrap();
+        assert_eq!(dto.children.len(), 2);
+    }
+
+    #[test]
+    fn implement_and_repair_schemas_deserialize_to_dto() {
+        let implement = serde_json::json!({
+            "files": [{"path": "D/actions/A.sophia", "content": "action A {}"}]
+        });
+        assert_schema_accepts("implement_result", &implement);
+        let dto: ImplementResult = serde_json::from_value(implement).unwrap();
+        assert_eq!(dto.files.len(), 1);
+        assert!(dto._changes.is_empty());
+
+        let repair = serde_json::json!({
+            "files": [{"path": "D/actions/A.sophia", "content": "action A {}"}],
+            "changes": ["fixed"]
+        });
+        assert_schema_accepts("repair_result", &repair);
+        let dto: ImplementResult = serde_json::from_value(repair).unwrap();
+        assert_eq!(dto._changes, vec!["fixed"]);
+    }
 }
 
 /// 实现 / 修复步骤产物：新建的 CodeNode 与候选文件（path → content）。

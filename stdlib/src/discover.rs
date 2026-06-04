@@ -114,7 +114,7 @@ fn discover_root(root: &Path) -> Result<Vec<LibraryContent>> {
 }
 
 /// 读一个库目录:`library.toml` + 资产（清单 `[prompt].asset`）+ Sophia 源码（清单
-/// `[surface].sophia_sources`,逻辑路径用「库名/相对路径」以隔离 domain）。
+/// `[surface].sophia_sources`）。源码逻辑路径保持为库内相对路径；库名/domain 由注册表单独保存。
 fn read_library_dir(dir: &Path) -> Result<LibraryContent> {
     let dir_name = dir
         .file_name()
@@ -135,8 +135,7 @@ fn read_library_dir(dir: &Path) -> Result<LibraryContent> {
     let mut sophia_sources = Vec::new();
     for rel in &raw.surface.sophia_sources {
         let source = read_file(&dir.join(rel))?;
-        // 逻辑路径「<库名>/<相对路径>」——domain 由注册表设为库名（隔离,见 registry.rs）。
-        sophia_sources.push((format!("{dir_name}/{rel}"), source));
+        sophia_sources.push((rel.clone(), source));
     }
 
     // 库目录下 `host.wasm`（三方 WASM-effect 库提供）：存在则读字节,缺失为 None（纯 Sophia /
@@ -194,5 +193,40 @@ mod tests {
         let roots = env_roots_from(&path_var);
 
         assert_eq!(roots, vec![a, b]);
+    }
+
+    #[test]
+    fn discovered_sophia_sources_keep_manifest_relative_paths() {
+        let root = temp_dir("relative_sources");
+        let lib = root.join("math_sophia");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(lib.join("src")).expect("create lib");
+        std::fs::write(
+            lib.join("library.toml"),
+            r#"[library]
+name = "math_sophia"
+summary = "测试库"
+abi_version = 1
+
+[surface]
+sophia_sources = ["src/double.sophia"]
+
+[prompt]
+asset = "math_sophia.md"
+"#,
+        )
+        .expect("write manifest");
+        std::fs::write(lib.join("math_sophia.md"), "测试资产").expect("write asset");
+        std::fs::write(
+            lib.join("src/double.sophia"),
+            "action LibDouble { input { n: Int } output { y: Int } body { return n + n } }",
+        )
+        .expect("write source");
+
+        let contents = discover_root(&root).expect("discover root");
+
+        assert_eq!(contents.len(), 1);
+        assert_eq!(contents[0].sophia_sources[0].0, "src/double.sophia");
+        std::fs::remove_dir_all(&root).ok();
     }
 }

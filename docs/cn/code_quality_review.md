@@ -56,17 +56,18 @@ cargo clippy -p sophia-syntax -p sophia-hir -p sophia-library -p sophia-semantic
    - 风险：核心内置 effect 与库 effect 的边界被用户声明破坏，capability/effect 检查结果可能漂移。
    - 建议：把与 builtin/library effect op 的冲突作为 HIR hard error 或 diagnostic；补覆盖内置、库 op 冲突的测试。
 
-4. 中低优先级：`LibraryRegistry` 未校验 manifest 的 `[surface].sophia_sources` 与传入 `LibraryContent.sophia_sources` 是否一致。
+4. 中低优先级：`LibraryRegistry` 未校验 manifest 的 `[surface].sophia_sources` 与传入 `LibraryContent.sophia_sources` 是否一致。（已修复）
    - 位置：`core/library/src/registry.rs`。
    - 现象：只要 manifest 或 content 任一侧非空，就登记调用方传入的 Sophia sources；manifest 中声明的路径列表没有被核对。
    - 风险：“清单是单一真相源”的约束被削弱，后续 build bundle/registry fingerprint 也更依赖调用方正确组装。
    - 建议：registry 层校验 manifest 路径集合与 `LibraryContent` 路径集合一致，缺失/多余均报错。
+   - 修复：`LibraryRegistry` 新增 `SophiaSourcesMismatch`，要求 manifest 路径集合与传入源码路径集合完全一致，并拒绝重复路径。已补 mismatch 回归测试；三方库发现层也改为传入 manifest 中的库内相对路径。
 
 建议修复顺序：
 
 1. 已完成 callable arity 检查与 error variant 构造字段检查。
 2. 下一步修复 effect op 冲突检查。
-3. 收紧 library surface source 一致性校验。
+3. 已收紧 library surface source 一致性校验。
 
 ## 2026-06-04 — runtime 模块
 
@@ -117,17 +118,18 @@ cargo clippy -p sophia-runtime -- -D warnings
    - 风险：这会放大 core semantic 中“variant 构造未检查”的问题；错误可能在顶层 `Outcome::Raised` 中以结构不完整的领域错误出现。
    - 建议：优先在 semantic 层修复 variant 构造。runtime 侧只在外部/动态构造入口做轻量契约断言或统一 outcome validate，不维护第二套完整 variant 类型系统。
 
-4. 中低优先级：WASM runner 写入入参内存前缺少与 provider 侧一致的长度/负指针防御。
+4. 中低优先级：WASM runner 写入入参内存前缺少与 provider 侧一致的长度/负指针防御。（已修复）
    - 位置：`runtime/src/wasm_program.rs` 的 `write_bytes`。
    - 现象：`bytes.len() as i32` 未检查溢出，`sophia_alloc` 返回负指针后会转成巨大 `usize` 交给 `memory.write`。
    - 风险：通常仍会以 wasmi 内存错误失败，但诊断不如 `WasmHostFn` provider 侧明确；边界代码风格不一致。
    - 建议：复用类似 `checked_i32_len` 的长度检查，并显式拒绝负指针。
+   - 修复：`WasmProgramRunner::write_bytes` 增加 `checked_i32_len`，拒绝超过 i32 的入参字节长度；`sophia_alloc` / `read_copy` 返回负指针时直接结构化报错。已补长度边界单元测试。
 
 建议修复顺序：
 
 1. core semantic 的 callable/variant 静态检查已完成；继续补 transition 构造静态检查。
 2. runtime host 缺失诊断已修复；继续补字段集合契约边界：semantic 修复前可临时 hard error，修复后降为轻量断言/测试。
-3. 补 WASM runner `write_bytes` 的长度和负指针检查。
+3. 已补 WASM runner `write_bytes` 的长度和负指针检查。
 
 ## 2026-06-04 — stdlib 模块
 
@@ -226,17 +228,18 @@ cargo clippy -p sophia-check -- -D warnings
    - 风险：调用方若误以为 `check_program` 等价于项目完整 check，会漏掉三方库纯 Sophia 源码与三方 op 契约。
    - 修复：保留 `check_program` 作为标准库-only helper；新增 `check_program_with_registry(sources, registry)`，调用方可传项目启动期发现的完整 registry。两者共用同一内部检查路径，避免标准库路径与项目路径分叉，并补充纯 Sophia 库源码并入回归测试。
 
-3. 中低优先级：strip-assist 指纹只用用户 AST，不把库 AST 纳入 `ir_fingerprint`。
+3. 中低优先级：strip-assist 指纹只用用户 AST，不把库 AST 纳入 `ir_fingerprint`。（已修复）
    - 位置：`tools/check/src/strip_assist.rs`。
    - 现象：stripped 侧构建 index 时并入库源码，但指纹/语义分析只传用户 AST。
    - 风险：对于依赖纯 Sophia 三方库的项目，strip-assist 门禁比完整 semantic check 的上下文弱；当前标准库无 Sophia 源码，因此标准路径不受影响。
    - 建议：若新增 `check_program_with_registry`，strip-assist 比对应与主 check 使用同一批 `user AST + library AST`，或明确只验证用户源码 assist 与用户声明 IR。
+   - 修复：`check_strip_assist_equivalence` 的原始侧与 stripped 侧指纹均使用同一批 `user AST + library AST`；纯 Sophia 库 fixture 已覆盖库源码并入后的等价检查。
 
 建议修复顺序：
 
 1. 让 `check_program` / strip-assist 解析失败返回结构化 `CheckError`。
 2. 新增 registry-aware 的 `check_program_with_registry`。
-3. 统一 strip-assist 与主 check 的 AST 上下文，覆盖纯 Sophia 三方库测试。
+3. 已统一 strip-assist 与主 check 的 AST 上下文，覆盖纯 Sophia 三方库测试。
 
 ## 2026-06-04 — tools/audit 与 tools/materialize 模块
 
@@ -280,24 +283,26 @@ cargo clippy -p sophia-audit -p sophia-materialize -- -D warnings
    - 风险：注释写“不触碰已有目标文件”与“文件集合原子写入”容易过度承诺；实际只能保证 staging 写入阶段失败不触碰目标，rename 阶段不是全有或全无。
    - 修复：修正 `tools/materialize` 注释和中英文 `language_design` 表述为“staging 阶段失败不触碰目标；单文件替换原子，集合非事务”。没有引入备份回滚或版本目录，避免在未设计完整提交协议前制造伪事务。
 
-3. 中低优先级：`.sophia-staging` 固定目录会让并发 materialize 互相干扰。
+3. 中低优先级：`.sophia-staging` 固定目录会让并发 materialize 互相干扰。（已修复）
    - 位置：`tools/materialize/src/write.rs`。
    - 现象：每次写入都删除 `target_root/.sophia-staging`。
    - 风险：两个进程/线程同时向同一 target root materialize 时，一个任务可能删除另一个任务的 staging。
    - 建议：staging 目录加唯一后缀（pid + nonce），最终清理自身目录；必要时再加 target root 级 lock。
+   - 修复：staging 目录改为 `pid + nonce` 唯一路径，只清理本次写入创建的 staging；回归测试确认固定 `.sophia-staging` 目录不会被误删。
 
-4. 中低优先级：`capability_minimality` 使用文本计数，和真实语法/语义不完全一致。
+4. 中低优先级：`capability_minimality` 使用文本计数，和真实语法/语义不完全一致。（已修复）
    - 位置：`tools/materialize/src/score.rs`。
    - 现象：通过 `content.matches("effects {")` 与 `content.matches("capability:")` 计数。
    - 风险：作为排序弱信号可以接受，但格式变化、注释、字符串字面量都可能影响分数；不应被误认为语义级权限最小化证明。
    - 建议：若排序权重提高，改为基于 AST/semantic model 统计 declared effects 与 capability binding；当前保留时需在文档中标明是启发式弱信号。
+   - 修复：可解析 Sophia 文件优先通过 AST 统计 effect 声明与 callable capability/effects 绑定；解析失败时才退回文本启发式，并补注释/字符串提及不影响可解析文件计数的回归测试。
 
 建议修复顺序：
 
 1. 明确或调整 `Forbidden` 约束的 gate 语义。
 2. 已修正 materialize 原子性文档：单文件替换原子，集合非事务。
-3. 为 staging 目录加唯一后缀并考虑并发 lock。
-4. 将 capability minimality 统计升级为 AST/semantic 统计。
+3. 已将 materialize staging 目录改为唯一目录，避免并发写入互删。
+4. 已将 `capability_minimality` 的主路径改为 AST 统计。
 
 ## 2026-06-04 — tools/codegen 模块
 
@@ -349,24 +354,26 @@ cargo clippy -p sophia-codegen -- -D warnings
    - 建议：先修 core callable arity。codegen 侧可在过渡期返回 `CodegenError::InvalidInput` 或使用 `debug_assert` 暴露契约破坏；长期不必复制完整 arity/type checker，只需依赖 `CodegenInput` prechecked 契约并补 contract/diff tests。
    - 修复：`emit_call` 在实参求值前显式比较 AST call args 与 `SemanticModel.callables[callee].inputs`，不匹配时返回 `CodegenError::InvalidInput`。已补篡改 prechecked 模型签名的契约回归测试，防止生成栈签名不匹配的 WASM。
 
-4. 中低优先级：模块文档和测试注释仍停留在 W2 早期阶段，低估了当前实现能力。
+4. 中低优先级：模块文档和测试注释仍停留在 W2 早期阶段，低估了当前实现能力。（已修复）
    - 位置：`tools/codegen/src/lib.rs`、`tools/codegen/src/abi.rs`、`tools/codegen/tests/diff.rs` 的顶部注释。
    - 现象：文档仍写 `match` / `repeat` / `raise` / `print` / Text / Entity / State / effect 未覆盖，但当前实现和差分测试已经覆盖其中多数能力。
    - 风险：维护者可能按过期阶段说明做决策，误判哪些 NotYetImplemented 是真实缺口，哪些已经落地。
    - 建议：把阶段说明改成“当前已覆盖能力 + 已知未覆盖能力”列表；`to_text` 等仍未实现项单独列为已知缺口。
+   - 修复：codegen crate 文档、ABI 注释与 diff 测试说明已改为当前覆盖能力和已知缺口清单。
 
-5. 低优先级：`to_text` 的 NotYetImplemented 文案已经不准确。
+5. 低优先级：`to_text` 的 NotYetImplemented 文案已经不准确。（已修复）
    - 位置：`tools/codegen/src/emit.rs` 的 `emit_call`。
    - 现象：`to_text` 返回 `to_text（Text 待后续增量）`，但 Text 值、拼接、长度、相等已经被 WASM 路径支持。
    - 风险：错误信息会误导排查，以为整体 Text 尚未支持。
    - 建议：更新为“`to_text` 内建转换尚未支持”，并在 wasm codegen 已知缺口中列明。
+   - 修复：错误文案已更新为 `to_text 内建转换（待后续增量）`，并在 codegen 已知缺口中单独列明。
 
 建议修复顺序：
 
 1. 已完成 `repeat` 的 `i64 -> i32` 语义漂移修复与差分边界测试。
 2. 已完成 codegen callable arity 契约防线。
 3. 明确 `emit_from_sources` 是 checked 边界还是 prechecked fast path，并据此调整 API。
-4. 更新 codegen 阶段文档、ABI 注释、diff 测试注释与 `to_text` 错误文案。
+4. 已更新 codegen 阶段文档、ABI 注释、diff 测试注释与 `to_text` 错误文案。
 
 ## 2026-06-04 — workflow/graph-db 模块
 
@@ -429,11 +436,12 @@ cargo clippy -p sophia-graph-db -- -D warnings
    - 建议：在 `validate_payload` 中重新对 canonical snapshot JSON 计算 SHA-256 并比较 digest；或把 `ContextSnapshotPayload` 构造函数收敛为 `from_active_context`，字段私有化，避免调用方手填 digest。
    - 修复：`validate_payload` 对 `ContextSnapshotPayload.snapshot` 重算 digest 并与 payload digest 比较；真实 ActiveContext snapshot 复用 active context digest body，普通 JSON snapshot 用稳定 JSON 串计算。已补 digest 与内容不一致拒绝测试，并更新测试 helper 使用 `{}` 的真实 SHA-256。
 
-5. 中低优先级：`NodeId::parse` 接受非规范字符串和 `N0000`。
+5. 中低优先级：`NodeId::parse` 接受非规范字符串和 `N0000`。（已修复）
    - 位置：`workflow/graph-db/src/ids.rs`。
    - 现象：注释声明规范形式为 `N{>=4 位零填充十进制}`，但解析逻辑只检查 `N` 前缀后可解析为 `u32`，因此 `N1`、`N01`、`N0000` 都可通过。
    - 风险：正常序列化路径不会产生这些值，但外部 JSON/import/recovery 数据会进入非规范 ID，影响审计可读性和潜在唯一性假设。
    - 建议：解析时要求 `N` 后至少 4 位、全数字、值大于 0，并校验 `s == NodeId(value).as_string()`；补反序列化拒绝非规范 ID 的测试。
+   - 修复：`NodeId::parse` 现在要求 `N` 后至少 4 位、全数字、值大于 0，且输入必须等于 `NodeId(value).as_string()`；已补拒绝 `N0000`、`N1`、`N01`、`N00001` 的测试。
 
 建议修复顺序：
 
@@ -441,7 +449,7 @@ cargo clippy -p sophia-graph-db -- -D warnings
 2. 已用 SQLite immediate transaction + 唯一投影表解决多 store NodeId 重复分配。
 3. 已将 replay 升级为 checked replay，拒绝坏历史事件。
 4. 已校验 `ContextSnapshot.digest` 与 snapshot 内容一致。
-5. 收紧 `NodeId::parse` 的规范性。
+5. 已收紧 `NodeId::parse` 的规范性。
 
 ## 2026-06-04 — workflow/llm 模块
 
@@ -559,11 +567,12 @@ cargo clippy -p sophia-prompt -- -D warnings
    - 建议：引入 `PromptStep`/`PromptKind` 枚举或 `PromptSpec { template, schema, system }` 表，提供 `spec_for(step)`；测试枚举所有 step 都能 render fixture 且 schema 可编译。
    - 修复：新增 `PromptStep` / `PromptSpec` / `spec_for(step)`，把 workflow 步骤与 template/schema 绑定为显式契约；测试枚举所有步骤，确认模板与 schema 都存在。
 
-4. 中低优先级：schema 与 Rust DTO 的一致性主要由下游测试间接覆盖。
+4. 中低优先级：schema 与 Rust DTO 的一致性主要由下游测试间接覆盖。（已修复）
    - 位置：`workflow/prompt/schemas/*.json` 与 `workflow/engine/src/loop_steps.rs` / `scheduler.rs` 的反序列化 DTO。
    - 现象：prompt crate 不依赖 engine，因而没有直接验证 schema 枚举值、required 字段、默认字段与 Rust DTO serde 形状完全一致。
    - 风险：例如新增 `DecisionAction`、调整 `StateAssessment` 字段或修改 design/repair 输出结构时，schema 和 Rust 类型可能单边漂移。
    - 建议：在 engine 层增加 contract test：每个步骤用 schema 通过的最小样例反序列化到对应 DTO，并把 DTO 再序列化后重新过 schema；或抽出共享 schema/DTO crate，减少双维护。
+   - 修复：engine 层新增 prompt schema ↔ DTO contract tests，对 decision、design、decompose、implement、repair 的最小合法样例先过 JSON Schema，再反序列化到对应 Rust DTO。
 
 5. 低优先级：implement / repair 模板对 JSON 输出形状的强调依赖 system prompt。
    - 位置：`workflow/prompt/templates/implement_design.md.jinja` 与 `workflow/prompt/templates/repair_code.md.jinja`。
@@ -639,11 +648,12 @@ cargo clippy -p sophia-engine -- -D warnings
    - 建议：依赖 graph-db 提供 transaction/batch append 后，把“节点 + 必需边”作为一个原子批次提交；短期可先把所有可预校验项前置，并补失败无副作用测试。
    - 修复：graph-db 新增 crate 内部 `append_node_with_outgoing_edges`，在 SQLite immediate transaction 中分配 NodeId、写 NodeCreated 和必需 EdgeAdded 事件；写入前复用节点契约与边契约校验。LLM factory 暴露 `decision/pseudocode/code/question_with_edges`，engine 的 decision、clarification、design、revise、implement、repair 成功产物改用单事务节点+必需边落图。
 
-5. 中低优先级：engine 对 prompt schema 与内部 DTO 的契约没有直接回归测试。
+5. 中低优先级：engine 对 prompt schema 与内部 DTO 的契约没有直接回归测试。（已修复）
    - 位置：`workflow/engine/src/step.rs` 的 `step_schema`，以及 `workflow/engine/src/loop_steps.rs` / `scheduler.rs` 的 `DesignResult`、`ImplementResult`、`DecisionPayload` 等。
    - 现象：测试用 prompt crate 的 schema 驱动 mock LLM 输出，但没有系统性覆盖每个 schema 的最小合法样例与 Rust DTO serde 形状互相往返。
    - 风险：schema、prompt、DTO 三者任一侧变更时，可能出现 schema 允许但 DTO 反序列化失败，或 DTO 字段默认与 schema required 不一致。
    - 建议：增加 contract test：对 `design_result`、`decompose_result`、`implement_result`、`repair_result`、`decision` 各提供最小合法样例，先过 `jsonschema`，再反序列化到 DTO；对关键 DTO 再序列化回 JSON 并复验 schema。
+   - 修复：`loop_steps` 覆盖 design/decompose/implement/repair schema 到 DTO 的最小样例，`scheduler` 覆盖 decision schema 到 `DecisionPayload`；测试依赖 `jsonschema` 编译并验证样例。
 
 6. 低优先级：`code_check::domain_of_path` 对非 domain-first 路径没有结构化拒绝。（已修复）
    - 位置：`workflow/engine/src/code_check.rs`。
@@ -658,7 +668,7 @@ cargo clippy -p sophia-engine -- -D warnings
 2. 已完成 scheduler LLM 节点预算作用域修正，按本轮 delta 计数。
 3. 已完成 RawLlmNode 可追溯到失败调用的 ContextSnapshot。
 4. 已在 graph-db 提供事务/batch append，并收敛 engine 的“节点 + 必需边”原子提交。
-5. 增加 prompt schema ↔ engine DTO contract test。
+5. 已增加 prompt schema ↔ engine DTO contract test。
 6. 为 code_check 增加候选文件路径形状诊断。
 
 ## 2026-06-04 — lsp 与 cli 模块
@@ -730,11 +740,12 @@ cargo clippy -p sophia-lsp -p sophia-cli -- -D warnings
    - 建议：这是从 SQLite/artifact 持久化重新进入系统的边界，应在 `load_candidate_files` 复用 `write_code_artifacts` / materialize 同等路径校验，拒绝绝对路径、`..`、空路径、反斜杠和非 `.sophia` 后缀；同一进程内刚由 `write_code_artifacts` 产出的值则可依赖上游契约。
    - 修复：engine 导出 `validate_candidate_path`，`code_check`、`write_code_artifacts` 与 `load_candidate_files` 复用同一候选路径契约：非空、相对路径、正斜杠、至少三段 domain-first、无 `.` / `..`、`.sophia` 后缀。已补持久化逃逸路径拒绝测试。
 
-6. 中低优先级：项目扫描递归跟随目录 symlink，可能遇到循环或扫描项目外文件。
+6. 中低优先级：项目扫描递归跟随目录 symlink，可能遇到循环或扫描项目外文件。（已修复）
    - 位置：`cli/src/project.rs` 的 `collect_sophia_files`。
    - 现象：使用 `path.is_dir()` 递归，`Path::is_dir` 会跟随 symlink。
    - 风险：`domains/` 下若存在指向父目录或外部目录的 symlink，扫描可能递归爆炸或把项目外 `.sophia` 纳入 check/build/run。
    - 建议：使用 `symlink_metadata` 判断 file type，默认不跟随 symlink；如需支持 symlink，维护 visited canonical dirs 集合并限制在项目根内。
+   - 修复：`collect_sophia_files` 改用 `symlink_metadata` 判断文件类型，默认跳过 symlink，仅递归真实目录并收集真实 `.sophia` 文件；Unix 回归测试覆盖目录 symlink 不被跟随。
 
 7. 低优先级：LSP 符号表按裸名称索引，会覆盖跨 domain 同名符号。
    - 位置：`lsp/src/analysis.rs` 的 `symbols`、`hover`、`goto_definition`。
@@ -749,5 +760,5 @@ cargo clippy -p sophia-lsp -p sophia-cli -- -D warnings
 3. LSP 不再吞掉 `resolve_program` workspace-level 错误，转为可见诊断。
 4. 修复 LSP 位置换算尾随空行边界并补测试。
 5. 在 graph gate 从持久化 artifact 重新加载时执行路径安全校验。
-6. 项目扫描默认不跟随 symlink，或显式做循环/根目录限制。
+6. 已将项目扫描改为默认不跟随 symlink。
 7. LSP 符号查询改用 domain-aware/canonical symbol key。

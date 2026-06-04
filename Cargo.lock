@@ -2123,6 +2123,7 @@ name = "sophia-engine"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "jsonschema",
  "serde",
  "serde_json",
  "sophia-check",
@@ -2209,6 +2210,7 @@ dependencies = [
 name = "sophia-materialize"
 version = "0.1.0"
 dependencies = [
+ "sophia-syntax",
  "thiserror",
 ]
 

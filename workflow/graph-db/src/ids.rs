@@ -18,9 +18,15 @@ impl NodeId {
 
     /// 从规范字符串解析。
     pub fn parse(s: &str) -> Option<Self> {
-        s.strip_prefix('N')
-            .and_then(|n| n.parse::<u32>().ok())
-            .map(NodeId)
+        let digits = s.strip_prefix('N')?;
+        if digits.len() < 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let id = NodeId(digits.parse::<u32>().ok()?);
+        if id.0 == 0 || id.as_string() != s {
+            return None;
+        }
+        Some(id)
     }
 }
 

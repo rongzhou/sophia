@@ -39,6 +39,24 @@ fn full_gate_pipeline_then_materialize_writes_files() {
 }
 
 #[test]
+fn materialize_does_not_reuse_fixed_staging_directory() {
+    let dir = std::env::temp_dir().join(format!("sophia_mat_staging_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".sophia-staging")).unwrap();
+    std::fs::write(dir.join(".sophia-staging/marker"), "keep").unwrap();
+
+    let selected = full_pipeline(sample_files()).expect("gate pipeline");
+    selected.materialize(&dir).expect("materialize");
+
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".sophia-staging/marker")).unwrap(),
+        "keep"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn check_failure_stops_pipeline() {
     let err = CodeCandidate::new(sample_files())
         .run_check(&GateReport::fail("CHECK-TYPE-001 类型不匹配"))

@@ -9,14 +9,15 @@
 
 use crate::error::{MaterializeError, MaterializeResult};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static STAGING_NONCE: AtomicU64 = AtomicU64::new(0);
 
 /// 把 `(相对路径, 内容)` 文件集合经 staging 写入 `target_root`。
 ///
 /// 相对路径使用正斜杠；父目录按需创建。单文件替换原子，集合非事务。
 pub fn atomic_write_all(target_root: &Path, files: &[(String, String)]) -> MaterializeResult<()> {
-    let staging = target_root.join(".sophia-staging");
-    // 清理可能残留的旧 staging。
-    let _ = std::fs::remove_dir_all(&staging);
+    let staging = unique_staging_dir(target_root);
     mkdir(&staging)?;
 
     // 阶段一：全部写入 staging。任一失败即清理并返回。
@@ -54,6 +55,11 @@ pub fn atomic_write_all(target_root: &Path, files: &[(String, String)]) -> Mater
 
     let _ = std::fs::remove_dir_all(&staging);
     Ok(())
+}
+
+fn unique_staging_dir(target_root: &Path) -> std::path::PathBuf {
+    let nonce = STAGING_NONCE.fetch_add(1, Ordering::Relaxed);
+    target_root.join(format!(".sophia-staging-{}-{nonce}", std::process::id()))
 }
 
 fn mkdir(p: &Path) -> MaterializeResult<()> {

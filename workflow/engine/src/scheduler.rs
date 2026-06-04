@@ -551,3 +551,33 @@ fn count_llm_nodes(store: &GraphStore) -> u32 {
         .filter(|n| n.meta.provenance == sophia_graph_db::Provenance::Llm)
         .count() as u32
 }
+
+#[cfg(test)]
+mod schema_contract_tests {
+    use super::*;
+
+    #[test]
+    fn decision_schema_deserializes_to_payload() {
+        let value = serde_json::json!({
+            "selected_action": "design_solution",
+            "confidence": 0.7,
+            "rationale": "next best step",
+            "state_assessment": {
+                "kind": "goal",
+                "goal_size": "small",
+                "decomposition_pressure": "low",
+                "active_milestone_present": false,
+                "outstanding_clarifications": 0
+            }
+        });
+        let schema = step_schema("decision");
+        let validator = jsonschema::validator_for(&schema).expect("schema should compile");
+        assert!(
+            validator.is_valid(&value),
+            "decision schema should accept sample"
+        );
+
+        let payload: DecisionPayload = serde_json::from_value(value).unwrap();
+        assert_eq!(payload.selected_action, DecisionAction::DesignSolution);
+    }
+}

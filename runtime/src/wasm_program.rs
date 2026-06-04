@@ -185,6 +185,9 @@ fn link_host(linker: &mut Linker<RunnerState<'_>>, ops: &[HostImport]) -> Runtim
             "sophia_host",
             "read_copy",
             |mut caller: Caller<'_, RunnerState<'_>>, dst: i32| {
+                if dst < 0 {
+                    return Err(wasmi::Error::new("read_copy 目标指针为负数"));
+                }
                 let bytes = std::mem::take(&mut caller.data_mut().stash);
                 let mem = caller
                     .get_export("memory")
@@ -313,16 +316,25 @@ fn write_bytes(
     memory: &wasmi::Memory,
     bytes: &[u8],
 ) -> RuntimeResult<(i32, i32)> {
+    let len = checked_i32_len(bytes.len(), "入参")?;
     let alloc = instance
         .get_typed_func::<i32, i32>(&*store, "sophia_alloc")
         .map_err(|e| RuntimeError::Validation(format!("缺少 sophia_alloc 导出：{e}")))?;
     let ptr = alloc
-        .call(&mut *store, bytes.len() as i32)
+        .call(&mut *store, len)
         .map_err(|e| RuntimeError::Validation(format!("sophia_alloc trap：{e}")))?;
+    if ptr < 0 {
+        return Err(RuntimeError::Validation("sophia_alloc 返回负数指针".into()));
+    }
     memory
         .write(store, ptr as usize, bytes)
         .map_err(|e| RuntimeError::Validation(format!("写入 WASM 内存失败：{e}")))?;
-    Ok((ptr, bytes.len() as i32))
+    Ok((ptr, len))
+}
+
+fn checked_i32_len(len: usize, role: &str) -> RuntimeResult<i32> {
+    i32::try_from(len)
+        .map_err(|_| RuntimeError::Validation(format!("WASM runner {role}字节长度超过 i32")))
 }
 
 fn call_entry(
@@ -522,4 +534,21 @@ fn read_string(data: &[u8], ptr: i32, len: i32) -> RuntimeResult<String> {
         .ok_or_else(|| RuntimeError::Validation("字符串内存范围越界".into()))?;
     String::from_utf8(bytes.to_vec())
         .map_err(|e| RuntimeError::Validation(format!("字符串 UTF-8 解码失败：{e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_i32_len_rejects_overflow() {
+        assert_eq!(
+            checked_i32_len(i32::MAX as usize, "测试").unwrap(),
+            i32::MAX
+        );
+        assert!(matches!(
+            checked_i32_len(i32::MAX as usize + 1, "测试"),
+            Err(RuntimeError::Validation(msg)) if msg.contains("超过 i32")
+        ));
+    }
 }

@@ -83,9 +83,14 @@ fn collect_sophia_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<(
         .collect::<Result<_, _>>()?;
     entries.sort();
     for path in entries {
-        if path.is_dir() {
+        let file_type = std::fs::symlink_metadata(&path)?.file_type();
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
             collect_sophia_files(&path, out)?;
-        } else if path.extension().and_then(|e| e.to_str()) == Some("sophia") {
+        } else if file_type.is_file() && path.extension().and_then(|e| e.to_str()) == Some("sophia")
+        {
             out.push(path);
         }
     }
@@ -107,5 +112,36 @@ fn domain_of(rel_path: &str) -> Option<String> {
     match (segs.first(), segs.get(1)) {
         (Some(&"domains"), Some(domain)) => Some((*domain).to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn collect_sophia_files_does_not_follow_directory_symlink() {
+        let root =
+            std::env::temp_dir().join(format!("sophia_project_symlink_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let domains = root.join("domains");
+        let real = domains.join("D/actions");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(real.join("A.sophia"), "action A {}").unwrap();
+        std::fs::write(outside.join("Outside.sophia"), "action Outside {}").unwrap();
+        std::os::unix::fs::symlink(&outside, domains.join("Linked")).unwrap();
+
+        let mut paths = Vec::new();
+        collect_sophia_files(&domains, &mut paths).unwrap();
+        let rels = paths
+            .iter()
+            .map(|path| rel_to_root(&root, path))
+            .collect::<Vec<_>>();
+
+        assert_eq!(rels, vec!["domains/D/actions/A.sophia"]);
+        std::fs::remove_dir_all(&root).ok();
     }
 }

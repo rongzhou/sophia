@@ -201,6 +201,11 @@ impl LibraryRegistry {
 
         // Sophia 源码：库 domain = 库名，与用户 / 其它库 domain 隔离。
         if !content.sophia_sources.is_empty() || !raw.surface.sophia_sources.is_empty() {
+            validate_sophia_source_manifest(
+                &lib,
+                &raw.surface.sophia_sources,
+                &content.sophia_sources,
+            )?;
             let domain = lib.clone();
             if let Some(other) = self.domains.get(&domain) {
                 if other != &lib {
@@ -301,4 +306,49 @@ impl LibraryRegistry {
     pub fn sophia_sources(&self) -> &[SophiaSource] {
         &self.sophia_sources
     }
+}
+
+fn validate_sophia_source_manifest(
+    lib: &str,
+    manifest_paths: &[String],
+    content_sources: &[(String, String)],
+) -> LibraryResult<()> {
+    let manifest: BTreeSet<&str> = manifest_paths.iter().map(String::as_str).collect();
+    let content: BTreeSet<&str> = content_sources
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect();
+    if manifest == content
+        && manifest.len() == manifest_paths.len()
+        && content.len() == content_sources.len()
+    {
+        return Ok(());
+    }
+    let missing = manifest
+        .difference(&content)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let extra = content
+        .difference(&manifest)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut parts = Vec::new();
+    if !missing.is_empty() {
+        parts.push(format!("缺少源码：{missing}"));
+    }
+    if !extra.is_empty() {
+        parts.push(format!("多余源码：{extra}"));
+    }
+    if manifest.len() != manifest_paths.len() {
+        parts.push("清单存在重复路径".to_string());
+    }
+    if content.len() != content_sources.len() {
+        parts.push("传入内容存在重复路径".to_string());
+    }
+    Err(LibraryError::SophiaSourcesMismatch {
+        lib: lib.to_string(),
+        reason: parts.join("；"),
+    })
 }

@@ -8,25 +8,25 @@
 //! **Outcome 句柄**）。Outcome = `[kind:i32][value_handle:i32]`，`kind` 0=Returned / 1=Raised
 //! ——复刻解释器的 `Outcome`，raise 经返回通道冒泡（不用 WASM 异常扩展，见 §四决策点 ④）。
 //!
-//! W2 覆盖的值：`Unit` / `Bool` / `Int` / `Null` / `ErrorValue`（标量 + 错误返回成员）。
-//! `Text` / `List` / `Entity` / `State` 的值布局在后续增量落地（W2b 起）。
+//! 当前已启用的值布局：`Unit` / `Bool` / `Int` / `Null` / `Text` / `ErrorValue` / `Entity` /
+//! `State`。`List` 仍保留标签但尚未 emit。
 
 /// 值标签（与 `runtime::Value` 变体一一对应；与设计 §四一致）。
 ///
 /// 这是 codegen 与解释器之间**规范的值标签表**——编号固定、完整列出（类比 exec-ir `EdgeKind`
-/// 保留完整词汇表）。W2 仅产出 `UNIT`/`BOOL`/`INT`/`NULL`；`TEXT`/`LIST`/`ERROR_VALUE`/`ENTITY`/
-/// `STATE` 随各自增量启用，故 `allow(dead_code)` 保留为完整表、非投机代码。
+/// 保留完整词汇表）。当前除 `LIST` 外均已由 WASM 路径使用；`allow(dead_code)` 保留完整表、
+/// 非投机代码。
 #[allow(dead_code)]
 pub mod tag {
     pub const UNIT: i32 = 0;
     pub const BOOL: i32 = 1;
     pub const INT: i32 = 2;
-    pub const TEXT: i32 = 3; // W2b
+    pub const TEXT: i32 = 3;
     pub const NULL: i32 = 4;
     pub const LIST: i32 = 5; // W2b
-    pub const ERROR_VALUE: i32 = 6; // W2b
-    pub const ENTITY: i32 = 7; // W2b
-    pub const STATE: i32 = 8; // W2b
+    pub const ERROR_VALUE: i32 = 6;
+    pub const ENTITY: i32 = 7;
+    pub const STATE: i32 = 8;
 }
 
 /// Outcome 的 kind 判别（函数返回值）。
@@ -61,7 +61,7 @@ pub const SIZE_TEXT: i32 = 12;
 /// `Null` / `Unit` 值：仅 `[tag:i32@0]`，大小 4。
 pub const SIZE_TAGONLY: i32 = 4;
 
-// ---- 具名记录（`ErrorValue` 复用；W2c 起 `Entity` 同布局）----
+// ---- 具名记录（`ErrorValue` / `Entity` 共用布局）----
 //
 // `[tag@0][name_ptr:i32@4][name_len:i32@8][nfields:i32@12]`，再接 `nfields` 个字段，每个
 // `[key_ptr:i32@0][key_len:i32@4][val_handle:i32@8]`（12 字节）。字段按 key 字典序存放（与解释器
