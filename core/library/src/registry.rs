@@ -318,7 +318,12 @@ fn validate_sophia_source_manifest(
         .iter()
         .map(|(path, _)| path.as_str())
         .collect();
-    if manifest == content
+    let content_paths: Vec<&str> = content_sources
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect();
+    let manifest_order: Vec<&str> = manifest_paths.iter().map(String::as_str).collect();
+    if manifest_order == content_paths
         && manifest.len() == manifest_paths.len()
         && content.len() == content_sources.len()
     {
@@ -346,6 +351,9 @@ fn validate_sophia_source_manifest(
     }
     if content.len() != content_sources.len() {
         parts.push("传入内容存在重复路径".to_string());
+    }
+    if manifest == content && manifest_order != content_paths {
+        parts.push("源码顺序与清单不一致".to_string());
     }
     Err(LibraryError::SophiaSourcesMismatch {
         lib: lib.to_string(),

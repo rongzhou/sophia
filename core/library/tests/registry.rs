@@ -248,6 +248,38 @@ asset = "pure.md"
 }
 
 #[test]
+fn rejects_manifest_source_content_order_mismatch() {
+    let c = LibraryContent {
+        dir_name: "pure".into(),
+        manifest_toml: r#"
+[library]
+name = "pure"
+summary = "x"
+abi_version = 1
+
+[surface]
+sophia_sources = ["src/A.sophia", "src/B.sophia"]
+
+[prompt]
+asset = "pure.md"
+"#
+        .into(),
+        asset_text: "x".into(),
+        sophia_sources: vec![
+            ("src/B.sophia".into(), "action B {}".into()),
+            ("src/A.sophia".into(), "action A {}".into()),
+        ],
+        host_wasm: None,
+    };
+    let err = LibraryRegistry::build(vec![c]).unwrap_err();
+    assert!(matches!(err, LibraryError::SophiaSourcesMismatch { .. }));
+    assert!(
+        err.to_string().contains("顺序"),
+        "应明确报告源码顺序不一致：{err}"
+    );
+}
+
+#[test]
 fn loads_sophia_source_library_into_lib_domain() {
     let c = LibraryContent {
         dir_name: "geo".into(),

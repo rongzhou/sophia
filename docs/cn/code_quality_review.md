@@ -60,8 +60,8 @@ cargo clippy -p sophia-syntax -p sophia-hir -p sophia-library -p sophia-semantic
    - 位置：`core/library/src/registry.rs`。
    - 现象：只要 manifest 或 content 任一侧非空，就登记调用方传入的 Sophia sources；manifest 中声明的路径列表没有被核对。
    - 风险：“清单是单一真相源”的约束被削弱，后续 build bundle/registry fingerprint 也更依赖调用方正确组装。
-   - 建议：registry 层校验 manifest 路径集合与 `LibraryContent` 路径集合一致，缺失/多余均报错。
-   - 修复：`LibraryRegistry` 新增 `SophiaSourcesMismatch`，要求 manifest 路径集合与传入源码路径集合完全一致，并拒绝重复路径。已补 mismatch 回归测试；三方库发现层也改为传入 manifest 中的库内相对路径。
+   - 建议：registry 层校验 manifest 路径序列与 `LibraryContent` 路径序列一致，缺失/多余/顺序错配均报错。
+   - 修复：`LibraryRegistry` 新增 `SophiaSourcesMismatch`，要求 manifest 路径序列与传入源码路径序列完全一致，并拒绝重复路径。已补 mismatch / 顺序错配回归测试；三方库发现层也改为按 manifest 顺序传入库内相对路径。
 
 建议修复顺序：
 
@@ -123,7 +123,7 @@ cargo clippy -p sophia-runtime -- -D warnings
    - 现象：`bytes.len() as i32` 未检查溢出，`sophia_alloc` 返回负指针后会转成巨大 `usize` 交给 `memory.write`。
    - 风险：通常仍会以 wasmi 内存错误失败，但诊断不如 `WasmHostFn` provider 侧明确；边界代码风格不一致。
    - 建议：复用类似 `checked_i32_len` 的长度检查，并显式拒绝负指针。
-   - 修复：`WasmProgramRunner::write_bytes` 增加 `checked_i32_len`，拒绝超过 i32 的入参字节长度；`sophia_alloc` / `read_copy` 返回负指针时直接结构化报错。已补长度边界单元测试。
+   - 修复：`WasmProgramRunner` 增加 `checked_i32_len`，拒绝超过 i32 的入参和 host 返回值字节长度；`sophia_alloc` / `read_copy` 返回负指针时直接结构化报错。已补长度边界单元测试。
 
 建议修复顺序：
 

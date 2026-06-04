@@ -220,7 +220,8 @@ fn link_host(linker: &mut Linker<RunnerState<'_>>, ops: &[HostImport]) -> Runtim
                         .map_err(wasmi::Error::new)?;
                     caller.data_mut().stash =
                         crate::value_wire::encode_value(&result).map_err(wasmi::Error::new)?;
-                    Ok(caller.data().stash.len() as i32)
+                    checked_i32_len(caller.data().stash.len(), "返回值")
+                        .map_err(|e| wasmi::Error::new(e.to_string()))
                 },
             )
             .map_err(|e| {
@@ -549,6 +550,10 @@ mod tests {
         assert!(matches!(
             checked_i32_len(i32::MAX as usize + 1, "测试"),
             Err(RuntimeError::Validation(msg)) if msg.contains("超过 i32")
+        ));
+        assert!(matches!(
+            checked_i32_len(i32::MAX as usize + 1, "返回值"),
+            Err(RuntimeError::Validation(msg)) if msg.contains("返回值") && msg.contains("超过 i32")
         ));
     }
 }
