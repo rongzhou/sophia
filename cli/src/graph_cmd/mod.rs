@@ -20,7 +20,7 @@ use sophia_graph_db::{
     ObjectivePayload,
 };
 use sophia_hir::LibraryRegistry;
-use sophia_llm::{BackendConfig, BackendMode, CompletionRequest, HttpLlmClient, StructuredConfig};
+use sophia_llm::{BackendConfig, CompletionRequest, HttpLlmClient, StructuredConfig};
 use sophia_prompt::PromptRegistry;
 
 mod gate;
@@ -352,12 +352,12 @@ fn build_client(
         .or_else(|| std::env::var("SOPHIA_LLM_API_KEY").ok());
 
     let mut config = match mode {
-        "openai" => BackendConfig {
-            mode: BackendMode::OpenAiCompatible,
-            base_url: "https://api.openai.com/v1".to_string(),
-            api_key: key,
-            timeout_secs: 120,
-        },
+        "openai" => {
+            let mut c = BackendConfig::openai("");
+            c.api_key = key;
+            c.openai_response_format = env_truthy("SOPHIA_LLM_OPENAI_RESPONSE_FORMAT");
+            c
+        }
         "ollama" => {
             let mut c = BackendConfig::ollama();
             c.api_key = key;
@@ -369,6 +369,18 @@ fn build_client(
         config.base_url = url.to_string();
     }
     HttpLlmClient::new(config).context("构造 LLM 后端失败")
+}
+
+fn env_truthy(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 /// 在一次性 current-thread tokio 运行时上阻塞执行一个 future（CLI 协调层异步边界）。

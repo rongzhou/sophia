@@ -22,7 +22,7 @@ mod harness;
 
 use std::process::ExitCode;
 
-use sophia_llm::{BackendConfig, BackendMode, HttpLlmClient};
+use sophia_llm::{BackendConfig, HttpLlmClient};
 
 const DEFAULT_OPENAI_MODEL: &str = "deepseek-ai/deepseek-v4-flash";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
@@ -185,6 +185,15 @@ impl LlmArgs {
                 let Some(api_key) = key else {
                     return Err(LlmConfigError::MissingApiKey);
                 };
+                let mut config = BackendConfig::openai(api_key);
+                config.base_url = self
+                    .base_url
+                    .or_else(env_base)
+                    .unwrap_or_else(|| DEFAULT_OPENAI_BASE_URL.to_string());
+                config.timeout_secs = self
+                    .timeout_secs
+                    .or(env_timeout)
+                    .unwrap_or(DEFAULT_OPENAI_TIMEOUT_SECS);
                 Ok(ResolvedLlm {
                     mode_label: "openai",
                     model: self
@@ -192,40 +201,30 @@ impl LlmArgs {
                         .or_else(env_model)
                         .unwrap_or_else(|| DEFAULT_OPENAI_MODEL.to_string()),
                     retry_attempts: 6,
-                    config: BackendConfig {
-                        mode: BackendMode::OpenAiCompatible,
-                        base_url: self
-                            .base_url
-                            .or_else(env_base)
-                            .unwrap_or_else(|| DEFAULT_OPENAI_BASE_URL.to_string()),
-                        api_key: Some(api_key),
-                        timeout_secs: self
-                            .timeout_secs
-                            .or(env_timeout)
-                            .unwrap_or(DEFAULT_OPENAI_TIMEOUT_SECS),
-                    },
+                    config,
                 })
             }
-            "ollama" => Ok(ResolvedLlm {
-                mode_label: "ollama",
-                model: self
-                    .model
-                    .or_else(env_model)
-                    .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string()),
-                retry_attempts: 1,
-                config: BackendConfig {
-                    mode: BackendMode::Ollama,
-                    base_url: self
-                        .base_url
-                        .or_else(env_base)
-                        .unwrap_or_else(|| DEFAULT_OLLAMA_BASE_URL.to_string()),
-                    api_key: key,
-                    timeout_secs: self
-                        .timeout_secs
-                        .or(env_timeout)
-                        .unwrap_or(DEFAULT_OLLAMA_TIMEOUT_SECS),
-                },
-            }),
+            "ollama" => {
+                let mut config = BackendConfig::ollama();
+                config.base_url = self
+                    .base_url
+                    .or_else(env_base)
+                    .unwrap_or_else(|| DEFAULT_OLLAMA_BASE_URL.to_string());
+                config.api_key = key;
+                config.timeout_secs = self
+                    .timeout_secs
+                    .or(env_timeout)
+                    .unwrap_or(DEFAULT_OLLAMA_TIMEOUT_SECS);
+                Ok(ResolvedLlm {
+                    mode_label: "ollama",
+                    model: self
+                        .model
+                        .or_else(env_model)
+                        .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string()),
+                    retry_attempts: 1,
+                    config,
+                })
+            }
             other => Err(LlmConfigError::InvalidMode(other.to_string())),
         }
     }

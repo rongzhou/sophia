@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use report::{append_run, render_summary, Mode, RunRecord};
-use sophia_llm::{BackendConfig, BackendMode, HttpLlmClient};
+use sophia_llm::{BackendConfig, HttpLlmClient};
 
 use crate::problem::{Level, Problem};
 
@@ -262,6 +262,9 @@ impl LlmArgs {
                     .timeout_secs
                     .or(env_timeout)
                     .unwrap_or(DEFAULT_OPENAI_TIMEOUT_SECS);
+                let mut config = BackendConfig::openai(api_key);
+                config.base_url = base_url.clone();
+                config.timeout_secs = timeout_secs;
                 Ok(ResolvedLlm {
                     mode_label: "openai",
                     model: self
@@ -271,12 +274,7 @@ impl LlmArgs {
                     base_url: base_url.clone(),
                     timeout_secs,
                     retry_attempts: 6,
-                    config: BackendConfig {
-                        mode: BackendMode::OpenAiCompatible,
-                        base_url,
-                        api_key: Some(api_key),
-                        timeout_secs,
-                    },
+                    config,
                 })
             }
             "ollama" => {
@@ -288,6 +286,10 @@ impl LlmArgs {
                     .timeout_secs
                     .or(env_timeout)
                     .unwrap_or(DEFAULT_OLLAMA_TIMEOUT_SECS);
+                let mut config = BackendConfig::ollama();
+                config.base_url = base_url.clone();
+                config.api_key = key;
+                config.timeout_secs = timeout_secs;
                 Ok(ResolvedLlm {
                     mode_label: "ollama",
                     model: self
@@ -297,12 +299,7 @@ impl LlmArgs {
                     base_url: base_url.clone(),
                     timeout_secs,
                     retry_attempts: 1,
-                    config: BackendConfig {
-                        mode: BackendMode::Ollama,
-                        base_url,
-                        api_key: key,
-                        timeout_secs,
-                    },
+                    config,
                 })
             }
             other => Err(LlmConfigError::InvalidMode(other.to_string())),

@@ -23,5 +23,8 @@ END DATA constraints_json
 题面、验收和约束中给出的公开名称必须逐字保留；失败形态按语法基线区分 `raise` 与 `one of` 返回结局。
 
 ## 输出要求
-输出候选 `.sophia` 文件集合。每个顶层 node 一个文件，遵循 domain-first 布局。
+只输出严格符合 `implement_result` schema 的 JSON：
+`files` 是候选 `.sophia` 文件集合，每项包含 `path` 与 `content`；
+可选 `changes` 是实现要点列表。
+每个顶层 node 一个文件，遵循 domain-first 布局。
 不得引入未声明的 effect / capability / error。

@@ -15,7 +15,9 @@ BEGIN DATA diagnostics_json
 END DATA diagnostics_json
 
 ## 输出要求
-输出 `repair_result` schema 的 JSON：修复后的文件集合与每处修改的简述。
+只输出严格符合 `repair_result` schema 的 JSON：
+`files` 是修复后的候选 `.sophia` 文件集合，每项包含 `path` 与 `content`；
+`changes` 是每处修改的简述。
 保持现有公开命名和算法意图；只根据诊断修正语法、类型、引用种类或 effect/capability 声明。
 若错误容器名与失败成员名冲突，重命名容器，保留失败成员名。
 不要引入新的 effect / capability / error variant。

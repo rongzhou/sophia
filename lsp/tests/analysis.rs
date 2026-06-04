@@ -148,8 +148,36 @@ fn symbols_lists_all_top_level_nodes() {
         "state Status { value A { meaning: \"a\" } }",
     );
     let symbols = ws.symbols();
-    assert!(symbols.contains_key("Todo"));
-    assert!(symbols.contains_key("Status"));
+    assert!(symbols.contains_key("D::Todo"));
+    assert!(symbols.contains_key("D::Status"));
+}
+
+#[test]
+fn goto_definition_uses_current_document_domain_for_duplicate_names() {
+    let mut ws = Workspace::new();
+    ws.upsert(
+        "domains/A/entities/Shared.sophia",
+        "A",
+        "entity Shared { fields { a { type: Int } } }",
+    );
+    ws.upsert(
+        "domains/B/entities/Shared.sophia",
+        "B",
+        "entity Shared { fields { b { type: Int } } }",
+    );
+    let action_src = "action Make { input { x: Int } output { t: Shared } body { return x } }";
+    ws.upsert("domains/A/actions/Make.sophia", "A", action_src);
+
+    let byte = byte_of(action_src, "Shared");
+    let def = ws
+        .goto_definition("domains/A/actions/Make.sophia", byte)
+        .expect("goto def");
+    assert_eq!(def.domain, "A");
+    assert_eq!(def.uri, "domains/A/entities/Shared.sophia");
+
+    let symbols = ws.symbols();
+    assert!(symbols.contains_key("A::Shared"));
+    assert!(symbols.contains_key("B::Shared"));
 }
 
 #[test]

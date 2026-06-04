@@ -11,6 +11,7 @@
 use crate::client::{CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmResult};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::error::Error;
 
 /// 后端模式。
@@ -32,6 +33,10 @@ pub struct BackendConfig {
     pub api_key: Option<String>,
     /// 响应读取空闲超时（秒）。生成类请求不应限制整段输出总耗时；只限制连接 / 读取长期无进展。
     pub timeout_secs: u64,
+    /// OpenAI-compatible 后端是否发送 provider-native JSON Schema response_format。
+    ///
+    /// 关闭时仍走 prompt + 本地 schema 复验；开启后也保留本地复验作为统一边界。
+    pub openai_response_format: bool,
 }
 
 impl BackendConfig {
@@ -42,6 +47,7 @@ impl BackendConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: Some(api_key.into()),
             timeout_secs: 120,
+            openai_response_format: false,
         }
     }
 
@@ -52,12 +58,19 @@ impl BackendConfig {
             base_url: "http://localhost:11434".to_string(),
             api_key: None,
             timeout_secs: 300,
+            openai_response_format: false,
         }
     }
 
     /// 覆盖 base_url（自定义 OpenAI 兼容网关 / 远端 Ollama）。
     pub fn with_base_url(mut self, base: impl Into<String>) -> Self {
         self.base_url = base.into();
+        self
+    }
+
+    /// 为 OpenAI-compatible 后端启用 provider-native JSON Schema response_format。
+    pub fn with_openai_response_format(mut self, enabled: bool) -> Self {
+        self.openai_response_format = enabled;
         self
     }
 }
@@ -104,11 +117,33 @@ impl HttpLlmClient {
         });
         msgs
     }
-}
 
-#[async_trait]
-impl LlmClient for HttpLlmClient {
-    async fn complete(&self, req: &CompletionRequest) -> LlmResult<CompletionResponse> {
+    fn openai_request<'a>(
+        &self,
+        req: &'a CompletionRequest,
+        messages: &'a [ChatMessage],
+        schema: Option<&'a Value>,
+    ) -> OpenAiRequest<'a> {
+        let response_format = if self.config.openai_response_format {
+            schema.map(OpenAiResponseFormat::json_schema)
+        } else {
+            None
+        };
+        OpenAiRequest {
+            model: &req.model,
+            messages,
+            // 低温度以稳定结构化输出（重试 fallback 仍兜底）。
+            temperature: 0.0,
+            stream: true,
+            response_format,
+        }
+    }
+
+    async fn complete_inner(
+        &self,
+        req: &CompletionRequest,
+        schema: Option<&Value>,
+    ) -> LlmResult<CompletionResponse> {
         let messages = Self::messages(req);
         let url = self.endpoint();
 
@@ -120,13 +155,7 @@ impl LlmClient for HttpLlmClient {
         // 请求体按模式区分。
         let resp = match self.config.mode {
             BackendMode::OpenAiCompatible => {
-                let body = OpenAiRequest {
-                    model: &req.model,
-                    messages: &messages,
-                    // 低温度以稳定结构化输出（重试 fallback 仍兜底）。
-                    temperature: 0.0,
-                    stream: true,
-                };
+                let body = self.openai_request(req, &messages, schema);
                 builder.json(&body).send().await
             }
             BackendMode::Ollama => {
@@ -163,6 +192,21 @@ impl LlmClient for HttpLlmClient {
         };
 
         Ok(CompletionResponse { content })
+    }
+}
+
+#[async_trait]
+impl LlmClient for HttpLlmClient {
+    async fn complete(&self, req: &CompletionRequest) -> LlmResult<CompletionResponse> {
+        self.complete_inner(req, None).await
+    }
+
+    async fn complete_with_schema(
+        &self,
+        req: &CompletionRequest,
+        schema: &Value,
+    ) -> LlmResult<CompletionResponse> {
+        self.complete_inner(req, Some(schema)).await
     }
 }
 
@@ -321,9 +365,22 @@ fn process_openai_stream_line(
     if data == "[DONE]" {
         return Ok(true);
     }
+    if let Ok(value) = serde_json::from_str::<Value>(data) {
+        if let Some(error) = value.get("error") {
+            return Err(LlmError::BackendUnavailable(format!(
+                "OpenAI stream error：{}",
+                truncate(&error.to_string(), 300)
+            )));
+        }
+    }
     let parsed: OpenAiStreamChunk = serde_json::from_str(data)
         .map_err(|e| LlmError::Parse(format!("OpenAI stream 第 {line_no} 行解析失败：{e}")))?;
     *saw_event = true;
+    if parsed.choices.is_empty() {
+        return Err(LlmError::Parse(format!(
+            "OpenAI stream 第 {line_no} 行无 choices"
+        )));
+    }
     for choice in parsed.choices {
         if let Some(delta) = choice.delta {
             if let Some(piece) = delta.content {
@@ -345,6 +402,12 @@ fn process_ollama_stream_line(
     }
     let parsed: OllamaStreamChunk = serde_json::from_str(line)
         .map_err(|e| LlmError::Parse(format!("Ollama stream 第 {line_no} 行解析失败：{e}")))?;
+    if let Some(error) = parsed.error {
+        return Err(LlmError::BackendUnavailable(format!(
+            "Ollama stream error：{}",
+            truncate(&error, 300)
+        )));
+    }
     *saw_chunk = true;
     if let Some(message) = parsed.message {
         content.push_str(&message.content);
@@ -403,6 +466,35 @@ struct OpenAiRequest<'a> {
     messages: &'a [ChatMessage],
     temperature: f32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAiResponseFormat<'a>>,
+}
+
+#[derive(Serialize)]
+struct OpenAiResponseFormat<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    json_schema: OpenAiJsonSchema<'a>,
+}
+
+impl<'a> OpenAiResponseFormat<'a> {
+    fn json_schema(schema: &'a Value) -> Self {
+        OpenAiResponseFormat {
+            kind: "json_schema",
+            json_schema: OpenAiJsonSchema {
+                name: "sophia_structured_output",
+                schema,
+                strict: true,
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct OpenAiJsonSchema<'a> {
+    name: &'static str,
+    schema: &'a Value,
+    strict: bool,
 }
 
 #[cfg(test)]
@@ -458,6 +550,8 @@ struct OllamaStreamChunk {
     message: Option<OllamaMessage>,
     #[serde(default)]
     done: bool,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 #[cfg(test)]
@@ -505,6 +599,53 @@ mod tests {
     }
 
     #[test]
+    fn openai_response_format_is_opt_in_for_schema_requests() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"]
+        });
+        let req = CompletionRequest::new("m", "answer");
+        let msgs = HttpLlmClient::messages(&req);
+
+        let disabled =
+            HttpLlmClient::new(BackendConfig::openai("k").with_base_url("https://x/v1")).unwrap();
+        let body = serde_json::to_value(disabled.openai_request(&req, &msgs, Some(&schema)))
+            .expect("serialize request");
+        assert!(
+            body.get("response_format").is_none(),
+            "默认不发送 provider-native response_format"
+        );
+
+        let enabled = HttpLlmClient::new(
+            BackendConfig::openai("k")
+                .with_base_url("https://x/v1")
+                .with_openai_response_format(true),
+        )
+        .unwrap();
+        let body = serde_json::to_value(enabled.openai_request(&req, &msgs, Some(&schema)))
+            .expect("serialize request");
+        let response_format = body
+            .get("response_format")
+            .expect("schema-aware request should include response_format");
+        assert_eq!(response_format["type"], "json_schema");
+        assert_eq!(
+            response_format["json_schema"]["name"],
+            "sophia_structured_output"
+        );
+        assert_eq!(response_format["json_schema"]["strict"], true);
+        assert_eq!(response_format["json_schema"]["schema"], schema);
+
+        let body =
+            serde_json::to_value(enabled.openai_request(&req, &msgs, None)).expect("serialize");
+        assert!(
+            body.get("response_format").is_none(),
+            "自由文本 complete 不应发送 response_format"
+        );
+    }
+
+    #[test]
     fn openai_response_parses() {
         let raw = r#"{"choices":[{"message":{"role":"assistant","content":"hello"}}]}"#;
         assert_eq!(parse_openai_stream_or_response(raw).unwrap(), "hello");
@@ -516,6 +657,30 @@ mod tests {
                    data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n\
                    data: [DONE]\n";
         assert_eq!(parse_openai_stream_or_response(raw).unwrap(), "hello");
+    }
+
+    #[test]
+    fn openai_stream_ignores_comment_event_and_null_content() {
+        let raw = ": keepalive\n\
+                   event: message\n\
+                   data: {\"choices\":[{\"delta\":{\"content\":null}}]}\n\n\
+                   data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n\
+                   data: [DONE]\n";
+        assert_eq!(parse_openai_stream_or_response(raw).unwrap(), "ok");
+    }
+
+    #[test]
+    fn openai_stream_error_chunk_is_backend_unavailable() {
+        let raw = "data: {\"error\":{\"message\":\"quota exceeded\",\"type\":\"rate_limit\"}}\n";
+        let err = parse_openai_stream_or_response(raw).unwrap_err();
+        assert!(matches!(err, LlmError::BackendUnavailable(msg) if msg.contains("quota exceeded")));
+    }
+
+    #[test]
+    fn openai_stream_empty_choices_is_parse_error() {
+        let raw = "data: {\"choices\":[]}\n";
+        let err = parse_openai_stream_or_response(raw).unwrap_err();
+        assert!(matches!(err, LlmError::Parse(msg) if msg.contains("无 choices")));
     }
 
     #[test]
@@ -539,6 +704,15 @@ mod tests {
             "{\"model\":\"qwen3\",\"message\":{\"role\":\"assistant\",\"content\":\"partial\"}}";
         let err = parse_ollama_stream(raw).unwrap_err();
         assert!(matches!(err, LlmError::Parse(msg) if msg.contains("done=true")));
+    }
+
+    #[test]
+    fn ollama_stream_error_line_is_backend_unavailable() {
+        let raw = "{\"error\":\"model not found\"}\n";
+        let err = parse_ollama_stream(raw).unwrap_err();
+        assert!(
+            matches!(err, LlmError::BackendUnavailable(msg) if msg.contains("model not found"))
+        );
     }
 
     #[test]

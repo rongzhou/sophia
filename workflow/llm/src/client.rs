@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 /// LLM 层结果别名。
@@ -75,11 +76,20 @@ pub struct CompletionResponse {
 
 /// 模型无关的 LLM client 抽象。
 ///
-/// 后端（远端 API / 本地 Ollama 等）实现此 trait。结构化输出的重试 + 验证
-/// fallback 在 `complete` 之上由 [`crate::structured::complete_structured`] 统一实现，
-/// 因此后端只需实现自由文本补全这一条路径（单一路线）。
+/// 后端（远端 API / 本地 Ollama 等）实现此 trait。结构化输出的重试 + 本地 schema
+/// 验证 fallback 在 [`crate::structured::complete_structured`] 统一实现；支持 provider-native
+/// JSON/schema 约束的后端可覆盖 [`LlmClient::complete_with_schema`]，并且仍会接受本地复验。
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     /// 自由文本补全。后端不可用时返回 [`LlmError::BackendUnavailable`]。
     async fn complete(&self, req: &CompletionRequest) -> LlmResult<CompletionResponse>;
+
+    /// 带 schema hint 的补全。默认退回自由文本补全，保持所有后端和测试 mock 的单一路径兼容。
+    async fn complete_with_schema(
+        &self,
+        req: &CompletionRequest,
+        _schema: &Value,
+    ) -> LlmResult<CompletionResponse> {
+        self.complete(req).await
+    }
 }

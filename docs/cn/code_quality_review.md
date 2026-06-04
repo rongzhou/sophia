@@ -499,25 +499,27 @@ cargo clippy -p sophia-llm -- -D warnings
    - 建议：实现括号深度扫描，提取第一个完整 JSON object；或支持从 Markdown fenced code block 中优先提取 `json` 块。更稳的方案是让 prompt/backend 强制“只输出一个 JSON object”，并在解析器里拒绝多个 object。
    - 修复：`extract_json` 优先提取 markdown `json` fenced code block；否则按字符串 / 转义状态做括号深度扫描，只取第一个完整 JSON object，不再跨多段对象截取。已补多 JSON 与 fenced code block 回归测试。
 
-4. 中低优先级：OpenAI-compatible 后端没有利用 provider-native JSON / structured output 能力。
+4. 中低优先级：OpenAI-compatible 后端没有利用 provider-native JSON / structured output 能力。（已修复）
    - 位置：`workflow/llm/src/backend.rs` 的 `OpenAiRequest` 与 `complete_structured` 边界。
    - 现象：OpenAI-compatible 请求只发送 `model/messages/temperature/stream`，结构化约束完全依赖 prompt + 本地 schema 复验。
    - 风险：对于支持 JSON mode / JSON schema response format 的后端，当前路径会增加无效输出概率与重试成本。
    - 建议：保持统一 fallback，但在 `StructuredConfig` 或 backend config 中允许启用 provider-native `response_format`；服务端约束和本地 schema 复验两者并用。
+   - 修复：`LlmClient` 新增默认 `complete_with_schema`，`complete_structured` 通过该入口传入 schema；OpenAI-compatible HTTP 后端可通过 `BackendConfig::with_openai_response_format(true)` 启用 JSON Schema `response_format`，CLI graph 路径可用 `SOPHIA_LLM_OPENAI_RESPONSE_FORMAT=1` 打开，同时保留本地 schema 复验。未开启配置和 Ollama 仍走原自由文本 fallback。
 
-5. 低优先级：解析器测试缺少真实协议边界样例。
+5. 低优先级：解析器测试缺少真实协议边界样例。（已修复）
    - 位置：`workflow/llm/src/backend.rs` 的内嵌测试、`workflow/llm/tests/structured.rs`。
    - 现象：已有测试覆盖基本 stream chunk，但没有覆盖 SSE 注释/event 行、OpenAI error chunk、空 `choices`、content 为 `null`、Ollama error 行、超大响应截断等边界。
    - 风险：第三方 OpenAI-compatible 网关和本地 Ollama 版本差异较多，解析器在协议轻微变化时容易把可诊断错误变成泛化 parse error。
    - 建议：补协议 fixture 测试；对 provider error body 输出更清晰的 `BackendUnavailable`/`Parse` 诊断。
+   - 修复：补 OpenAI SSE 注释 / event 行、`content:null`、provider error chunk、空 `choices` 与 Ollama error 行测试；OpenAI/Ollama stream parser 对 provider error 返回 `BackendUnavailable`，OpenAI 空 `choices` 返回明确 `Parse`。
 
 建议修复顺序：
 
 1. 已改为真正增量解析 stream；最大响应大小仍可作为后续加固项。
 2. 修正结构化输出的最终错误分类，区分 parse failure 与 schema validation failure。
 3. 改进 JSON object 提取算法，补多 JSON / fenced code block / 花括号说明测试。
-4. 为 OpenAI-compatible backend 增加可选 provider-native `response_format`。
-5. 扩充 OpenAI/Ollama 协议边界 fixture 测试。
+4. 已为 OpenAI-compatible backend 增加可选 provider-native `response_format`。
+5. 已扩充 OpenAI/Ollama 协议边界 fixture 测试。
 
 ## 2026-06-04 — workflow/prompt 模块
 
@@ -574,11 +576,12 @@ cargo clippy -p sophia-prompt -- -D warnings
    - 建议：在 engine 层增加 contract test：每个步骤用 schema 通过的最小样例反序列化到对应 DTO，并把 DTO 再序列化后重新过 schema；或抽出共享 schema/DTO crate，减少双维护。
    - 修复：engine 层新增 prompt schema ↔ DTO contract tests，对 decision、design、decompose、implement、repair 的最小合法样例先过 JSON Schema，再反序列化到对应 Rust DTO。
 
-5. 低优先级：implement / repair 模板对 JSON 输出形状的强调依赖 system prompt。
+5. 低优先级：implement / repair 模板对 JSON 输出形状的强调依赖 system prompt。（已修复）
    - 位置：`workflow/prompt/templates/implement_design.md.jinja` 与 `workflow/prompt/templates/repair_code.md.jinja`。
    - 现象：`implement_system_prompt` 明确要求只输出 JSON；但 `implement_design` 模板本身只写“输出候选 `.sophia` 文件集合”，不像 `repair_code` 那样直接点名 `repair_result` schema。
    - 风险：当模板被单独复用或 system prompt 组合出错时，模型更容易输出 markdown 或非 JSON。
    - 建议：模板正文也显式写出 `implement_result` / `repair_result` 的 JSON 形状，并用 snapshot 固定。
+   - 修复：`implement_design` 与 `repair_code` 模板均在正文输出要求中显式点名目标 schema，并列出 `files[].path` / `files[].content` / `changes` 形状；测试固定模板必须包含 schema 名和关键字段。
 
 建议修复顺序：
 
@@ -586,7 +589,7 @@ cargo clippy -p sophia-prompt -- -D warnings
 2. 在 prompt crate 内编译所有 JSON Schema，并递归检查 strict object schema。
 3. 用 `PromptSpec`/枚举替代散落字符串，绑定 template/schema/system。
 4. 在 engine 层增加 schema ↔ Rust DTO 往返 contract test。
-5. 补强 implement / repair 模板自身的 JSON 输出要求。
+5. 已补强 implement / repair 模板自身的 JSON 输出要求。
 
 ## 2026-06-04 — workflow/engine 模块
 
@@ -747,11 +750,12 @@ cargo clippy -p sophia-lsp -p sophia-cli -- -D warnings
    - 建议：使用 `symlink_metadata` 判断 file type，默认不跟随 symlink；如需支持 symlink，维护 visited canonical dirs 集合并限制在项目根内。
    - 修复：`collect_sophia_files` 改用 `symlink_metadata` 判断文件类型，默认跳过 symlink，仅递归真实目录并收集真实 `.sophia` 文件；Unix 回归测试覆盖目录 symlink 不被跟随。
 
-7. 低优先级：LSP 符号表按裸名称索引，会覆盖跨 domain 同名符号。
+7. 低优先级：LSP 符号表按裸名称索引，会覆盖跨 domain 同名符号。（已修复）
    - 位置：`lsp/src/analysis.rs` 的 `symbols`、`hover`、`goto_definition`。
    - 现象：`symbols()` 返回 `BTreeMap<String, SymbolDef>`，同名顶层节点后插入覆盖先前定义。
    - 风险：在多 domain 或重名未被及时诊断时，hover/goto 可能跳到错误文件。当前 CLI/HIR 会约束一部分重名问题，但 LSP 降级为空 index 时更容易暴露该问题。
    - 建议：符号 key 使用 `(domain, name)` 或 HIR canonical name；identifier 查询结合当前文档 domain 和 resolved symbol，而不是裸文本全局查找。
+   - 修复：`SymbolDef` 记录 domain，`symbols()` 改用 `domain::name` key；hover/goto 根据当前文档 domain 查询符号，不再按裸名全局匹配。已补跨 domain 同名 `Shared` 的 goto 回归测试。
 
 建议修复顺序：
 
@@ -761,4 +765,4 @@ cargo clippy -p sophia-lsp -p sophia-cli -- -D warnings
 4. 修复 LSP 位置换算尾随空行边界并补测试。
 5. 在 graph gate 从持久化 artifact 重新加载时执行路径安全校验。
 6. 已将项目扫描改为默认不跟随 symlink。
-7. LSP 符号查询改用 domain-aware/canonical symbol key。
+7. 已将 LSP 符号查询改用 domain-aware symbol key。

@@ -176,6 +176,39 @@ fn all_workflow_templates_declare_data_boundary() {
 }
 
 #[test]
+fn implement_and_repair_templates_name_output_schema_shape() {
+    let reg = PromptRegistry::new();
+    let implement = reg
+        .render(
+            "implement_design",
+            json!({
+                "pseudocode": "# Purpose\n...",
+                "context_files": Vec::<String>::new(),
+                "constraints": Vec::<String>::new(),
+            }),
+        )
+        .unwrap();
+    assert!(implement.contains("implement_result"));
+    assert!(implement.contains("path"));
+    assert!(implement.contains("content"));
+    assert!(implement.contains("changes"));
+
+    let repair = reg
+        .render(
+            "repair_code",
+            json!({
+                "files": ["D/A.sophia:\naction A {}"],
+                "diagnostics": [{ "code": "E", "location": "D/A.sophia:1", "problem": "bad" }],
+            }),
+        )
+        .unwrap();
+    assert!(repair.contains("repair_result"));
+    assert!(repair.contains("path"));
+    assert!(repair.contains("content"));
+    assert!(repair.contains("changes"));
+}
+
+#[test]
 fn strict_undefined_variable_errors() {
     // Strict undefined：缺变量应渲染失败而非静默成空。
     let reg = PromptRegistry::new();

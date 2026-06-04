@@ -35,6 +35,7 @@ pub struct Diagnostic {
 /// 一个顶层符号（节点）的定义位置与元信息。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymbolDef {
+    pub domain: String,
     pub name: String,
     pub kind: NodeKind,
     pub uri: DocUri,
@@ -186,15 +187,17 @@ impl Workspace {
         out
     }
 
-    /// 工作区全部顶层符号定义（按名）。
+    /// 工作区全部顶层符号定义（按 `domain::name`）。
     pub fn symbols(&self) -> BTreeMap<String, SymbolDef> {
         let mut map = BTreeMap::new();
         for doc in self.docs.values() {
             for item in &doc.ast.items {
                 let name = item.name();
+                let key = symbol_key(&doc.domain, &name.text);
                 map.insert(
-                    name.text.clone(),
+                    key,
                     SymbolDef {
+                        domain: doc.domain.clone(),
                         name: name.text.clone(),
                         kind: node_kind_of(item),
                         uri: doc.uri.clone(),
@@ -216,8 +219,8 @@ impl Workspace {
     /// hover：返回该位置标识符对应符号的说明（基于 semantic data）。
     pub fn hover(&self, uri: &str, byte: usize) -> Option<String> {
         let name = self.ident_at(uri, byte)?;
-        let symbols = self.symbols();
-        let def = symbols.get(&name)?;
+        let doc = self.docs.get(uri)?;
+        let def = self.symbol_in_domain(&doc.domain, &name)?;
         Some(format!(
             "**{}** — {:?}\n\n定义于 `{}`",
             def.name, def.kind, def.uri
@@ -227,7 +230,12 @@ impl Workspace {
     /// goto definition：返回该位置标识符对应符号的定义位置。
     pub fn goto_definition(&self, uri: &str, byte: usize) -> Option<SymbolDef> {
         let name = self.ident_at(uri, byte)?;
-        self.symbols().get(&name).cloned()
+        let doc = self.docs.get(uri)?;
+        self.symbol_in_domain(&doc.domain, &name)
+    }
+
+    fn symbol_in_domain(&self, domain: &str, name: &str) -> Option<SymbolDef> {
+        self.symbols().get(&symbol_key(domain, name)).cloned()
     }
 }
 
@@ -246,6 +254,10 @@ fn ident_at_byte(tree: &SyntaxTree, byte: usize) -> Option<String> {
 
 fn node_kind_of(item: &Item) -> NodeKind {
     NodeKind::of_item(item)
+}
+
+fn symbol_key(domain: &str, name: &str) -> String {
+    format!("{domain}::{name}")
 }
 
 fn workspace_error_span(doc: &Document) -> Span {

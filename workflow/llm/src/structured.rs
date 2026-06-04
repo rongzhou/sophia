@@ -57,7 +57,7 @@ where
 
     loop {
         // 后端调用失败立即上报（不重试网络问题，避免放大不可用）。
-        let resp = client.complete(&cur_req).await?;
+        let resp = client.complete_with_schema(&cur_req, schema).await?;
 
         let (last_errors, failure_kind) = match extract_json(&resp.content) {
             Ok(value) => {
