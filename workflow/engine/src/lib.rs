@@ -27,7 +27,7 @@ pub use implement_loop::{
 };
 pub use loop_steps::{
     decompose_goal, design_solution, implement_design, repair_code, revise_design, CodeArtifact,
-    DecompositionArtifact, LoopError, LoopStepOutcome, PseudocodeArtifact,
+    DecompositionArtifact, LibrarySelectionPolicy, LoopError, LoopStepOutcome, PseudocodeArtifact,
 };
 pub use prompts::{GoalProgress, StepPrompts};
 pub use scheduler::{run_goal_loop, Outcome, SchedulerBudget, SchedulerError};
@@ -38,6 +38,6 @@ pub use select_materialize::{
 pub use sophia_materialize::{Score, ScoreWeights};
 pub use step::{run_llm_step, LlmStepError, LlmStepOutcome};
 pub use traversal::{
-    run_goal_tree, AutoAcceptReviewer, DecompositionReviewer, GoalResolution, ReviewDecision,
-    TreeBudget,
+    run_goal_tree, AutoAcceptReviewer, DecompositionReviewer, GoalResolution, GoalTreeConfig,
+    ReviewDecision, TreeBudget,
 };

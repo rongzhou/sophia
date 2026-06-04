@@ -21,7 +21,10 @@
 //! `CodePayload.files` 只记路径，见 4.4.3 / 4.4.4），但下游 gate 与物化需要正文，故由
 //! [`PseudocodeArtifact`] / [`CodeArtifact`] 承载交给调用方（落盘 / 喂 gate）。
 
+use std::collections::BTreeSet;
+
 use serde::Deserialize;
+use serde_json::Value;
 use sophia_graph_db::{
     build_decomposition, ActiveContext, ChildGoal, CodePayload, DecompositionNodes, EdgeKind,
     GraphStore, NodeId, NodeRole, PseudocodePayload,
@@ -29,6 +32,51 @@ use sophia_graph_db::{
 use sophia_llm::{CompletionRequest, LlmClient, LlmError, StructuredConfig};
 
 use crate::step::{run_llm_step, step_schema, LlmStepError, LlmStepOutcome};
+
+/// design / revise 输出中允许引用的库集合。
+///
+/// 该策略被编入 `design_result` schema：未知库会在结构化 LLM 校验阶段失败，走 RawLlm
+/// 兜底路径，不会先创建 PseudocodeNode 再由调用方事后拒绝。
+#[derive(Debug, Clone, Default)]
+pub struct LibrarySelectionPolicy {
+    allowed: BTreeSet<String>,
+}
+
+impl LibrarySelectionPolicy {
+    /// 从当前调用方的库注册表名称集合构造策略。空集合表示不允许引用任何库。
+    pub fn from_names<I, S>(names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        LibrarySelectionPolicy {
+            allowed: names.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    fn design_result_schema(&self) -> Value {
+        let mut schema = step_schema("design_result");
+        let Some(libraries) = schema
+            .get_mut("properties")
+            .and_then(Value::as_object_mut)
+            .and_then(|props| props.get_mut("libraries"))
+            .and_then(Value::as_object_mut)
+        else {
+            panic!("内置 design_result schema 缺少 properties.libraries");
+        };
+        let items = if self.allowed.is_empty() {
+            serde_json::json!({ "not": {} })
+        } else {
+            serde_json::json!({
+                "type": "string",
+                "enum": self.allowed.iter().collect::<Vec<_>>(),
+            })
+        };
+        libraries.insert("items".to_string(), items);
+        libraries.insert("uniqueItems".to_string(), Value::Bool(true));
+        schema
+    }
+}
 
 /// `design_solution` 的结构化 LLM 输出（schema：prompt crate `design_result`）。
 #[derive(Debug, Clone, Deserialize)]
@@ -127,6 +175,7 @@ pub async fn design_solution<C, R>(
     client: &C,
     render: R,
     config: &StructuredConfig,
+    library_policy: &LibrarySelectionPolicy,
     target: NodeId,
 ) -> Result<LoopStepOutcome<PseudocodeArtifact>, LoopError>
 where
@@ -135,11 +184,12 @@ where
 {
     ensure_addressable(store, target)?;
 
+    let schema = library_policy.design_result_schema();
     let outcome: LlmStepOutcome<DesignResult> = run_llm_step(
         store,
         client,
         render,
-        &step_schema("design_result"),
+        &schema,
         config,
         target,
         "design_solution",
@@ -242,6 +292,7 @@ pub async fn revise_design<C, R>(
     client: &C,
     render: R,
     config: &StructuredConfig,
+    library_policy: &LibrarySelectionPolicy,
     target: NodeId,
     prev_pseudocode: NodeId,
 ) -> Result<LoopStepOutcome<PseudocodeArtifact>, LoopError>
@@ -254,11 +305,12 @@ where
         return Err(role_mismatch(prev_pseudocode, "Pseudocode"));
     }
 
+    let schema = library_policy.design_result_schema();
     let outcome: LlmStepOutcome<DesignResult> = run_llm_step(
         store,
         client,
         render,
-        &step_schema("design_result"),
+        &schema,
         config,
         target,
         "revise_design",

@@ -61,24 +61,9 @@ pub fn build_decomposition(
     rationale: impl Into<String>,
     children: &[ChildGoal],
 ) -> GraphResult<DecompositionNodes> {
-    if store.role_of(parent) != Some(NodeRole::Objective) {
-        return Err(GraphError::InvalidPayload(format!(
-            "{parent} 不是 Objective，无法作为 decomposes→ 的父目标"
-        )));
-    }
-    if store.role_of(snapshot) != Some(NodeRole::ContextSnapshot) {
-        return Err(GraphError::InvalidPayload(format!(
-            "{snapshot} 不是 ContextSnapshot，无法作为 Decomposition 的 consumed→ 目标（I6）"
-        )));
-    }
-    if children.len() < 2 {
-        return Err(GraphError::InvalidPayload(format!(
-            "目标拆解至少需 2 个子目标，得到 {}",
-            children.len()
-        )));
-    }
-
     let rationale = rationale.into();
+    prevalidate_decomposition(store, parent, snapshot, &rationale, children)?;
+
     let decomposition = store.as_llm().decomposition(
         "decomposition",
         DecompositionPayload {
@@ -109,4 +94,43 @@ pub fn build_decomposition(
         decomposition,
         children: child_ids,
     })
+}
+
+fn prevalidate_decomposition(
+    store: &GraphStore,
+    parent: NodeId,
+    snapshot: NodeId,
+    rationale: &str,
+    children: &[ChildGoal],
+) -> GraphResult<()> {
+    if store.role_of(parent) != Some(NodeRole::Objective) {
+        return Err(GraphError::InvalidPayload(format!(
+            "{parent} 不是 Objective，无法作为 decomposes→ 的父目标"
+        )));
+    }
+    if store.role_of(snapshot) != Some(NodeRole::ContextSnapshot) {
+        return Err(GraphError::InvalidPayload(format!(
+            "{snapshot} 不是 ContextSnapshot，无法作为 Decomposition 的 consumed→ 目标（I6）"
+        )));
+    }
+    if children.len() < 2 {
+        return Err(GraphError::InvalidPayload(format!(
+            "目标拆解至少需 2 个子目标，得到 {}",
+            children.len()
+        )));
+    }
+    nonempty(rationale, "rationale")?;
+    for (i, child) in children.iter().enumerate() {
+        nonempty(&child.title, &format!("children[{i}].title"))?;
+        nonempty(&child.description, &format!("children[{i}].description"))?;
+    }
+    Ok(())
+}
+
+fn nonempty(value: &str, field: &str) -> GraphResult<()> {
+    if value.trim().is_empty() {
+        Err(GraphError::InvalidPayload(format!("{field} 不能为空")))
+    } else {
+        Ok(())
+    }
 }

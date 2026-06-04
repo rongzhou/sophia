@@ -7,11 +7,11 @@
 //! 本模块是 workflow 层编排：把「已通过 gate 的候选」落为图上的两个确定性节点 + 边：
 //!
 //! - `SelectionNode`（provenance=Deterministic）`selects→ Code`：选中候选；
-//! - `MaterializeNode`（provenance=Deterministic）`materializes→ Selection`：物化事件。
+//! - `MaterializeNode`（provenance=Deterministic）`materializes→ Selection`：物化意图/事件锚点。
 //!
 //! 分层纪律：`tools/materialize` 不依赖 workflow 图；MaterializeNode 由本编排层在
-//! gate 通过（即拿到 `CodeCandidate<Selected>`）后单独创建。物化的原子写入仍由
-//! materialize crate 负责。
+//! gate 通过（即拿到 `CodeCandidate<Selected>`）后单独创建。编排层先写图上的物化锚点，再执行
+//! 文件写入，避免文件系统已经改变但图上完全无记录。物化的原子写入仍由 materialize crate 负责。
 
 use sophia_graph_db::{
     EdgeKind, GraphError, GraphStore, MaterializePayload, NodeId, NodeRole, SelectionPayload,
@@ -199,17 +199,15 @@ pub fn run_materialization(
         return Err(SelectMaterializeError::NotSelectionNode(selection));
     }
 
-    // 原子物化（先 staging 后 rename，由 materialize crate 保证原子）。
-    let written = candidate.materialize(write_root)?;
-
-    let materialize = store.as_deterministic().materialize(
-        "materialize",
-        MaterializePayload {
-            target_root: target_root_label.into(),
-            files: written.files.clone(),
-        },
-    )?;
+    let target_root = target_root_label.into();
+    let files = candidate.file_paths();
+    let materialize = store
+        .as_deterministic()
+        .materialize("materialize", MaterializePayload { target_root, files })?;
     store.append_edge(materialize, selection, EdgeKind::Materializes)?;
+
+    // 图上已有物化锚点后再写文件，避免不可逆文件写入缺少审计记录。
+    let written = candidate.materialize(write_root)?;
     Ok((materialize, written))
 }
 
@@ -236,6 +234,8 @@ pub fn run_selection_materialize(
     target_root_label: impl Into<String>,
     selection_rationale: impl Into<String>,
 ) -> Result<SelectMaterializeOutcome, SelectMaterializeError> {
+    let target_root_label = target_root_label.into();
+    prevalidate_materialize_payload(&candidate, &target_root_label)?;
     let selection = run_selection(store, &candidate, code_node, selection_rationale)?;
     let (materialize, written) =
         run_materialization(store, candidate, selection, write_root, target_root_label)?;
@@ -244,4 +244,17 @@ pub fn run_selection_materialize(
         materialize,
         written,
     })
+}
+
+fn prevalidate_materialize_payload(
+    candidate: &CodeCandidate<Selected>,
+    target_root: &str,
+) -> Result<(), SelectMaterializeError> {
+    if target_root.trim().is_empty() {
+        return Err(GraphError::InvalidPayload("target_root 不能为空".into()).into());
+    }
+    if candidate.file_paths().is_empty() {
+        return Err(GraphError::InvalidPayload("Materialize.files 不能为空".into()).into());
+    }
+    Ok(())
 }

@@ -389,7 +389,8 @@ impl<'a> Interpreter<'a> {
             Expr::MethodCall {
                 base, method, args, ..
             } => {
-                // body 级标准库 I/O：`File.Read/Write(...)` / `Http.Get(url)`（特殊根 method_call）。
+                // body 级库 op：`File.Read/Write(...)` / `Http.Get(url)` / 三方库 op
+                // （特殊根 method_call）。
                 if let Some(result) = self.try_effect_op(*base, &method.text, args, env)? {
                     return Ok(result);
                 }
@@ -472,11 +473,12 @@ impl<'a> Interpreter<'a> {
     /// 尝试求值 body 级库 effect op：`Lib.Op(args)`（特殊根 method_call，如 `File.Read(path)` /
     /// `Http.Get(url)`，见 docs/stdlib_design.md）。
     ///
-    /// 仅当 `base` 是标识符且 `(family, method)` 有注册的 host 时返回 `Some(结果)`，否则 `None`
-    /// （交回常规方法）。经 [`HostRegistry`] 按 `(family, op)` 委派——runtime 不认识具体库，库的
-    /// host（标准库 native / mock、三方 WASM）由上层注册。取回的文本为 `Value::Text`（运行时不携带
-    /// intent 标签——intent 是编译期静态属性）。host 失败时返回 `Err`，物化为 `RuntimeError`
-    /// （硬错误阻断，绝不伪造成功）。
+    /// 仅当 `base` 是标识符且 `(family, method)` 存在于语义模型的库 op 契约时返回 `Some(结果)`，
+    /// 否则 `None`（交回常规方法）。经 [`HostRegistry`] 按 `(family, op)` 委派——runtime 不认识
+    /// 具体库，库的 host（标准库 native / mock、三方 WASM）由上层注册。若调用方漏注册 host，
+    /// [`HostRegistry::call`] 会返回“无 host 实现”的诚实硬错误，不退回普通 method 路径。
+    /// 取回的文本为 `Value::Text`（运行时不携带 intent 标签——intent 是编译期静态属性）。host
+    /// 失败时返回 `Err`，物化为 `RuntimeError`（硬错误阻断，绝不伪造成功）。
     fn try_effect_op(
         &mut self,
         base: ExprId,
@@ -484,16 +486,16 @@ impl<'a> Interpreter<'a> {
         args: &[ExprId],
         env: &mut Env,
     ) -> Result<Option<Value>, RuntimeError> {
-        // base 必须是标识符（库特殊根 family），且该 (family, op) 有注册 host。
+        // base 必须是标识符（库特殊根 family），且该 (family, op) 是语义模型中的已知库 op。
         let Expr::Ident(root) = self.cur_ast.expr(base) else {
             return Ok(None);
         };
         let family = root.text.clone();
-        if !self.host.has_op(&family, method) {
+        if self.model.library_op(&family, method).is_none() {
             return Ok(None);
         }
 
-        // 求值实参，委派给注册的 host（按 (family, op)）。
+        // 求值实参，委派给 host（按 (family, op)）。缺 host 由 HostRegistry::call 诚实报错。
         let mut argv = Vec::with_capacity(args.len());
         for &a in args {
             argv.push(self.eval(a, env)?);

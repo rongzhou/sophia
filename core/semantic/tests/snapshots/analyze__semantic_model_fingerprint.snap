@@ -75,4 +75,5 @@ SemanticModel {
             ],
         },
     },
+    library_ops: {},
 }

@@ -13,16 +13,19 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use sophia_engine::{
     code_check, design_solution, run_implement_loop, ImplementLoopConfig, ImplementLoopOutcome,
-    LoopStepOutcome,
+    LibrarySelectionPolicy, LoopStepOutcome,
 };
 use sophia_graph_db::{
     derive_active_context, ActiveContext, DiagnosticItem, GraphStore, NodeId, NodeRole,
     ObjectivePayload,
 };
+use sophia_hir::LibraryRegistry;
 use sophia_llm::{BackendConfig, BackendMode, CompletionRequest, HttpLlmClient, StructuredConfig};
 use sophia_prompt::PromptRegistry;
 
 mod gate;
+
+use crate::commands::library_registry;
 
 pub use gate::{materialize, select};
 
@@ -201,14 +204,19 @@ pub fn design(
 
     let client = build_client(model, mode, base_url, api_key)?;
     let prompt = PromptRegistry::new();
+    let registry = library_registry(root)?;
+    let library_policy = LibrarySelectionPolicy::from_names(registry.lib_names());
 
     // prompt 在调用时刻据 active context 渲染（与 snapshot 同源，见 architecture §8.4）。
     let model = model.to_string();
     let outcome = tokio_block_on(design_solution(
         &mut store,
         &client,
-        |ctx: &sophia_graph_db::ActiveContext| render_design_request(&prompt, ctx, &model),
+        |ctx: &sophia_graph_db::ActiveContext| {
+            render_design_request(&prompt, ctx, &model, &registry)
+        },
         &StructuredConfig::default(),
+        &library_policy,
         target,
     ))
     .context("design_solution 执行失败")?;
@@ -219,7 +227,7 @@ pub fn design(
             let libs_note = if art.libraries.is_empty() {
                 String::new()
             } else {
-                format!("；选用标准库 [{}]", art.libraries.join(", "))
+                format!("；选用库 [{}]", art.libraries.join(", "))
             };
             println!(
                 "已创建伪代码 {}（addresses→ {target}）；正文写入 {}{libs_note}",
@@ -244,6 +252,7 @@ fn render_design_request(
     prompt: &PromptRegistry,
     ctx: &ActiveContext,
     model: &str,
+    registry: &LibraryRegistry,
 ) -> CompletionRequest {
     let objective = ctx
         .bound_objectives
@@ -271,7 +280,7 @@ fn render_design_request(
                 // 起步阶段：graph Objective ↔ 项目 action 链接尚未建模（见 dev_checklist_v1 结转项），
                 // 故 context_files 诚实留空，不臆造文件。
                 "context_files": Vec::<String>::new(),
-                "stdlib_catalog": sophia_stdlib::standard_registry().catalog(),
+                "stdlib_catalog": registry.catalog(),
             }),
         )
         .expect("渲染 design_solution 模板失败（内置模板 + 受控上下文，属内部不变量）");
@@ -317,6 +326,17 @@ fn read_pseudo_libraries(root: &Path, node: NodeId) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn validate_library_refs(libraries: &[String], registry: &LibraryRegistry) -> Result<()> {
+    for lib in libraries {
+        if registry.prompt_asset(lib).is_none() {
+            anyhow::bail!(
+                "伪代码引用了当前项目库注册表中不存在的库 `{lib}`；请重新运行 graph design"
+            );
+        }
+    }
+    Ok(())
 }
 
 /// 构造 LLM 后端（OpenAI 兼容 / Ollama）。
@@ -386,6 +406,7 @@ pub fn implement_loop(
 
     let client = build_client(model, mode, base_url, api_key)?;
     let prompt = PromptRegistry::new();
+    let registry = library_registry(root)?;
     // 读取伪代码正文（图节点不存正文，4.4.3；implement 提供者需要它）。
     let pseudo_path = artifacts_dir(root).join(format!("{}.pseudo", pseudo_id.as_string()));
     let pseudocode_text = std::fs::read_to_string(&pseudo_path).with_context(|| {
@@ -402,10 +423,12 @@ pub fn implement_loop(
 
     // design 阶段所选标准库（伴生 `.libs`，缺文件视为无库）——按需注入对应库资产（S2）。
     let libraries = read_pseudo_libraries(root, pseudo_id);
+    validate_library_refs(&libraries, &registry)?;
 
     // prompt 提供者：implement / repair 请求在调用时刻据 active context 渲染（§8.4）。
     let prompts = CliImplementPrompts {
         prompt: &prompt,
+        registry: &registry,
         model: model.to_string(),
     };
 
@@ -472,6 +495,7 @@ pub fn implement_loop(
 /// （§8.3，决断性事实、无任务答案）。
 struct CliImplementPrompts<'a> {
     prompt: &'a PromptRegistry,
+    registry: &'a LibraryRegistry,
     model: String,
 }
 
@@ -481,9 +505,9 @@ impl CliImplementPrompts<'_> {
     ///
     /// `libraries` 是 design 阶段所选标准库（自伴生 `.libs` 读回，见 `implement_loop`）；其完整资产
     /// 文本由库注册表算得（`registry.preamble`，见 docs/stdlib_design.md）。
-    fn system(libraries: &[String]) -> String {
+    fn system(&self, libraries: &[String]) -> String {
         let lib_refs: Vec<&str> = libraries.iter().map(|s| s.as_str()).collect();
-        let stdlib_block = sophia_stdlib::standard_registry().preamble(&lib_refs);
+        let stdlib_block = self.registry.preamble(&lib_refs);
         sophia_prompt::implement_system_prompt(&stdlib_block)
     }
 }
@@ -541,7 +565,7 @@ impl sophia_engine::StepPrompts for CliImplementPrompts<'_> {
             )
             .expect("渲染 implement_design 模板失败");
         let mut req = CompletionRequest::new(&self.model, rendered);
-        req.system = Some(Self::system(libraries));
+        req.system = Some(self.system(libraries));
         req
     }
 
@@ -569,7 +593,7 @@ impl sophia_engine::StepPrompts for CliImplementPrompts<'_> {
             )
             .expect("渲染 repair_code 模板失败");
         let mut req = CompletionRequest::new(&self.model, rendered);
-        req.system = Some(Self::system(libraries));
+        req.system = Some(self.system(libraries));
         req
     }
 }
@@ -601,6 +625,8 @@ pub(super) fn write_code_artifacts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sophia_engine::StepPrompts;
+    use sophia_hir::LibraryContent;
 
     #[test]
     fn code_check_passes_clean_candidate() {
@@ -660,6 +686,80 @@ mod tests {
         assert!(read_pseudo_libraries(&root, node3).is_empty());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn unknown_pseudo_library_is_rejected() {
+        let registry = sophia_stdlib::standard_registry();
+        let libs = vec!["missing-lib".to_string()];
+
+        let err = validate_library_refs(&libs, &registry).unwrap_err();
+        assert!(
+            err.to_string().contains("不存在的库 `missing-lib`"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn implement_prompt_uses_injected_project_registry() {
+        let registry = extra_library_registry();
+        let prompt = PromptRegistry::new();
+        let prompts = CliImplementPrompts {
+            prompt: &prompt,
+            registry: &registry,
+            model: "mock".to_string(),
+        };
+        let store = GraphStore::open_in_memory().unwrap();
+        let ctx = sophia_graph_db::derive_active_context(&store);
+
+        let req = prompts.implement(
+            &ctx,
+            NodeId::parse("N0001").unwrap(),
+            "# Purpose\n...",
+            &["extra".to_string()],
+        );
+
+        assert!(
+            req.system
+                .expect("system prompt")
+                .contains("PROJECT EXTRA ASSET TOKEN"),
+            "implement system prompt 应注入传入 registry 的项目库资产"
+        );
+    }
+
+    #[test]
+    fn design_prompt_uses_injected_project_registry_catalog() {
+        let registry = extra_library_registry();
+        let prompt = PromptRegistry::new();
+        let store = GraphStore::open_in_memory().unwrap();
+        let ctx = sophia_graph_db::derive_active_context(&store);
+
+        let req = render_design_request(&prompt, &ctx, "mock", &registry);
+
+        assert!(
+            req.prompt.contains("`extra`") && req.prompt.contains("项目三方库"),
+            "design prompt 应注入传入 registry 的项目库目录"
+        );
+    }
+
+    fn extra_library_registry() -> LibraryRegistry {
+        LibraryRegistry::build(vec![LibraryContent {
+            dir_name: "extra".into(),
+            manifest_toml: r#"
+[library]
+name = "extra"
+summary = "项目三方库"
+abi_version = 1
+
+[prompt]
+asset = "extra.md"
+"#
+            .into(),
+            asset_text: "PROJECT EXTRA ASSET TOKEN".into(),
+            sophia_sources: vec![],
+            host_wasm: None,
+        }])
+        .unwrap()
     }
 
     #[test]

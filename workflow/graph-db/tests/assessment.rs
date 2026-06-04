@@ -132,8 +132,35 @@ fn non_invariant_proposed_constraint_rejected() {
         verifier: None,
     }];
 
+    let before = store.raw_event_log().unwrap();
     let err = decompose_assessment(&mut store, &output, cr, snap).unwrap_err();
     assert!(matches!(err, GraphError::InvalidPayload(_)));
+    assert_eq!(
+        store.raw_event_log().unwrap(),
+        before,
+        "无效 proposed_invariants 不应留下半成品事件"
+    );
+}
+
+#[test]
+fn invalid_first_slice_rejected_without_side_effects() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let cr = change_request(&mut store);
+    let snap = snapshot(&mut store);
+
+    let mut output = base_output();
+    output.proposed_first_slice = Some(FirstSlicePayload {
+        purpose: " ".into(),
+    });
+
+    let before = store.raw_event_log().unwrap();
+    let err = decompose_assessment(&mut store, &output, cr, snap).unwrap_err();
+    assert!(matches!(err, GraphError::InvalidPayload(_)));
+    assert_eq!(
+        store.raw_event_log().unwrap(),
+        before,
+        "无效 first slice 不应留下 Assessment/edge 半成品"
+    );
 }
 
 #[test]

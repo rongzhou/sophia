@@ -517,12 +517,23 @@ async fn scheduler_drive<C: LlmClient>(
     objective: NodeId,
     case: &Case,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
-    use sophia_engine::{run_goal_loop, Outcome, SchedulerBudget};
+    use sophia_engine::{run_goal_loop, LibrarySelectionPolicy, Outcome, SchedulerBudget};
 
     let prompts = harness_prompts(prompt, model, case, objective, false);
     let budget = SchedulerBudget::default();
+    let library_policy =
+        LibrarySelectionPolicy::from_names(sophia_stdlib::standard_registry().lib_names());
 
-    let outcome = run_goal_loop(store, client, &prompts, &budget, objective, real_check).await?;
+    let outcome = run_goal_loop(
+        store,
+        client,
+        &prompts,
+        &budget,
+        &library_policy,
+        objective,
+        real_check,
+    )
+    .await?;
 
     match outcome {
         Outcome::CandidateReady {
@@ -568,11 +579,18 @@ async fn tree_drive<C: LlmClient>(
     objective: NodeId,
     case: &Case,
 ) -> anyhow::Result<Option<Vec<(String, String)>>> {
-    use sophia_engine::{run_goal_tree, AutoAcceptReviewer, TreeBudget};
+    use sophia_engine::{
+        run_goal_tree, AutoAcceptReviewer, GoalTreeConfig, LibrarySelectionPolicy, TreeBudget,
+    };
 
     // Tree 用例：允许根焦点选择 decompose。
     let prompts = harness_prompts(prompt, model, case, objective, true);
-    let budget = TreeBudget::default();
+    let config = GoalTreeConfig {
+        budget: TreeBudget::default(),
+        library_policy: LibrarySelectionPolicy::from_names(
+            sophia_stdlib::standard_registry().lib_names(),
+        ),
+    };
     let mut reviewer = AutoAcceptReviewer;
 
     let resolution = run_goal_tree(
@@ -580,7 +598,7 @@ async fn tree_drive<C: LlmClient>(
         client,
         &prompts,
         &mut reviewer,
-        &budget,
+        &config,
         objective,
         real_check,
     )
@@ -653,6 +671,9 @@ async fn design_then_implement<C: LlmClient>(
         client,
         |ctx: &sophia_graph_db::ActiveContext| prompts.design(ctx, objective),
         &StructuredConfig::default(),
+        &sophia_engine::LibrarySelectionPolicy::from_names(
+            sophia_stdlib::standard_registry().lib_names(),
+        ),
         objective,
     )
     .await?

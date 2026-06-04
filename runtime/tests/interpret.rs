@@ -600,6 +600,40 @@ fn lib_read_missing_errors_honestly() {
 }
 
 #[test]
+fn registered_library_op_without_host_reports_missing_host() {
+    // 程序通过语义检查，说明 Vault.Read 是已知库 op；若调用方漏注册 host，runtime 必须直达
+    // HostRegistry 的“无 host 实现”诊断，而不是退回普通 method path 报未绑定变量 Vault。
+    let prog = Program::new(&[
+        r#"capability C { allow { Vault.Read } }"#,
+        r#"action Fetch {
+  capability: C
+  input { path: Text }
+  output { body: Raw<Text> }
+  effects { Vault.Read }
+  body { return Vault.Read(path) }
+}"#,
+    ]);
+    let model = prog.analyze_with(&vault_registry());
+    let refs = prog.refs();
+    let mut host = HostRegistry::new();
+    let err = {
+        let mut interp = sophia_runtime::Interpreter::new(&model, &refs, &mut host);
+        interp
+            .run("Fetch", vec![Value::Text("k".into())])
+            .unwrap_err()
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("无 host 实现：`Vault.Read`"),
+        "漏注册库 host 应直达 HostRegistry 诊断，实际：{msg}"
+    );
+    assert!(
+        !msg.contains("未绑定变量 `Vault`"),
+        "不应退回普通 method path：{msg}"
+    );
+}
+
+#[test]
 fn lib_op_dispatches_to_registered_host() {
     // 库 op 经 HostRegistry 按 (family, op) 委派，返回 host 闭包的结果。
     let prog = Program::new(&[

@@ -53,6 +53,10 @@ pub fn req() -> CompletionRequest {
     CompletionRequest::new("m", "do it")
 }
 
+pub fn library_policy() -> sophia_engine::LibrarySelectionPolicy {
+    sophia_engine::LibrarySelectionPolicy::from_names(["http", "file"])
+}
+
 /// 测试用的静态 prompt 提供者：每步都返回固定请求（不依赖 ctx）。
 ///
 /// 单元测试用 MockClient 按队列返回响应，请求正文本身不影响测试结果，故用固定请求即可。

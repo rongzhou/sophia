@@ -12,8 +12,11 @@
 
 use crate::edge::EdgeKind;
 use crate::error::{GraphError, GraphResult};
-use crate::ids::NodeId;
-use crate::payload::{AssessmentLlmOutput, ConstraintKind, DecisionPayload, StateAssessment};
+use crate::ids::{NodeId, NodeRole};
+use crate::payload::{
+    AssessmentLlmOutput, ConstraintKind, ConstraintPayload, DecisionPayload, StateAssessment,
+    Verifier,
+};
 use crate::store::GraphStore;
 
 /// 拆解产物：本次评估新建的全部节点。
@@ -40,13 +43,7 @@ pub fn decompose_assessment(
     assessed: NodeId,
     snapshot: NodeId,
 ) -> GraphResult<AssessmentNodes> {
-    // self-check 全真校验（不通过即拒绝）。
-    let sc = &output.self_check;
-    if !(sc.affects_only_visible_targets && sc.no_hidden_answers && sc.no_pseudocode_or_code) {
-        return Err(GraphError::InvalidPayload(
-            "Assessment self-check 未全部通过，拒绝拆解".to_string(),
-        ));
-    }
+    prevalidate_assessment(store, output, assessed, snapshot)?;
 
     // 1) Assessment 节点。
     let assessment = store
@@ -67,11 +64,6 @@ pub fn decompose_assessment(
     // 3) regression 约束（每条独立，kind 必须 Invariant）。
     let mut invariants = Vec::new();
     for (i, c) in output.proposed_invariants.iter().enumerate() {
-        if c.kind != ConstraintKind::Invariant {
-            return Err(GraphError::InvalidPayload(format!(
-                "proposed_invariants[{i}] 的 kind 必须为 Invariant"
-            )));
-        }
         let id = store
             .as_llm()
             .constraint(format!("invariant_{i}"), c.clone())?;
@@ -106,4 +98,70 @@ pub fn decompose_assessment(
         invariants,
         decision,
     })
+}
+
+fn prevalidate_assessment(
+    store: &GraphStore,
+    output: &AssessmentLlmOutput,
+    assessed: NodeId,
+    snapshot: NodeId,
+) -> GraphResult<()> {
+    if !matches!(
+        store.role_of(assessed),
+        Some(NodeRole::ChangeRequest | NodeRole::Objective)
+    ) {
+        return Err(GraphError::InvalidPayload(format!(
+            "{assessed} 不是 ChangeRequest/Objective，无法作为 assesses→ 目标"
+        )));
+    }
+    if store.role_of(snapshot) != Some(NodeRole::ContextSnapshot) {
+        return Err(GraphError::InvalidPayload(format!(
+            "{snapshot} 不是 ContextSnapshot，无法作为 Assessment/Decision 的 consumed→ 目标（I6）"
+        )));
+    }
+
+    // self-check 全真校验（不通过即拒绝）。
+    let sc = &output.self_check;
+    if !(sc.affects_only_visible_targets && sc.no_hidden_answers && sc.no_pseudocode_or_code) {
+        return Err(GraphError::InvalidPayload(
+            "Assessment self-check 未全部通过，拒绝拆解".to_string(),
+        ));
+    }
+
+    if let Some(fs) = &output.proposed_first_slice {
+        nonempty(&fs.purpose, "proposed_first_slice.purpose")?;
+    }
+
+    for (i, c) in output.proposed_invariants.iter().enumerate() {
+        validate_invariant(i, c)?;
+    }
+    Ok(())
+}
+
+fn validate_invariant(idx: usize, c: &ConstraintPayload) -> GraphResult<()> {
+    if c.kind != ConstraintKind::Invariant {
+        return Err(GraphError::InvalidPayload(format!(
+            "proposed_invariants[{idx}] 的 kind 必须为 Invariant"
+        )));
+    }
+    nonempty(
+        &c.statement,
+        &format!("proposed_invariants[{idx}].statement"),
+    )?;
+    validate_verifier(&c.verifier)
+}
+
+fn validate_verifier(verifier: &Option<Verifier>) -> GraphResult<()> {
+    if let Some(verifier) = verifier {
+        nonempty(&verifier.r#ref, "verifier.ref")?;
+    }
+    Ok(())
+}
+
+fn nonempty(value: &str, field: &str) -> GraphResult<()> {
+    if value.trim().is_empty() {
+        Err(GraphError::InvalidPayload(format!("{field} 不能为空")))
+    } else {
+        Ok(())
+    }
 }

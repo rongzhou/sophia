@@ -1488,8 +1488,10 @@ struct FnEmitter<'a> {
     subj_scratch: u32,
     /// variant 记录构造的基址暂存局部索引（与 subject 分开，避免 match 内构造时别名）。
     rec_scratch: u32,
-    /// repeat 循环计数器暂存局部索引。
+    /// i32 循环/拷贝游标暂存局部索引。
     loop_scratch: u32,
+    /// repeat 循环计数器暂存局部索引（Sophia Int 为 i64，不能收窄）。
+    repeat_scratch: u32,
     /// host op / ValueWire 暂存局部索引。
     io_a: u32,
     io_b: u32,
@@ -1525,7 +1527,8 @@ fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> Codeg
     let io_b = scratch + 5;
     let host_arg_base = scratch + 6;
     let host_arg_count = max_effect_arg_count(body, ast, ctx.host_imports);
-    let declared_locals = let_names.len() as u32 + 6 + host_arg_count; // lets/bindings + scratch + host args
+    let repeat_scratch = host_arg_base + host_arg_count;
+    let declared_i32_locals = let_names.len() as u32 + 6 + host_arg_count; // lets/bindings + scratch + host args
 
     // 重算类型表（Table 模式，语义 6.2）：codegen 不要求 analyze_program 暴露它。
     let out = sophia_semantic::type_layer::TypeChecker::new(ctx.model, ast, ctx.lib_index)
@@ -1543,6 +1546,7 @@ fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> Codeg
         subj_scratch,
         rec_scratch,
         loop_scratch,
+        repeat_scratch,
         io_a,
         io_b,
         host_arg_base,
@@ -1558,7 +1562,7 @@ fn emit_callable(ast: &Ast, callable: &Callable, ctx: &EmitContext<'_>) -> Codeg
         .instrs
         .push(Instruction::Call(emitter.h(helper::WRAP_RETURNED)));
 
-    let mut f = Function::new([(declared_locals, ValType::I32)]);
+    let mut f = Function::new([(declared_i32_locals, ValType::I32), (1u32, ValType::I64)]);
     for ins in &emitter.instrs {
         f.instruction(ins);
     }
@@ -1640,26 +1644,23 @@ impl FnEmitter<'_> {
             Stmt::Match { subject, arms, .. } => self.emit_match(*subject, arms),
             Stmt::Repeat { count, body, .. } => {
                 // repeat n times { body }：n.max(0) 次。body 内 return/raise 经 WASM `return`
-                // 直接退出函数（Outcome ABI），与解释器一致。用一个倒计数 i32 局部（rec_scratch
-                // 在此语句不构造记录，可安全复用作计数器；body 内构造会重分配，故不与之冲突——
-                // 但为稳妥，repeat 计数用独立 loop_scratch 局部）。
-                let counter = self.loop_scratch;
+                // 直接退出函数（Outcome ABI），与解释器一致。计数器保持 i64，避免大整数被截断。
+                let counter = self.repeat_scratch;
                 self.emit_expr(*count)?;
                 self.instrs.push(Instruction::Call(self.h(helper::GET_INT)));
-                self.instrs.push(Instruction::I32WrapI64);
                 self.instrs.push(Instruction::LocalSet(counter));
                 self.instrs.push(Instruction::Block(BlockType::Empty));
                 self.instrs.push(Instruction::Loop(BlockType::Empty));
                 // if counter <= 0: break
                 self.instrs.push(Instruction::LocalGet(counter));
-                self.instrs.push(Instruction::I32Const(0));
-                self.instrs.push(Instruction::I32LeS);
+                self.instrs.push(Instruction::I64Const(0));
+                self.instrs.push(Instruction::I64LeS);
                 self.instrs.push(Instruction::BrIf(1));
                 self.emit_block(body)?;
                 // counter--
                 self.instrs.push(Instruction::LocalGet(counter));
-                self.instrs.push(Instruction::I32Const(1));
-                self.instrs.push(Instruction::I32Sub);
+                self.instrs.push(Instruction::I64Const(1));
+                self.instrs.push(Instruction::I64Sub);
                 self.instrs.push(Instruction::LocalSet(counter));
                 self.instrs.push(Instruction::Br(0));
                 self.instrs.push(Instruction::End); // loop

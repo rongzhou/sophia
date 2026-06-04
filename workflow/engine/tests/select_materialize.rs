@@ -195,6 +195,46 @@ fn materialization_rejects_non_selection_node() {
 }
 
 #[test]
+fn materialization_rejects_invalid_payload_before_file_write() {
+    use sophia_engine::{run_materialization, run_selection};
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let code = code_node(&mut store, vec!["D/A.sophia".into()]);
+    let root = temp_dir("mat_payload_bad");
+    let selected_for_selection = selected(vec![("D/A.sophia".into(), "entity A {}".into())]);
+    let selection = run_selection(&mut store, &selected_for_selection, code, "唯一候选").unwrap();
+    let cand = selected(vec![("D/A.sophia".into(), "entity A {}".into())]);
+
+    let err = run_materialization(&mut store, cand, selection, &root, " ").unwrap_err();
+    assert!(matches!(err, SelectMaterializeError::Graph(_)));
+    assert!(
+        !root.join("D/A.sophia").exists(),
+        "Materialize payload 非法时不应先写文件"
+    );
+    assert!(store.nodes().all(|n| n.meta.role != NodeRole::Materialize));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn selection_materialize_prevalidates_materialize_payload_before_selection() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let code = code_node(&mut store, vec!["D/A.sophia".into()]);
+    let root = temp_dir("select_mat_payload_bad");
+    let candidate = selected(vec![("D/A.sophia".into(), "entity A {}".into())]);
+
+    let err = run_selection_materialize(&mut store, candidate, code, &root, " ", "r").unwrap_err();
+    assert!(matches!(err, SelectMaterializeError::Graph(_)));
+    assert!(
+        !root.join("D/A.sophia").exists(),
+        "一体化路径预校验失败时不应写文件"
+    );
+    assert!(store.nodes().all(|n| n.meta.role != NodeRole::Selection));
+    assert!(store.nodes().all(|n| n.meta.role != NodeRole::Materialize));
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn ranked_selection_picks_compilable_winner() {
     // 多候选：一个可编译、一个不可编译；评分应选中可编译者并建 SelectionNode（selects→ 它）。
     use sophia_engine::{run_ranked_selection, RankedCandidate};

@@ -32,7 +32,7 @@ use sophia_llm::{LlmClient, LlmError, StructuredConfig};
 use thiserror::Error;
 
 use crate::implement_loop::{run_implement_loop, CodeChecker, ImplementLoopConfig};
-use crate::loop_steps::{design_solution, revise_design, LoopStepOutcome};
+use crate::loop_steps::{design_solution, revise_design, LibrarySelectionPolicy, LoopStepOutcome};
 use crate::prompts::{GoalProgress, StepPrompts};
 use crate::step::{run_llm_step, step_schema, LlmStepError, LlmStepOutcome};
 use crate::ImplementLoopOutcome;
@@ -122,6 +122,7 @@ pub async fn run_goal_loop<C, P, K>(
     client: &C,
     prompts: &P,
     budget: &SchedulerBudget,
+    library_policy: &LibrarySelectionPolicy,
     focus: NodeId,
     mut check: K,
 ) -> Result<Outcome, SchedulerError>
@@ -132,6 +133,8 @@ where
 {
     ensure_focus(store, focus)?;
 
+    // `max_total_llm_nodes` 是本次 goal 推进预算，历史图状态不消耗本轮预算。
+    let baseline_llm_nodes = count_llm_nodes(store);
     let mut decisions: u32 = 0;
     let mut pseudo_versions: u32 = 0;
     // 当前可用的 Pseudocode（design 产出，implement 消费）：节点 ID + 正文 + design 所选库。
@@ -144,7 +147,7 @@ where
 
     loop {
         // 预算门：任一上限触发即结束。
-        if let Some(reason) = budget_exceeded(store, budget, decisions) {
+        if let Some(reason) = budget_exceeded(store, budget, decisions, baseline_llm_nodes) {
             return Ok(Outcome::BudgetExhausted { reason, decisions });
         }
 
@@ -181,6 +184,7 @@ where
                     client,
                     prompts,
                     budget,
+                    library_policy,
                     focus,
                     decisions,
                     &mut pseudo_versions,
@@ -193,6 +197,7 @@ where
                     client,
                     prompts,
                     budget,
+                    library_policy,
                     focus,
                     decisions,
                     current_pseudocode.as_ref(),
@@ -283,22 +288,33 @@ enum Dispatch {
 
 /// 预算门：decision 轮数 / LLM 节点总数任一上限触发返回原因说明（design 10.9 顶层子集）。
 /// 伪代码版本上限在 design 分派内单独判定（仅该动作消费）。
-fn budget_exceeded(store: &GraphStore, budget: &SchedulerBudget, decisions: u32) -> Option<String> {
+fn budget_exceeded(
+    store: &GraphStore,
+    budget: &SchedulerBudget,
+    decisions: u32,
+    baseline_llm_nodes: u32,
+) -> Option<String> {
     if decisions >= budget.max_decisions {
         return Some(format!("decision 轮数达上限 {}", budget.max_decisions));
     }
-    if count_llm_nodes(store) >= budget.max_total_llm_nodes {
-        return Some(format!("LLM 节点总数达上限 {}", budget.max_total_llm_nodes));
+    let run_llm_nodes = count_llm_nodes(store).saturating_sub(baseline_llm_nodes);
+    if run_llm_nodes >= budget.max_total_llm_nodes {
+        return Some(format!(
+            "本轮 LLM 节点总数达上限 {}",
+            budget.max_total_llm_nodes
+        ));
     }
     None
 }
 
 /// 分派 `design_solution`：受伪代码版本预算约束，成功则携带新建的 Pseudocode（节点 + 正文）。
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_design<C, P>(
     store: &mut GraphStore,
     client: &C,
     prompts: &P,
     budget: &SchedulerBudget,
+    library_policy: &LibrarySelectionPolicy,
     focus: NodeId,
     decisions: u32,
     pseudo_versions: &mut u32,
@@ -318,6 +334,7 @@ where
         client,
         |ctx: &ActiveContext| prompts.design(ctx, focus),
         &budget.implement_loop.structured,
+        library_policy,
         focus,
     )
     .await?
@@ -399,6 +416,7 @@ async fn dispatch_revise<C, P>(
     client: &C,
     prompts: &P,
     budget: &SchedulerBudget,
+    library_policy: &LibrarySelectionPolicy,
     focus: NodeId,
     decisions: u32,
     current_pseudocode: Option<&(NodeId, String, Vec<String>)>,
@@ -436,6 +454,7 @@ where
         client,
         |ctx: &ActiveContext| prompts.revise(ctx, focus, prev_text, &diagnostics),
         &budget.implement_loop.structured,
+        library_policy,
         focus,
         *prev_pseudo,
     )

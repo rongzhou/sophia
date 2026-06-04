@@ -5,9 +5,11 @@
 
 mod common;
 
-use common::{seed_objective, MockClient, StaticPrompts};
+use common::{library_policy, seed_objective, MockClient, StaticPrompts};
 use serde_json::json;
-use sophia_engine::{run_goal_tree, AutoAcceptReviewer, GoalResolution, TreeBudget};
+use sophia_engine::{
+    run_goal_tree, AutoAcceptReviewer, GoalResolution, GoalTreeConfig, TreeBudget,
+};
 use sophia_graph_db::{DiagnosticKind, DiagnosticPayload, EdgeKind, GraphStore, NodeRole};
 
 // ---- LLM 响应构造 ----
@@ -26,6 +28,13 @@ fn decide(action: &str) -> String {
         }
     })
     .to_string()
+}
+
+fn tree_config() -> GoalTreeConfig {
+    GoalTreeConfig {
+        budget: TreeBudget::default(),
+        library_policy: library_policy(),
+    }
 }
 
 fn decompose_out(n: usize) -> String {
@@ -80,7 +89,7 @@ async fn decompose_then_resolve_each_child_to_candidate() {
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &TreeBudget::default(),
+        &tree_config(),
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -150,7 +159,7 @@ async fn leaf_goal_without_decompose_resolves_directly() {
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &TreeBudget::default(),
+        &tree_config(),
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -180,7 +189,7 @@ async fn backtrack_abandons_branch_without_faking_withdrawal() {
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &TreeBudget::default(),
+        &tree_config(),
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -219,13 +228,17 @@ async fn nested_decompose_stops_at_max_depth() {
         // 子目标1（深度1）：再 decompose → 同样达上限。
         Ok(decide("decompose")),
     ]);
+    let config = GoalTreeConfig {
+        budget,
+        library_policy: library_policy(),
+    };
 
     let resolution = run_goal_tree(
         &mut store,
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &budget,
+        &config,
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -268,13 +281,17 @@ async fn max_goals_budget_stops_traversal() {
     };
 
     let client = MockClient::new(vec![Ok(decide("decompose")), Ok(decompose_out(2))]);
+    let config = GoalTreeConfig {
+        budget,
+        library_policy: library_policy(),
+    };
 
     let resolution = run_goal_tree(
         &mut store,
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &budget,
+        &config,
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -328,7 +345,7 @@ async fn rejected_decomposition_does_not_recurse_or_fake_withdrawal() {
         &client,
         &StaticPrompts,
         &mut RejectReviewer,
-        &TreeBudget::default(),
+        &tree_config(),
         root,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -394,7 +411,7 @@ async fn accepted_decomposition_binds_children_into_active_context() {
         &client,
         &StaticPrompts,
         &mut AutoAcceptReviewer,
-        &TreeBudget::default(),
+        &tree_config(),
         root,
         |_f: &[(String, String)]| ok_check(),
     )

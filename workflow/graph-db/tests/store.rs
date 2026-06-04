@@ -312,6 +312,35 @@ fn event_sourcing_replay_round_trips() {
 }
 
 #[test]
+fn concurrent_open_stores_allocate_distinct_node_ids() {
+    let dir = std::env::temp_dir().join(format!("sophia_graph_multi_store_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("graph.sqlite");
+
+    let mut first = GraphStore::open(&db).unwrap();
+    let n1 = first.as_human().objective("o1", obj_payload("O1")).unwrap();
+    assert_eq!(n1.as_string(), "N0001");
+
+    let mut second = GraphStore::open(&db).unwrap();
+    let n2 = first.as_human().objective("o2", obj_payload("O2")).unwrap();
+    let n3 = second
+        .as_human()
+        .objective("o3", obj_payload("O3"))
+        .unwrap();
+
+    assert_ne!(n2, n3, "两个已打开 store 不应重复分配 NodeId");
+    assert_eq!(n2.as_string(), "N0002");
+    assert_eq!(n3.as_string(), "N0003");
+
+    let reopened = GraphStore::open(&db).unwrap();
+    assert!(reopened.node(n1).is_some());
+    assert!(reopened.node(n2).is_some());
+    assert!(reopened.node(n3).is_some());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn node_id_roundtrip() {
     assert_eq!(NodeId(1).as_string(), "N0001");
     assert_eq!(NodeId::parse("N0042"), Some(NodeId(42)));

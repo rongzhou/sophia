@@ -65,7 +65,7 @@ tower-lsp = "0.20"
 rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Prompt 模板
-minijinja = "2.20"
+minijinja = { version = "2.20", features = ["json"] }
 
 # 库清单解析（sophia-library：library.toml → LibraryRegistry，确定性、纯解析）
 toml = "0.9"

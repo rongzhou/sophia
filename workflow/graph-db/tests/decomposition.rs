@@ -137,6 +137,32 @@ fn build_decomposition_rejects_too_few_children() {
 }
 
 #[test]
+fn invalid_child_rejected_without_side_effects() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let parent = objective(&mut store);
+    let snap = snapshot(&mut store);
+    let invalid = vec![
+        ChildGoal {
+            title: "新增待办".into(),
+            description: "实现 AddTodo".into(),
+        },
+        ChildGoal {
+            title: " ".into(),
+            description: "标题为空".into(),
+        },
+    ];
+
+    let before = store.raw_event_log().unwrap();
+    let err = build_decomposition(&mut store, parent, snap, "拆分", &invalid).unwrap_err();
+    assert!(matches!(err, GraphError::InvalidPayload(_)));
+    assert_eq!(
+        store.raw_event_log().unwrap(),
+        before,
+        "无效子目标不应留下 Decomposition/child 半成品"
+    );
+}
+
+#[test]
 fn decomposition_children_bind_after_human_accepts() {
     // binding 继承（5.3）：human 接受 Decomposition 后，member_of 的子目标变 bound。
     let mut store = GraphStore::open_in_memory().unwrap();

@@ -100,6 +100,9 @@ async fn drive_workflow<C: LlmClient>(
         client,
         |ctx: &ActiveContext| prompts.design(ctx, objective),
         &StructuredConfig::default(),
+        &sophia_engine::LibrarySelectionPolicy::from_names(
+            sophia_stdlib::standard_registry().lib_names(),
+        ),
         objective,
     )
     .await

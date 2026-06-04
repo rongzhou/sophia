@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{req, seed_objective, MockClient};
+use common::{library_policy, req, seed_objective, MockClient};
 use sophia_engine::{design_solution, implement_design, repair_code, LoopStepOutcome};
 use sophia_graph_db::{EdgeKind, GraphStore, NodeRole, Provenance};
 use sophia_llm::{LlmError, StructuredConfig};
@@ -21,6 +21,7 @@ async fn full_loop_design_implement_repair() {
         &design_client,
         |_ctx| req(),
         &StructuredConfig::default(),
+        &library_policy(),
         obj,
     )
     .await
@@ -105,6 +106,7 @@ async fn design_propagates_selected_libraries() {
         &client,
         |_ctx| req(),
         &StructuredConfig::default(),
+        &library_policy(),
         obj,
     )
     .await
@@ -129,6 +131,7 @@ async fn design_libraries_defaults_empty_when_absent() {
         &client,
         |_ctx| req(),
         &StructuredConfig::default(),
+        &library_policy(),
         obj,
     )
     .await
@@ -155,6 +158,7 @@ async fn design_failure_emits_raw_llm_and_no_pseudocode() {
         &client,
         |_ctx| req(),
         &StructuredConfig::default(),
+        &library_policy(),
         obj,
     )
     .await
@@ -169,6 +173,46 @@ async fn design_failure_emits_raw_llm_and_no_pseudocode() {
         LoopStepOutcome::Succeeded(_) => panic!("后端不可用应失败"),
     }
     // 不应有 Pseudocode 节点。
+    assert!(store.nodes().all(|n| n.meta.role != NodeRole::Pseudocode));
+}
+
+#[tokio::test]
+async fn design_rejects_unknown_library_before_pseudocode_node() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let obj = seed_objective(&mut store);
+    let invalid =
+        r##"{"purpose":"bad lib","pseudocode":"# Purpose\n...","libraries":["missing"]}"##;
+    let client = MockClient::new(vec![
+        Ok(invalid.into()),
+        Ok(invalid.into()),
+        Ok(invalid.into()),
+    ]);
+
+    let outcome = design_solution(
+        &mut store,
+        &client,
+        |_ctx| req(),
+        &StructuredConfig::default(),
+        &library_policy(),
+        obj,
+    )
+    .await
+    .unwrap();
+
+    match outcome {
+        LoopStepOutcome::Failed { raw_llm, error } => {
+            assert!(
+                matches!(
+                    error,
+                    LlmError::SchemaValidation { .. } | LlmError::SelfCheck(_)
+                ),
+                "未知库应作为结构化输出失败：{error}"
+            );
+            assert_eq!(store.role_of(raw_llm), Some(NodeRole::RawLlm));
+            assert!(store.has_edge(raw_llm, obj, EdgeKind::Attempted));
+        }
+        LoopStepOutcome::Succeeded(_) => panic!("未知库应在建 Pseudocode 前失败"),
+    }
     assert!(store.nodes().all(|n| n.meta.role != NodeRole::Pseudocode));
 }
 
@@ -213,6 +257,7 @@ async fn design_rejects_non_addressable_target() {
         &client,
         |_ctx| req(),
         &StructuredConfig::default(),
+        &library_policy(),
         c,
     )
     .await

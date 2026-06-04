@@ -45,7 +45,7 @@ use sophia_graph_db::{
 use sophia_llm::{LlmClient, LlmError};
 
 use crate::decompose_goal;
-use crate::loop_steps::{DecompositionArtifact, LoopStepOutcome};
+use crate::loop_steps::{DecompositionArtifact, LibrarySelectionPolicy, LoopStepOutcome};
 use crate::prompts::StepPrompts;
 use crate::scheduler::{run_goal_loop, Outcome, SchedulerBudget, SchedulerError};
 
@@ -68,6 +68,13 @@ impl Default for TreeBudget {
             scheduler: SchedulerBudget::default(),
         }
     }
+}
+
+/// 目标树遍历配置：树/spine 预算 + design/revise 的库选择边界。
+#[derive(Debug, Clone)]
+pub struct GoalTreeConfig {
+    pub budget: TreeBudget,
+    pub library_policy: LibrarySelectionPolicy,
 }
 
 /// 一个候选的轻量引用：`(焦点目标, Code 节点, 候选文件)`。
@@ -209,7 +216,7 @@ pub async fn run_goal_tree<C, P, R, F>(
     client: &C,
     prompts: &P,
     reviewer: &mut R,
-    budget: &TreeBudget,
+    config: &GoalTreeConfig,
     root_focus: NodeId,
     mut check: F,
 ) -> Result<GoalResolution, SchedulerError>
@@ -225,7 +232,7 @@ where
         client,
         prompts,
         reviewer,
-        budget,
+        config,
         root_focus,
         0,
         &mut goals_visited,
@@ -244,7 +251,7 @@ fn drive_goal<'a, C, P, R, F>(
     client: &'a C,
     prompts: &'a P,
     reviewer: &'a mut R,
-    budget: &'a TreeBudget,
+    config: &'a GoalTreeConfig,
     focus: NodeId,
     depth: u32,
     goals_visited: &'a mut u32,
@@ -258,10 +265,10 @@ where
 {
     Box::pin(async move {
         // 目标总数预算门。
-        if *goals_visited >= budget.max_goals {
+        if *goals_visited >= config.budget.max_goals {
             return Ok(GoalResolution::BudgetExhausted {
                 focus,
-                reason: format!("目标总数达上限 {}", budget.max_goals),
+                reason: format!("目标总数达上限 {}", config.budget.max_goals),
             });
         }
         *goals_visited += 1;
@@ -271,7 +278,8 @@ where
             store,
             client,
             prompts,
-            &budget.scheduler,
+            &config.budget.scheduler,
+            &config.library_policy,
             focus,
             &mut *check,
         )
@@ -298,7 +306,7 @@ where
                         client,
                         prompts,
                         reviewer,
-                        budget,
+                        config,
                         focus,
                         depth,
                         goals_visited,
@@ -325,7 +333,7 @@ async fn drive_decompose<C, P, R, F>(
     client: &C,
     prompts: &P,
     reviewer: &mut R,
-    budget: &TreeBudget,
+    config: &GoalTreeConfig,
     focus: NodeId,
     depth: u32,
     goals_visited: &mut u32,
@@ -338,10 +346,10 @@ where
     F: FnMut(&[(String, String)]) -> sophia_graph_db::DiagnosticPayload,
 {
     // 深度门：达上限则不再拆解（如实记 BudgetExhausted，不强行展开）。
-    if depth >= budget.max_depth {
+    if depth >= config.budget.max_depth {
         return Ok(GoalResolution::BudgetExhausted {
             focus,
-            reason: format!("decompose 深度达上限 {}", budget.max_depth),
+            reason: format!("decompose 深度达上限 {}", config.budget.max_depth),
         });
     }
 
@@ -350,7 +358,7 @@ where
         store,
         client,
         |ctx: &sophia_graph_db::ActiveContext| prompts.decompose(ctx, focus),
-        &budget.scheduler.implement_loop.structured,
+        &config.budget.scheduler.implement_loop.structured,
         focus,
     )
     .await?
@@ -402,7 +410,7 @@ where
             client,
             prompts,
             reviewer,
-            budget,
+            config,
             child,
             depth + 1,
             goals_visited,

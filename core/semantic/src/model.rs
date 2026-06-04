@@ -10,7 +10,7 @@
 
 use crate::effect::{Effect, EffectSet};
 use crate::ty::{IntentKind, Ty};
-use sophia_hir::{AsgIndex, NodeKind};
+use sophia_hir::{AsgIndex, NodeKind, OpContract};
 use sophia_syntax::{Ast, CallableKind, Item, TypeRef};
 use std::collections::BTreeMap;
 
@@ -148,6 +148,9 @@ pub struct SemanticModel {
     pub variants: BTreeMap<String, VariantDecl>,
     pub capabilities: BTreeMap<String, CapabilityDecl>,
     pub callables: BTreeMap<String, CallableDecl>,
+    /// 库 op 契约（`Family.Op` → 签名 / host 分派键）。runtime 据此识别已知库调用；
+    /// host 是否已注册由 HostRegistry 在调用时诚实报告。
+    pub library_ops: BTreeMap<String, OpContract>,
 }
 
 impl SemanticModel {
@@ -161,12 +164,20 @@ impl SemanticModel {
         format!("{self:#?}")
     }
 
+    /// 查库 op 契约（`Family.Op`）。
+    pub fn library_op(&self, family: &str, op: &str) -> Option<&OpContract> {
+        self.library_ops.get(&format!("{family}.{op}"))
+    }
+
     /// 从一组 AST 与 `AsgIndex` 构建声明模型。
     ///
     /// 仅搬运声明信息，不做检查（检查由三层负责）。名称解析已在 HIR 完成，
     /// 这里对未解析类型记 [`Ty::Error`] 以避免级联误报。
     pub fn build(asts: &[&Ast], index: &AsgIndex) -> Self {
-        let mut model = SemanticModel::default();
+        let mut model = SemanticModel {
+            library_ops: index.library_ops.clone(),
+            ..SemanticModel::default()
+        };
         for ast in asts {
             for item in &ast.items {
                 model.add_item(item, index);

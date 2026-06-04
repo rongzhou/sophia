@@ -143,27 +143,121 @@ impl LlmClient for HttpLlmClient {
             LlmError::BackendUnavailable(format!("请求失败：{}", describe_reqwest_error(&e)))
         })?;
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| {
-            LlmError::BackendUnavailable(format!("读取响应失败：{}", describe_reqwest_error(&e)))
-        })?;
-
         if !status.is_success() {
+            let text = resp.text().await.map_err(|e| {
+                LlmError::BackendUnavailable(format!(
+                    "读取错误响应失败：{}",
+                    describe_reqwest_error(&e)
+                ))
+            })?;
             return Err(LlmError::BackendUnavailable(format!(
                 "后端返回 {status}：{}",
                 truncate(&text, 300)
             )));
         }
 
-        // 按模式解析响应内容。
+        // 按模式增量解析响应流，避免把完整生成先聚合到内存再处理。
         let content = match self.config.mode {
-            BackendMode::OpenAiCompatible => parse_openai_stream_or_response(&text)?,
-            BackendMode::Ollama => parse_ollama_stream(&text)?,
+            BackendMode::OpenAiCompatible => read_openai_stream(resp).await?,
+            BackendMode::Ollama => read_ollama_stream(resp).await?,
         };
 
         Ok(CompletionResponse { content })
     }
 }
 
+async fn read_openai_stream(resp: reqwest::Response) -> LlmResult<String> {
+    read_line_stream(resp, StreamProtocol::OpenAi).await
+}
+
+async fn read_ollama_stream(resp: reqwest::Response) -> LlmResult<String> {
+    read_line_stream(resp, StreamProtocol::Ollama).await
+}
+
+#[derive(Clone, Copy)]
+enum StreamProtocol {
+    OpenAi,
+    Ollama,
+}
+
+async fn read_line_stream(
+    mut resp: reqwest::Response,
+    protocol: StreamProtocol,
+) -> LlmResult<String> {
+    let mut parser = LineStreamParser::new(protocol);
+    let mut pending = Vec::new();
+
+    while let Some(chunk) = resp.chunk().await.map_err(|e| {
+        LlmError::BackendUnavailable(format!("读取响应失败：{}", describe_reqwest_error(&e)))
+    })? {
+        pending.extend_from_slice(&chunk);
+        while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
+            let line = pending.drain(..=pos).collect::<Vec<_>>();
+            if parser.process_line(&line)? {
+                return Ok(parser.content);
+            }
+        }
+    }
+
+    if !pending.is_empty() && parser.process_line(&pending)? {
+        return Ok(parser.content);
+    }
+    parser.finish()
+}
+
+struct LineStreamParser {
+    protocol: StreamProtocol,
+    content: String,
+    saw_chunk: bool,
+    line_no: usize,
+}
+
+impl LineStreamParser {
+    fn new(protocol: StreamProtocol) -> Self {
+        LineStreamParser {
+            protocol,
+            content: String::new(),
+            saw_chunk: false,
+            line_no: 0,
+        }
+    }
+
+    fn process_line(&mut self, raw: &[u8]) -> LlmResult<bool> {
+        self.line_no += 1;
+        let line = std::str::from_utf8(raw)
+            .map_err(|e| LlmError::Parse(format!("stream 第 {} 行不是 UTF-8：{e}", self.line_no)))?
+            .trim();
+        match self.protocol {
+            StreamProtocol::OpenAi => process_openai_stream_line(
+                line,
+                self.line_no,
+                &mut self.content,
+                &mut self.saw_chunk,
+            ),
+            StreamProtocol::Ollama => process_ollama_stream_line(
+                line,
+                self.line_no,
+                &mut self.content,
+                &mut self.saw_chunk,
+            ),
+        }
+    }
+
+    fn finish(self) -> LlmResult<String> {
+        match self.protocol {
+            StreamProtocol::OpenAi if self.saw_chunk => Err(LlmError::Parse(
+                "OpenAI stream 未收到 [DONE] 结束标记".to_string(),
+            )),
+            StreamProtocol::OpenAi => Err(LlmError::Parse("OpenAI stream 响应为空".to_string())),
+            StreamProtocol::Ollama if self.saw_chunk => Err(LlmError::Parse(
+                "Ollama stream 未收到 done=true 结束标记".to_string(),
+            )),
+            StreamProtocol::Ollama => Err(LlmError::Parse("Ollama stream 响应为空".to_string())),
+        }
+    }
+}
+
+#[cfg(test)]
 fn parse_openai_stream_or_response(text: &str) -> LlmResult<String> {
     let trimmed = text.trim();
     if trimmed.starts_with('{') {
@@ -180,27 +274,8 @@ fn parse_openai_stream_or_response(text: &str) -> LlmResult<String> {
     let mut content = String::new();
     let mut saw_event = false;
     for (idx, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with(':') {
-            continue;
-        }
-        let Some(data) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let data = data.trim();
-        if data == "[DONE]" {
+        if process_openai_stream_line(line.trim(), idx + 1, &mut content, &mut saw_event)? {
             return Ok(content);
-        }
-        let parsed: OpenAiStreamChunk = serde_json::from_str(data).map_err(|e| {
-            LlmError::Parse(format!("OpenAI stream 第 {} 行解析失败：{e}", idx + 1))
-        })?;
-        saw_event = true;
-        for choice in parsed.choices {
-            if let Some(delta) = choice.delta {
-                if let Some(piece) = delta.content {
-                    content.push_str(&piece);
-                }
-            }
         }
     }
     if saw_event {
@@ -212,22 +287,12 @@ fn parse_openai_stream_or_response(text: &str) -> LlmResult<String> {
     }
 }
 
+#[cfg(test)]
 fn parse_ollama_stream(text: &str) -> LlmResult<String> {
     let mut content = String::new();
     let mut saw_chunk = false;
     for (idx, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let parsed: OllamaStreamChunk = serde_json::from_str(line).map_err(|e| {
-            LlmError::Parse(format!("Ollama stream 第 {} 行解析失败：{e}", idx + 1))
-        })?;
-        saw_chunk = true;
-        if let Some(message) = parsed.message {
-            content.push_str(&message.content);
-        }
-        if parsed.done {
+        if process_ollama_stream_line(line.trim(), idx + 1, &mut content, &mut saw_chunk)? {
             return Ok(content);
         }
     }
@@ -238,6 +303,53 @@ fn parse_ollama_stream(text: &str) -> LlmResult<String> {
     } else {
         Err(LlmError::Parse("Ollama stream 响应为空".to_string()))
     }
+}
+
+fn process_openai_stream_line(
+    line: &str,
+    line_no: usize,
+    content: &mut String,
+    saw_event: &mut bool,
+) -> LlmResult<bool> {
+    if line.is_empty() || line.starts_with(':') {
+        return Ok(false);
+    }
+    let Some(data) = line.strip_prefix("data:") else {
+        return Ok(false);
+    };
+    let data = data.trim();
+    if data == "[DONE]" {
+        return Ok(true);
+    }
+    let parsed: OpenAiStreamChunk = serde_json::from_str(data)
+        .map_err(|e| LlmError::Parse(format!("OpenAI stream 第 {line_no} 行解析失败：{e}")))?;
+    *saw_event = true;
+    for choice in parsed.choices {
+        if let Some(delta) = choice.delta {
+            if let Some(piece) = delta.content {
+                content.push_str(&piece);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn process_ollama_stream_line(
+    line: &str,
+    line_no: usize,
+    content: &mut String,
+    saw_chunk: &mut bool,
+) -> LlmResult<bool> {
+    if line.is_empty() {
+        return Ok(false);
+    }
+    let parsed: OllamaStreamChunk = serde_json::from_str(line)
+        .map_err(|e| LlmError::Parse(format!("Ollama stream 第 {line_no} 行解析失败：{e}")))?;
+    *saw_chunk = true;
+    if let Some(message) = parsed.message {
+        content.push_str(&message.content);
+    }
+    Ok(parsed.done)
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -293,16 +405,19 @@ struct OpenAiRequest<'a> {
     stream: bool,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct OpenAiChoice {
     message: OpenAiMessage,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct OpenAiMessage {
     content: String,
@@ -424,5 +539,46 @@ mod tests {
             "{\"model\":\"qwen3\",\"message\":{\"role\":\"assistant\",\"content\":\"partial\"}}";
         let err = parse_ollama_stream(raw).unwrap_err();
         assert!(matches!(err, LlmError::Parse(msg) if msg.contains("done=true")));
+    }
+
+    #[test]
+    fn openai_line_stream_handles_split_chunks() {
+        let chunks = [
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"he".as_slice(),
+            b"l\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n",
+        ];
+        assert_eq!(
+            parse_line_stream_chunks(StreamProtocol::OpenAi, &chunks).unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn ollama_line_stream_handles_split_utf8_chunks() {
+        let raw = "{\"message\":{\"content\":\"你\"},\"done\":false}\n{\"done\":true}\n";
+        let split = raw.find("你").unwrap() + 1;
+        let chunks = [&raw.as_bytes()[..split], &raw.as_bytes()[split..]];
+        assert_eq!(
+            parse_line_stream_chunks(StreamProtocol::Ollama, &chunks).unwrap(),
+            "你"
+        );
+    }
+
+    fn parse_line_stream_chunks(protocol: StreamProtocol, chunks: &[&[u8]]) -> LlmResult<String> {
+        let mut parser = LineStreamParser::new(protocol);
+        let mut pending = Vec::new();
+        for chunk in chunks {
+            pending.extend_from_slice(chunk);
+            while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
+                let line = pending.drain(..=pos).collect::<Vec<_>>();
+                if parser.process_line(&line)? {
+                    return Ok(parser.content);
+                }
+            }
+        }
+        if !pending.is_empty() && parser.process_line(&pending)? {
+            return Ok(parser.content);
+        }
+        parser.finish()
     }
 }

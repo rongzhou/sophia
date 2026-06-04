@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{seed_objective, MockClient, StaticPrompts};
+use common::{library_policy, seed_objective, MockClient, StaticPrompts};
 use serde_json::json;
 use sophia_engine::{run_goal_loop, ImplementLoopConfig, Outcome, SchedulerBudget, SchedulerError};
 use sophia_graph_db::{
@@ -79,6 +79,7 @@ async fn design_then_implement_yields_candidate() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -118,6 +119,7 @@ async fn implement_without_pseudocode_yields() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -147,6 +149,7 @@ async fn higher_level_action_yields() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -198,6 +201,7 @@ async fn revise_design_is_reachable_after_implement_exhausted() {
         &client,
         &StaticPrompts,
         &budget,
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| {
             checks += 1;
@@ -239,6 +243,7 @@ async fn needs_clarification_emits_question_and_yields() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -286,6 +291,7 @@ async fn decision_budget_exhausted() {
         &client,
         &StaticPrompts,
         &budget,
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -322,6 +328,7 @@ async fn pseudocode_version_budget_exhausted() {
         &client,
         &StaticPrompts,
         &budget,
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -329,6 +336,43 @@ async fn pseudocode_version_budget_exhausted() {
     .unwrap();
 
     assert!(matches!(outcome, Outcome::BudgetExhausted { .. }));
+}
+
+#[tokio::test]
+async fn llm_node_budget_ignores_history_before_run() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let _history = store.as_llm().question("old question", "history").unwrap();
+    let obj = seed_objective(&mut store);
+
+    let client = MockClient::new(vec![Ok(decide("decompose"))]);
+    let budget = SchedulerBudget {
+        max_decisions: 10,
+        max_pseudocode_versions: 10,
+        max_total_llm_nodes: 1,
+        implement_loop: ImplementLoopConfig::default(),
+    };
+
+    let outcome = run_goal_loop(
+        &mut store,
+        &client,
+        &StaticPrompts,
+        &budget,
+        &library_policy(),
+        obj,
+        |_f: &[(String, String)]| ok_check(),
+    )
+    .await
+    .unwrap();
+
+    match outcome {
+        Outcome::Yielded {
+            action, decisions, ..
+        } => {
+            assert_eq!(action, DecisionAction::Decompose);
+            assert_eq!(decisions, 1);
+        }
+        other => panic!("历史 LLM 节点不应耗尽本轮预算，实际 {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -343,6 +387,7 @@ async fn decision_backend_failure_emits_raw_llm() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         obj,
         |_f: &[(String, String)]| ok_check(),
     )
@@ -380,6 +425,7 @@ async fn rejects_invalid_focus() {
         &client,
         &StaticPrompts,
         &SchedulerBudget::default(),
+        &library_policy(),
         c,
         |_f: &[(String, String)]| ok_check(),
     )

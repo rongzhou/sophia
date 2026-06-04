@@ -17,7 +17,7 @@ use crate::event::GraphEvent;
 use crate::ids::{NodeCreationStatus, NodeId, NodeRole, Provenance};
 use crate::meta::NodeMeta;
 use crate::payload::{ClarificationKind, NodePayload};
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use std::collections::BTreeMap;
 
 /// 一个已存储节点（meta + payload），只读。
@@ -56,6 +56,9 @@ impl GraphStore {
             "CREATE TABLE IF NOT EXISTS graph_events (
                 seq     INTEGER PRIMARY KEY AUTOINCREMENT,
                 payload TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS graph_node_ids (
+                id INTEGER PRIMARY KEY
             );",
         )?;
         let mut store = GraphStore {
@@ -65,6 +68,7 @@ impl GraphStore {
             next_id: 1,
         };
         store.replay()?;
+        store.sync_node_id_projection()?;
         Ok(store)
     }
 
@@ -109,6 +113,20 @@ impl GraphStore {
         let raw = serde_json::to_string(event)?;
         self.conn
             .execute("INSERT INTO graph_events (payload) VALUES (?1)", [raw])?;
+        Ok(())
+    }
+
+    fn sync_node_id_projection(&mut self) -> GraphResult<()> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        {
+            let mut stmt = tx.prepare("INSERT OR IGNORE INTO graph_node_ids (id) VALUES (?1)")?;
+            for id in self.nodes.keys() {
+                stmt.execute([id.0])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -171,24 +189,37 @@ impl GraphStore {
         }
         validate_payload(&payload)?;
 
-        let id = NodeId(self.next_id);
-        let meta = NodeMeta {
-            id,
-            role,
-            provenance,
-            creation_status,
-            created_at: chrono::Utc::now(),
-            summary,
-            tags: Vec::new(),
-            model: None,
-            prompt_artifact: None,
-            response_artifact: None,
+        let (id, event) = {
+            let tx = self
+                .conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let id = NodeId(tx.query_row(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM graph_node_ids",
+                [],
+                |row| row.get::<_, u32>(0),
+            )?);
+            tx.execute("INSERT INTO graph_node_ids (id) VALUES (?1)", [id.0])?;
+            let meta = NodeMeta {
+                id,
+                role,
+                provenance,
+                creation_status,
+                created_at: chrono::Utc::now(),
+                summary,
+                tags: Vec::new(),
+                model: None,
+                prompt_artifact: None,
+                response_artifact: None,
+            };
+            let event = GraphEvent::NodeCreated {
+                meta: Box::new(meta),
+                payload: Box::new(payload),
+            };
+            let raw = serde_json::to_string(&event)?;
+            tx.execute("INSERT INTO graph_events (payload) VALUES (?1)", [raw])?;
+            tx.commit()?;
+            (id, event)
         };
-        let event = GraphEvent::NodeCreated {
-            meta: Box::new(meta),
-            payload: Box::new(payload),
-        };
-        self.persist(&event)?;
         self.apply_in_memory(event);
         Ok(id)
     }

@@ -746,6 +746,7 @@ fn diff_repeat_with_early_return() {
     let sources = &[("d/actions/CountUntil.sophia", act)];
     assert_equiv(sources, "CountUntil", &[5, 3], true); // 第一轮即 return 1
     assert_equiv(sources, "CountUntil", &[0, 3], true); // 不进循环 → return 0
+    assert_equiv(sources, "CountUntil", &[4_294_967_296, 3], true); // 大 i64 计数仍进首轮
 }
 
 #[test]
