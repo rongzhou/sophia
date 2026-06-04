@@ -88,31 +88,30 @@ This enables `File` to also form an accept/reject matrix entry (local-file versi
 
 ### 3.1 Host interface
 
-EffectHost trait adds methods (alongside `http_get`):
+Standard-library hosts are registered as `(family, op) -> HostFn` closures in `runtime::HostRegistry`; the old fixed `EffectHost`/`CliHost` method set is gone. The real execution entry is:
 
 ```rust
-/// Read entire file (untrusted text). Failures (missing/perm/invalid UTF-8 etc.) → Err; hard-stop.
-fn file_read(&mut self, path: &str) -> Result<String, String>;
-/// Write file (overwrite). Failures → Err. (for `File.Write`)
-fn file_write(&mut self, path: &str, content: &str) -> Result<(), String>;
+register_native_hosts(&mut host, project_root) -> Result<(), String>
 ```
 
-### 3.2 InMemoryHost deterministic mock
+`Http.Get` uses real `reqwest`; `File.Read` / `File.Write` use real `std::fs`. All failures return `Err` and hard-stop in runtime.
 
-`InMemoryHost` maintains an in-memory path→content bucket (`seed_file`), used for all deterministic tests:
+### 3.2 Mock host
+
+`mock_host()` / `register_mock_hosts` maintain an in-memory path→content bucket (`seed_file`), used for deterministic tests:
 - `file_read(path)`: hit → return; miss → `Err` (honest; no fabrication).
 - `file_write(path, content)`: writes the in-memory bucket (no real FS), enabling read-after-write tests.
 
 Mock nature is labeled “not real filesystem.”
 
-### 3.3 Real host: CLI coordination layer `CliHost`
+### 3.3 Real host: coordination-layer registration + project-root sandbox
 
-Real file I/O belongs to the coordination layer (CLI), not `runtime` (interpreter remains zero I/O). `CliHost` composes delegation—reusing `InMemoryHost` for console; overriding `file_read`/`file_write` to real `std::fs`:
-- `file_read`: `std::fs::read_to_string(path)`, failures → `Err`.
-- `file_write`: `std::fs::write(path, content)`, failures → `Err`.
+Real file I/O belongs to the coordination layer (CLI), not `runtime` (the interpreter remains zero I/O). The CLI calls `register_native_hosts(&mut host, root)` when real I/O is needed:
+- `File.Read(path)`: accepts relative paths only; rejects absolute paths and `..`; resolves the target to a real path and verifies it stays under `root`; then `std::fs::read_to_string`, failures → `Err`.
+- `File.Write(path, content)`: accepts relative paths only; rejects absolute paths and `..`; verifies the existing target or parent directory resolves under `root`; then `std::fs::write`, failures → `Err`.
 - Injection predicate: the CLI’s `run` injects the real file host only when the entry action declares `File.Read`/`File.Write` (programs without files stay zero-overhead; see `stdlib_implementation.md` §III).
 
-Note: Real file I/O is not part of `cargo test` (same strategy as real networking). Safety: the real host operates under restricted paths (documented; a future sandbox-root policy can be added).
+Note: Real HTTP is not part of `cargo test`; the real file sandbox has stdlib unit coverage. Seam tests can still use mock hosts.
 
 ---
 
@@ -128,8 +127,8 @@ Note: Real file I/O is not part of `cargo test` (same strategy as real networkin
 | --- | --- | --- |
 | F.1 | hir | Add `File.Read`/`File.Write` to `BUILTIN_EFFECT_OPS` (arity=0); allow special root `File` |
 | F.2 | semantic | `infer_effect_op` recognizes `File.Read(path)`/`File.Write(path, content)`: validate path/content types; merge effect; return `Raw<Text>`/`Unit`; reuse intent boundaries |
-| F.3 | runtime | `EffectHost::file_read`/`file_write`; `InMemoryHost` path→content mock bucket + `seed_file`; `interp::try_effect_op` recognizes `File.*` and delegates |
-| F.4 | CLI host | `CliHost` overrides `file_read`/`file_write` to real `std::fs`; inject based on entry effects |
+| F.3 | runtime | `HostRegistry` dispatches by `(family, op)`; mock host keeps a path→content bucket + `seed_file`; `interp::try_effect_op` recognizes registered `File.*` ops |
+| F.4 | native host | `register_native_hosts(&mut host, project_root)` registers real `std::fs`; inject based on entry effects; file paths are sandboxed under the root |
 | F.5 | Assets + tests | `assets/stdlib/file.md` + `stdlib_catalog` line; semantic/runtime regressions + intent reject/accept; seam tests |
 | F.6 | Docs | Finalize this doc; register in `stdlib_design.md` §VIII; add `File` family to language design/implementation effect tables |
 
@@ -140,4 +139,5 @@ Note: Real file I/O is not part of `cargo test` (same strategy as real networkin
 - 2026-05-31 — Design-gate draft. `File` local-file library, isomorphic with `Http` (special-root method_call + effect/capability + intent boundaries; zero new syntax); `File.Read(path) -> Raw<Text>` (untrusted; must convert via intent) + `File.Write(path, Sanitized<Text>)` (write boundary). Mock host (`seed_file`) + real `std::fs` host (CLI coordination layer). Handles persistence needs after removing storage (D3 redo uses this). Pending confirmation of §2.6’s four decisions.
 - 2026-05-31 — Landed (all four decisions in §2.6 adopted). HIR (add `File.Read/Write` to `BUILTIN_EFFECT_OPS` arity=0; allow special root `File`); semantic (recognize `File.Read`→`Raw<Text>` / `File.Write`→`Unit`; validate path:Text, content:Sanitized<Text>; reuse intent boundaries); runtime (`EffectHost::file_read/file_write` + `InMemoryHost` in-memory bucket + `seed_file` + `interp::try_effect_op` unifies File/Http); CLI host (`CliHost` overrides `file_read/write` to real `std::fs`; injection based on `File.*` effects); prompt assets `assets/stdlib/file.md` + `stdlib_catalog` entry). Regressions: semantic (clean / undeclared effect / reject direct Raw read / reject Raw write content) + runtime (write→read round trip / seed_file read / honest Err on missing file) + CLI seams (delegation / missing-file Err / real write-read round trip). Workspace: 336 passed / 0 failed. Real file I/O not in `cargo test`.
 - 2026-05-31 — Demo acceptance (R3): D3 + e2e cases landed. `File` passes two integration demos: (i) benchmark L6 `archive_or_reject` (D3 serious pipeline combo: `File.Read` → validate via `one of` match → intent conversion → `File.Write` → `File.Read` read-back via mock host `seed_file` deterministically); (ii) e2e G5-01 note write and read back (self-contained write→read round trip with default host). Manual verification shows both are expressible and executable (D3 success returns Int 5 + reject returns `Rejected{amount}`; G5 returns Int 5). The benchmark `Problem` added `file_seed` (path→content mock shared by both modes, not in prompts); the baseline runner injects symmetric mock `file_read`/`file_write`. See `integration_demos.md` / `benchmark_design.md` / `e2e_test_design.md`. No changes to the library core (demos reuse the already-landed `File`).
-- 2026-05-31 — Test triaging: end-to-end acceptance of `File` moved to e2e (using real I/O). Establish the three test categories (unit/e2e/benchmark); only unit tests may use mocks; e2e/benchmark must use real I/O. The prior D3 benchmark mock-file task `archive_or_reject` was removed (network/file tasks do not belong in benchmarks—no mocks; real I/O is uncertain/unfair). `File` end-to-end acceptance converges to e2e G5-01 (write→read round trip with intent conversion), now using real temp files (harness injects real `CliHost` when the entry declares `File.*`, not in-memory mock). The benchmark `Problem.file_seed` and runner’s mock `file_read`/`file_write` injections are both removed. For test organization, see `e2e_test.md` (G5-01) / `benchmark_test.md` (§I.4 no mocks) / `unit_test.md`. No changes to the `File` library code.
+- 2026-05-31 — Test triaging: end-to-end acceptance of `File` moved to e2e (using real I/O). Establish the three test categories (unit/e2e/benchmark); only unit tests may use mocks; e2e/benchmark must use real I/O. The prior D3 benchmark mock-file task `archive_or_reject` was removed (network/file tasks do not belong in benchmarks—no mocks; real I/O is uncertain/unfair). `File` end-to-end acceptance converges to e2e G5-01 (write→read round trip with intent conversion), now using real temp files (harness injects a real host when the entry declares `File.*`, not in-memory mock). The benchmark `Problem.file_seed` and runner’s mock `file_read`/`file_write` injections are both removed. For test organization, see `e2e_test.md` (G5-01) / `benchmark_test.md` (§I.4 no mocks) / `unit_test.md`. No changes to the `File` library code.
+- 2026-06-04 — Native File host project-root sandbox landed: `register_native_hosts(&mut host, project_root) -> Result` is the only real-host registration entry; `File.Read`/`File.Write` accept relative paths only, reject absolute paths and `..`, and verify real paths remain under the sandbox root. CLI interpreter backend, WASM backend, and the e2e harness all use this same entry.

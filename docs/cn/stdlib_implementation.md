@@ -101,8 +101,9 @@ console_write` 捕获——语言内置，不经库注册表。
 
 - **执行入口**：`run_action(.., &mut HostRegistry)` 是唯一执行入口。纯逻辑 / Console 程序传空
   `HostRegistry`；需要库 effect 的程序先注册对应库 host。
-- **标准库 host**（`sophia-stdlib::native_host`）：`register_native_hosts(&mut host)` 注册真实 `reqwest`
-  `Http.Get` / `std::fs` `File.Read`·`File.Write`；`mock_host()` / `register_mock_hosts` 注册确定性内存桶
+- **标准库 host**（`sophia-stdlib::native_host`）：`register_native_hosts(&mut host, project_root) -> Result`
+  注册真实 `reqwest` `Http.Get` / `std::fs` `File.Read`·`File.Write`；文件 host 只接受相对路径，拒绝绝对路径
+  与 `..`，并确认真实路径仍在 `project_root` 内；`mock_host()` / `register_mock_hosts` 注册确定性内存桶
   （`MockBuckets::seed_http`/`seed_file`，测试 / 差测试用）。
 - **三方 WASM host**（`sophia-stdlib::register_wasm_library_hosts(&mut host, &registry)`）：遍历注册表里
   携带 `host.wasm` 字节的库（= 三方 WASM-effect 库），为其每个 effect-op 注册一个 `runtime::WasmHostFn`
@@ -112,9 +113,10 @@ console_write` 捕获——语言内置，不经库注册表。
   见 `stdlib_design.md` §五.4 / §六.1。装载失败 / 导出缺失 / 签名不符 / wasm trap 诚实 `Err`
   （不静默跳过、不伪造 host）。区分准则 = 装载方式（注册表是否持 `host.wasm`），与标准库
   native host 互补不重叠。仅加载三方 WASM 库时实例化，标准库 native host 零 wasm 开销。
-- **CLI `sophia run` 组装**（`commands::run_interpreter_action`）：先 `register_wasm_library_hosts`（无三方 WASM 库时
-  no-op），再据入口 action 声明 effect 按需 `register_native_hosts`（`Http.Get` / `File.*` 才注册，纯逻辑
-  零开销）。三方 WASM op 多为 `effectful=false`、不经声明 effect 体现，故其 host 无条件注册。
+- **CLI `sophia run` 组装**（`commands::run_interpreter_action` / WASM 后端）：先 `register_wasm_library_hosts`
+  （无三方 WASM 库时 no-op），再据入口 action 声明 effect 按需 `register_native_hosts(&mut host, root)`
+  （`Http.Get` / `File.*` 才注册，纯逻辑零开销）。三方 WASM op 多为 `effectful=false`、不经声明 effect 体现，
+  故其 host 无条件注册。
 
 **诚实性红线**：mock 未命中 / 真实失败（网络非 2xx / 超时 / 文件不存在 / 非 UTF-8）/ wasm trap 一律 `Err`，
 解释器物化为 `RuntimeError`（硬错误中止），绝不伪造成功 / 编造默认响应。

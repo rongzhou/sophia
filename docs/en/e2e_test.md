@@ -32,10 +32,10 @@ Each case has a clear executable success criterion (check passes + interpreter�
 e2e does not allow mocking. Its goal is to validate real behavior; mocks would mask errors.
 
 - Real LLM: true calls against an OpenAI-compatible endpoint (cleanly skip without a key; do not fabricate responses).
-- Real network: cases needing `Http.Get` hit a stable public site (e.g., `example.com`), executed via the CLI’s real `CliHost` (`reqwest`), no mocks.
-- Real files: cases needing `File.Read`/`File.Write` read/write real temporary files (OS temp dir), executed via `CliHost` (`std::fs`), not in-memory buckets.
+- Real network: cases needing `Http.Get` hit a stable public site (e.g., `example.com`), executed via the real native host (`reqwest`), no mocks.
+- Real files: cases needing `File.Read`/`File.Write` read/write real temporary files; the harness sets the native file host sandbox root to the OS temp dir, programs pass relative paths, and real `std::fs` performs the I/O.
 
-> The harness injects the real host automatically per the entry action’s declared effects: if the entry declares `Http.Get` / `File.Read` / `File.Write`, use the real `CliHost`; otherwise (pure logic / `Console.Write`), use the default in-memory host. Real-host failures return `Err` and block, counted as failures as-is—never fabricate success.
+> The harness injects the real host automatically per the entry action’s declared effects: if the entry declares `Http.Get` / `File.Read` / `File.Write`, use the real native host; otherwise (pure logic / `Console.Write`), use an empty `HostRegistry`. Real-host failures return `Err` and block, counted as failures as-is—never fabricate success.
 >
 > The harness’s LLM driver runs under a Tokio async shell; ultimately the v0 interpreter and the real File/Http hosts still keep a synchronous contract. Executions that require real I/O are put into Tokio blocking threads to run to completion and drop cleanly, avoiding `reqwest::blocking` tearing down its internal runtime within an async context.
 
@@ -121,7 +121,7 @@ G1 are all “one-shot, zero-repair” (`max_repairs=0`), testing whether a mode
 | G2-03 | Network fetch + intent safety | `Http.Get` effect + capability, intent boundaries (`Raw<Text>` converted to `Sanitized<Text>` via `intent_conversion`), real network | `FetchNonEmpty("https://example.com")` | Returns `true` (fetched trusted text is non-empty) |
 
 - G2-01/G2-02 validate both the return values and the console output (verifying that effects truly execute via the interpreter’s effect host). `Console.Write` only accepts literals / `Sanitized<T>` / `Redacted<T>` (intent boundary), hence “print input text” style cases model input as `Sanitized<Text>`—this is a requirement constraint, not an implementation hint.
-- G2-03 is the flagship LLM-native demo: the `Raw<Text>` from `Http.Get` is untrusted and must be explicitly converted via `intent_conversion` to `Sanitized<Text>`; otherwise it is statically rejected. The harness injects a real `CliHost` (`reqwest`) to actually hit `example.com` (IANA’s stable example domain). The assertion checks a stable property—“trusted fetched text is non-empty → return Bool true”—rather than exact length (real response length is unstable), avoiding brittle assertions. The reject half (using unconverted text directly → static rejection) is deterministically nailed down by the unit test `cli/tests/intent_matrix.rs` (see `unit_test.md`).
+- G2-03 is the flagship LLM-native demo: the `Raw<Text>` from `Http.Get` is untrusted and must be explicitly converted via `intent_conversion` to `Sanitized<Text>`; otherwise it is statically rejected. The harness injects a real native host (`reqwest`) to actually hit `example.com` (IANA’s stable example domain). The assertion checks a stable property—“trusted fetched text is non-empty → return Bool true”—rather than exact length (real response length is unstable), avoiding brittle assertions. The reject half (using unconverted text directly → static rejection) is deterministically nailed down by the unit test `cli/tests/intent_matrix.rs` (see `unit_test.md`).
 
 ### G3 Heuristic node processing
 
@@ -148,7 +148,7 @@ G3 uses `CaseKind::Scheduler`: the harness does not hardcode the design→implem
 | --- | --- | --- | --- | --- |
 | G5-01 | Write and read back a note | `File.Write` + `File.Read` effects + capabilities, intent boundaries (`File.Read`’s `Raw<Text>` converted via `intent_conversion` to `Sanitized<Text>`; `File.Write` only accepts `Sanitized<Text>`), real temp files | `StoreNote(<temp-path>, Sanitized "hello")` | Returns `5` (length after write-then-read) |
 
-G5-01 is self-contained (`File.Write(path, message)` → `File.Read(path)` → intent conversion → return length, a write→read round trip). The harness injects a real `CliHost`; the path uses a per-process fixed name in `std::env::temp_dir()`, hitting real temp files (not in-memory mock buckets). It examines the `File` library’s local file read/write + intent boundaries (isomorphic to G2-03’s network intent chain, but with an added write boundary: `File.Write` only accepts `Sanitized<Text>`). The `File` library’s syntax/intent boundaries are carried by on-demand assets `assets/stdlib/file.md` and are not part of the resident baseline. See `docs/file_lib.md`.
+G5-01 is self-contained (`File.Write(path, message)` → `File.Read(path)` → intent conversion → return length, a write→read round trip). The harness injects a real native host, sets the file sandbox root to `std::env::temp_dir()`, and passes a per-process relative path, hitting real temp files (not in-memory mock buckets). It examines the `File` library’s local file read/write + intent boundaries (isomorphic to G2-03’s network intent chain, but with an added write boundary: `File.Write` only accepts `Sanitized<Text>`). The `File` library’s syntax/intent boundaries are carried by on-demand assets `assets/stdlib/file.md` and are not part of the resident baseline. See `docs/file_lib.md`.
 
 ### G6 Goal tree traversal (decompose)
 

@@ -916,7 +916,7 @@ effect Payment {
 - `operation <Op> { param <name>: <Type> ... }`：声明一个 effect 操作及其参数形状（0..N 个
   `param`）。`<Op>` 在所属 family 内唯一。参数类型用与字段相同的 `type` 语法。
 - 允许 `meaning` / `purpose` 等 Semantic Assist 字段（不决定语义，strip-assist 移除后不变）。
-- effect 是**纯声明**，无 body、无实现——实现由运行时 `EffectHost` 提供。
+- effect 是**纯声明**，无 body、无实现——运行时实现由 `HostRegistry` 按 `(family, op)` 注册并分派；`Console.Write` 是语言内置输出，标准库 / 三方库 effect 由对应 host 提供。
 
 ### 13.3 effect 引用语法
 
@@ -968,8 +968,8 @@ Sophia **不提供**用于 agent 编排的 `node` 顶层构造（无 body 的内
 ### 13.6 范围与非目标
 
 - effect 参数当前限标量字面量与绑定名；不引入 effect 多态、effect handler、effect 推断。
-- effect 仅声明契约；其运行时实现由 `EffectHost` 提供（可执行的可观测 effect 为内置 `Console.Write`
-  与标准库 `File.Read/Write`、`Http.Get`〔mock host；真实文件 / 网络见各库 host〕，见
+- effect 仅声明契约；其运行时实现由 `HostRegistry` 按 `(family, op)` 注册并分派（可执行的可观测 effect 为
+  内置 `Console.Write` 与标准库 `File.Read/Write`、`Http.Get`〔mock host；真实文件 / 网络见各库 host〕，见
   `language_implementation.md` / `stdlib_implementation.md`）。
 
 ---

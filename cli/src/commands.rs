@@ -829,9 +829,15 @@ pub fn run_action(
     let args = parse_args(raw_args).context("解析实参失败")?;
 
     match backend {
-        RunBackend::Interpreter => {
-            run_interpreter_action(&registry, &analysis.model, &asts, action, args, with_trace)
-        }
+        RunBackend::Interpreter => run_interpreter_action(
+            root,
+            &registry,
+            &analysis.model,
+            &asts,
+            action,
+            args,
+            with_trace,
+        ),
         RunBackend::Wasm => {
             run_wasm_action(root, &registry, &analysis.model, action, args, with_trace)
         }
@@ -864,6 +870,7 @@ fn needs_native_host(model: &sophia_semantic::SemanticModel, action: &str) -> bo
 /// 二者互补：标准库（无 host.wasm）走 native，三方 WASM 库（有 host.wasm）走 `WasmHostFn`。库 host
 /// 失败一律物化为硬错误阻断，绝不伪造成功。
 fn run_interpreter_action(
+    root: &Path,
     registry: &LibraryRegistry,
     model: &sophia_semantic::SemanticModel,
     asts: &[&Ast],
@@ -877,7 +884,8 @@ fn run_interpreter_action(
         .map_err(|e| anyhow::anyhow!("注册三方 WASM 库 host 失败：{e}"))?;
     // 标准库 native host（仅当声明真实 IO effect）。
     if needs_native_host(model, action) {
-        sophia_stdlib::register_native_hosts(&mut host);
+        sophia_stdlib::register_native_hosts(&mut host, root)
+            .map_err(|e| anyhow::anyhow!("注册标准库 native host 失败：{e}"))?;
     }
     match sophia_runtime::run_action(model, asts, action, args, &mut host) {
         Ok((outcome, trace)) => present_run(&host.console, outcome, &trace, with_trace),
@@ -937,7 +945,8 @@ fn run_wasm_action(
     sophia_stdlib::register_wasm_library_hosts(&mut host, registry)
         .map_err(|e| anyhow::anyhow!("注册三方 WASM 库 host 失败：{e}"))?;
     if needs_native_host(model, action) {
-        sophia_stdlib::register_native_hosts(&mut host);
+        sophia_stdlib::register_native_hosts(&mut host, root)
+            .map_err(|e| anyhow::anyhow!("注册标准库 native host 失败：{e}"))?;
     }
 
     match runner.run(model, action, &args, true, &mut host) {

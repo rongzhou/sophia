@@ -4,9 +4,8 @@
 //! `File.Read` 取回 `Raw<Text>`（不可信），必须经一个 `intent_conversion` 动作转为
 //! `Sanitized<Text>` 才能使用；`File.Write` 的 content 必须是 `Sanitized<Text>`（写出边界）。
 //!
-//! **真实 IO（e2e 禁 mock）**：harness 据入口声明的 `File.*` effect 注入真实 `CliHost`
-//! （`std::fs`），用例 write→read 往返打到**真实临时文件**（OS 临时目录下的固定路径），不经任何
-//! 内存桶 mock。
+//! **真实 IO（e2e 禁 mock）**：harness 据入口声明的 `File.*` effect 注入真实 native host
+//! （`std::fs`），用例 write→read 往返打到 sandbox 根内的**真实临时文件**，不经任何内存桶 mock。
 //!
 //! **防答案泄漏**：只写题目（业务需求 + 验收条件）+ 入口 + 期望；不含任何 Sophia 源码答案。
 //! `File` 库的语法 / intent 边界由按需库资产（`assets/stdlib/file.md`）承载，不进常驻基线。
@@ -19,12 +18,9 @@ pub fn cases() -> Vec<Case> {
     vec![g5_01()]
 }
 
-/// 真实临时文件路径（OS 临时目录下，进程内固定名）。用例向它 write→read 真实文件 IO。
+/// 真实临时文件的 sandbox 相对路径。harness 把真实 host 的文件根设为 OS 临时目录。
 fn temp_note_path() -> String {
-    std::env::temp_dir()
-        .join(format!("sophia-e2e-g5-{}.txt", std::process::id()))
-        .to_string_lossy()
-        .into_owned()
+    format!("sophia-e2e-g5-{}.txt", std::process::id())
 }
 
 /// G5-01：文件写入与回读（真实临时文件）。

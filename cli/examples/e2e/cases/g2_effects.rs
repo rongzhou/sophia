@@ -86,7 +86,7 @@ fn g2_02() -> Case {
 /// `Raw<Text>` **必须**经 `intent_conversion` 动作转换才能使用，否则静态拒绝（reject 半由确定性
 /// 单测 `cli/tests/intent_matrix.rs` 钉死）。
 ///
-/// **真实网络（e2e 禁 mock）**：harness 据入口声明的 `Http.Get` effect 注入真实 `CliHost`
+/// **真实网络（e2e 禁 mock）**：harness 据入口声明的 `Http.Get` effect 注入真实 native host
 /// （`reqwest`），真打稳定站点。断言取**稳定属性**——「取回的可信文本非空」而非精确长度
 /// （真实响应体长度不稳定），避免脆弱断言。
 fn g2_03() -> Case {

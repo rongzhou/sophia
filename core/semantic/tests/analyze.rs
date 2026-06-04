@@ -488,6 +488,84 @@ fn declared_raise_is_ok() {
 }
 
 #[test]
+fn error_variant_missing_field_reported() {
+    let err = (
+        "D",
+        "domains/D/errors/E.sophia",
+        "error E { variant Bad { reason: Text } }",
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  output { y: Int }
+  errors { Bad }
+  body {
+    raise Bad { }
+  }
+}"#,
+    );
+    let parsed = parse_all(&[err, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::MissingField),
+        "variant 构造缺字段应报 MissingField：{diags:?}"
+    );
+}
+
+#[test]
+fn error_variant_unknown_field_reported() {
+    let err = (
+        "D",
+        "domains/D/errors/E.sophia",
+        "error E { variant Bad { reason: Text } }",
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  output { y: Int }
+  errors { Bad }
+  body {
+    raise Bad { reason = "no", ghost = 1 }
+  }
+}"#,
+    );
+    let parsed = parse_all(&[err, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::UnknownField),
+        "variant 构造未知字段应报 UnknownField：{diags:?}"
+    );
+}
+
+#[test]
+fn error_variant_field_type_mismatch_reported() {
+    let err = (
+        "D",
+        "domains/D/errors/E.sophia",
+        "error E { variant Bad { code: Int } }",
+    );
+    let action = (
+        "D",
+        "domains/D/actions/M.sophia",
+        r#"action M {
+  output { y: Int }
+  errors { Bad }
+  body {
+    raise Bad { code = "no" }
+  }
+}"#,
+    );
+    let parsed = parse_all(&[err, action]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "variant 构造字段类型不匹配应报 TypeMismatch：{diags:?}"
+    );
+}
+
+#[test]
 fn non_exhaustive_state_match_reported() {
     let state = (
         "D",
@@ -1241,5 +1319,78 @@ fn http_get_non_text_url_reported() {
     assert!(
         has(&diags, K::TypeMismatch),
         "Http.Get(Int) 应报 TypeMismatch：{diags:?}"
+    );
+}
+
+#[test]
+fn callable_missing_argument_reported() {
+    let parsed = parse_all(&[
+        (
+            "D",
+            "domains/D/actions/Add.sophia",
+            r#"action Add {
+  input { a: Int; b: Int }
+  output { total: Int }
+  body { return a + b }
+}"#,
+        ),
+        (
+            "D",
+            "domains/D/actions/Main.sophia",
+            r#"action Main {
+  output { total: Int }
+  body { return Add(1) }
+}"#,
+        ),
+    ]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "少传 callable 参数应报 TypeMismatch：{diags:?}"
+    );
+}
+
+#[test]
+fn callable_extra_argument_reported() {
+    let parsed = parse_all(&[
+        (
+            "D",
+            "domains/D/actions/Id.sophia",
+            r#"action Id {
+  input { a: Int }
+  output { value: Int }
+  body { return a }
+}"#,
+        ),
+        (
+            "D",
+            "domains/D/actions/Main.sophia",
+            r#"action Main {
+  output { value: Int }
+  body { return Id(1, 2) }
+}"#,
+        ),
+    ]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "多传 callable 参数应报 TypeMismatch：{diags:?}"
+    );
+}
+
+#[test]
+fn builtin_to_text_extra_argument_reported() {
+    let parsed = parse_all(&[(
+        "D",
+        "domains/D/actions/Textify.sophia",
+        r#"action Textify {
+  output { text: Text }
+  body { return to_text(1, 2) }
+}"#,
+    )]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "to_text 多传参数应报 TypeMismatch：{diags:?}"
     );
 }

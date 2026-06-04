@@ -525,7 +525,8 @@ impl<'a> TypeChecker<'a> {
     ) -> Ty {
         // 内置 to_text(Int) -> Text。
         if callee.text == "to_text" {
-            if let Some(&a) = args.first() {
+            self.check_call_arity("to_text", 1, args.len(), span);
+            for &a in args {
                 let t = self.infer(a, scope, effects);
                 self.expect_int(a, &t, "to_text 参数");
             }
@@ -537,6 +538,7 @@ impl<'a> TypeChecker<'a> {
             for e in decl.declared_effects.iter() {
                 effects.insert(e.clone());
             }
+            self.check_call_arity(&callee.text, decl.inputs.len(), args.len(), span);
             // 实参逐个推导并与 input 类型比对（按顺序）。
             for (i, &a) in args.iter().enumerate() {
                 let at = self.infer(a, scope, effects);
@@ -552,6 +554,22 @@ impl<'a> TypeChecker<'a> {
         }
         let _ = span;
         Ty::Error
+    }
+
+    fn check_call_arity(
+        &mut self,
+        callee: &str,
+        expected: usize,
+        actual: usize,
+        span: sophia_syntax::Span,
+    ) {
+        if expected != actual {
+            self.diags.push(SemanticDiagnostic::new(
+                K::TypeMismatch,
+                span,
+                format!("`{callee}` 期望 {expected} 个参数，但收到 {actual} 个"),
+            ));
+        }
     }
 
     fn infer_binary(
@@ -779,21 +797,39 @@ impl<'a> TypeChecker<'a> {
         provided: &[(String, Ty, sophia_syntax::Span)],
         span: sophia_syntax::Span,
     ) -> Ty {
-        // 构造目标可能是 entity 或 transition（语法二义）。transition 调用不在此做
-        // 字段覆盖检查（其参数语义由 transition 自身签名约束，留待扩展）。
-        let Some(ent) = self.model.entities.get(name) else {
-            return self
-                .model
-                .callables
-                .get(name)
-                .and_then(|c| c.sole_output_ty().cloned())
-                .unwrap_or(Ty::Unknown);
-        };
+        if let Some(ent) = self.model.entities.get(name) {
+            let fields = ent.fields.clone();
+            self.check_record_construct("entity", name, &fields, provided, span);
+            return Ty::Entity(name.to_string());
+        }
 
+        if let Some(variant) = self.model.variants.get(name) {
+            let fields = variant.fields.clone();
+            self.check_record_construct("error variant", name, &fields, provided, span);
+            return Ty::ErrorVariant(name.to_string());
+        }
+
+        // 构造目标可能是 transition（语法二义）。transition 字段契约单独补齐，不在 variant/entity
+        // 检查里混入第二套规则。
+        self.model
+            .callables
+            .get(name)
+            .and_then(|c| c.sole_output_ty().cloned())
+            .unwrap_or(Ty::Unknown)
+    }
+
+    fn check_record_construct(
+        &mut self,
+        kind_label: &str,
+        name: &str,
+        expected_fields: &[(String, Ty)],
+        provided: &[(String, Ty, sophia_syntax::Span)],
+        span: sophia_syntax::Span,
+    ) {
         // 未知字段 + 类型匹配。
         for (fname, fty, fspan) in provided {
-            match ent.field_ty(fname) {
-                Some(expected) => {
+            match expected_fields.iter().find(|(field, _)| field == fname) {
+                Some((_, expected)) => {
                     if !fty.assignable_to(expected) {
                         let kind = if involves_intent(fty, expected) {
                             K::IntentMismatch
@@ -810,12 +846,12 @@ impl<'a> TypeChecker<'a> {
                 None => self.diags.push(SemanticDiagnostic::new(
                     K::UnknownField,
                     *fspan,
-                    format!("entity `{name}` 无字段 `{fname}`"),
+                    format!("{kind_label} `{name}` 无字段 `{fname}`"),
                 )),
             }
         }
         // 缺字段。
-        for (fname, _) in &ent.fields {
+        for (fname, _) in expected_fields {
             if !provided.iter().any(|(p, _, _)| p == fname) {
                 self.diags.push(SemanticDiagnostic::new(
                     K::MissingField,
@@ -824,7 +860,6 @@ impl<'a> TypeChecker<'a> {
                 ));
             }
         }
-        Ty::Entity(name.to_string())
     }
 
     // ---- 检查辅助 ----

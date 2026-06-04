@@ -848,7 +848,7 @@ effect Payment {
 - `effect <Family> { <operation>... }`: declare an effect family and its operations. `<Family>` is a PascalCase identifier, globally unique (shares the top-level naming space with other nodes; no duplicates).
 - `operation <Op> { param <name>: <Type> ... }`: declare one effect operation and its parameter shapes (0..N `param`s). `<Op>` is unique within the family. Parameter types use the same `type` syntax as fields.
 - Allow `meaning`/`purpose` and other Semantic Assist fields (don’t decide semantics; strip-assist removal is invariant).
-- Effects are pure declarations—no body and no implementation. Implementations are provided by `EffectHost` at runtime.
+- Effects are pure declarations: no body and no implementation. Runtime implementations are registered and dispatched by `HostRegistry` using `(family, op)`; `Console.Write` is the built-in output primitive, while standard-library and third-party effects are provided by their hosts.
 
 ### 13.3 Effect reference syntax
 
@@ -886,7 +886,7 @@ If agent orchestration proves necessary in the future, it should be a deliberate
 ### 13.6 Scope and non-goals
 
 - Effect parameters are currently limited to scalar literals and binding names; no effect polymorphism/handlers/inference.
-- Effects only declare contracts; their runtime implementations are provided by `EffectHost` (executable observable effects are built-in `Console.Write` and standard-library `File.Read/Write` and `Http.Get` [mock hosts; real files/network in each library’s host], see `language_implementation.md` / `stdlib_implementation.md`).
+- Effects only declare contracts; their runtime implementations are registered and dispatched by `HostRegistry` using `(family, op)` (executable observable effects are built-in `Console.Write` and standard-library `File.Read/Write` and `Http.Get` [mock hosts; real files/network in each library’s host], see `language_implementation.md` / `stdlib_implementation.md`).
 
 ---
 

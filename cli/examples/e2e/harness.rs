@@ -815,7 +815,7 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
         spec.args.len()
     );
     // e2e 禁 mock（见 docs/e2e_test.md）：入口若声明 File/Http effect，注入**真实**库 host
-    //（`sophia-stdlib` 的 register_native_hosts：真实 `reqwest` / `std::fs`），与 CLI `run` 同口径；
+    //（`sophia-stdlib` 的 register_native_hosts：真实 `reqwest` / sandboxed `std::fs`），与 CLI `run` 同口径；
     // 否则用默认 host 注册表（纯逻辑 / Console，无库 host）。
     let entry_uses_real_io = analysis
         .model
@@ -831,7 +831,8 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
 
     let (outcome, console): (sophia_runtime::Outcome, Vec<String>) = if entry_uses_real_io {
         let mut host = sophia_runtime::HostRegistry::new();
-        sophia_stdlib::register_native_hosts(&mut host);
+        sophia_stdlib::register_native_hosts(&mut host, std::env::temp_dir())
+            .map_err(|e| anyhow::anyhow!("注册真实库 host 失败：{e}"))?;
         let (outcome, _trace) = sophia_runtime::run_action(
             &analysis.model,
             &refs,
@@ -885,7 +886,8 @@ fn execute_and_check(files: &[(String, String)], spec: &ExecutionSpec) -> anyhow
                             println!("    文件内容：缺少 Text 路径实参 → 不匹配");
                             return Ok(false);
                         };
-                        match std::fs::read_to_string(path) {
+                        let file_path = std::env::temp_dir().join(path);
+                        match std::fs::read_to_string(&file_path) {
                             Ok(actual) => {
                                 let ok = &actual == expected;
                                 println!(

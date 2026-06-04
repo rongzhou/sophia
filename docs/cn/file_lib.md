@@ -119,34 +119,36 @@ action LoadConfig {
 
 ### 3.1 host 接口
 
-`EffectHost` trait 新增方法（与 `http_get` 并列）：
+标准库 host 通过 `runtime::HostRegistry` 注册 `(family, op) -> HostFn` 闭包，不再使用固定
+`EffectHost`/`CliHost` 方法集。真实执行入口为：
 
 ```rust
-/// 读取文件全文（不可信文本）。失败（不存在 / 无权限 / 非 UTF-8 等）→ Err，硬错误阻断。
-fn file_read(&mut self, path: &str) -> Result<String, String>;
-/// 写入文件（覆盖）。失败 → Err。（若 File.Write 纳入 v1）
-fn file_write(&mut self, path: &str, content: &str) -> Result<(), String>;
+register_native_hosts(&mut host, project_root) -> Result<(), String>
 ```
 
-### 3.2 `InMemoryHost` 确定性 mock
+其中 `Http.Get` 使用真实 `reqwest`，`File.Read` / `File.Write` 使用真实 `std::fs`，失败均返回 `Err`
+并由 runtime 硬错误阻断。
 
-`InMemoryHost` 维护 `path -> content` 内存桶（`seed_file` 预置），用于一切确定性测试：
+### 3.2 mock host
+
+`mock_host()` / `register_mock_hosts` 维护 `path -> content` 内存桶（`seed_file` 预置），用于确定性测试：
 - `file_read(path)`：命中预置即返回；**未命中即 `Err`**（诚实阻断，不伪造）；
 - `file_write(path, content)`：写入内存桶（不触真实文件系统），便于 read-after-write 测试。
 
 mock 性质明确标注"非真实文件系统"。
 
-### 3.3 真实 host：CLI 协调层 `CliHost`
+### 3.3 真实 host：协调层注册 + 项目根 sandbox
 
-真实文件 I/O 属**协调层（CLI）**，不进 `runtime`（解释器保持零 IO）。`CliHost` 组合委派——复用
-`InMemoryHost` 的 console（print），覆盖 `file_read` / `file_write` 为真实 `std::fs`：
-- `file_read`：`std::fs::read_to_string(path)`，失败 → `Err`；
-- `file_write`：`std::fs::write(path, content)`，失败 → `Err`；
+真实文件 I/O 属**协调层（CLI）**，不进 `runtime`（解释器保持零 IO）。CLI 在需要真实 IO 时调用
+`register_native_hosts(&mut host, root)` 注册标准库 native host：
+- `File.Read(path)`：只接受相对路径；拒绝绝对路径与 `..`；读取前把目标解析为真实路径并确认仍在
+  `root` 内；随后 `std::fs::read_to_string`，失败 → `Err`；
+- `File.Write(path, content)`：只接受相对路径；拒绝绝对路径与 `..`；写入前校验已有目标或父目录的真实路径
+  仍在 `root` 内；随后 `std::fs::write`，失败 → `Err`；
 - **注入判定**：CLI `run` 据入口 action `declared_effects` 含 `File.Read`/`File.Write` 才注入真实文件
   host（无文件程序零开销，机制见 `stdlib_implementation.md` §三）。
 
-> 真实文件 I/O 不进 `cargo test`（与 Http 真实网络同策略）；接缝单测用 mock host。
-> 安全：真实 host 在受限路径下操作（文档标注；未来可加沙箱根目录策略）。
+> 真实 HTTP 不进 `cargo test`；真实文件 sandbox 有 stdlib 单测覆盖。接缝单测仍可用 mock host。
 
 ---
 
@@ -165,8 +167,8 @@ mock 性质明确标注"非真实文件系统"。
 | --- | --- | --- |
 | F.1 | hir | `File.Read`/`File.Write` 进 `BUILTIN_EFFECT_OPS`（arity=0）；特殊根 `File` 放行 |
 | F.2 | semantic | `infer_effect_op` 识别 `File.Read(path)`/`File.Write(path, content)`：校验 path/content 类型、并入 effect、返回 `Raw<Text>`/`Unit`；intent 边界复用 |
-| F.3 | runtime | `EffectHost::file_read`/`file_write`；`InMemoryHost` 加 path→content mock 桶 + `seed_file`；`interp::try_effect_op` 识别 `File.*` 委派 |
-| F.4 | CLI host | `CliHost` 覆盖 `file_read`/`file_write` 为真实 `std::fs`；按入口 effect 判定注入 |
+| F.3 | runtime | `HostRegistry` 按 `(family, op)` 委派；mock host 加 path→content 桶 + `seed_file`；`interp::try_effect_op` 识别注册过的 `File.*` |
+| F.4 | native host | `register_native_hosts(&mut host, project_root)` 注册真实 `std::fs`；按入口 effect 判定注入；文件路径限制在 sandbox 根内 |
 | F.5 | 资产 + 测试 | `assets/stdlib/file.md` + `stdlib_catalog` 行；semantic/runtime 回归 + intent reject/accept；接缝单测 |
 | F.6 | 文档 | 本文档转定稿；`stdlib_design.md` §六库清单登记；`language_design`/`language_implementation` effect 表补 `File` 族 |
 
@@ -198,7 +200,10 @@ mock 性质明确标注"非真实文件系统"。
   e2e / 基准），mock 仅单元测试可用，e2e / benchmark 一律真实 IO。原 D3 benchmark mock 文件题
   `archive_or_reject` 随之移除（网络 / 文件题不入 benchmark——禁 mock、真实 IO 不确定不公平）；`File`
   库的端到端验收收敛到 **e2e G5-01**（`File.Write` → `File.Read` → intent 转换的 write→read 往返），
-  并改造为打**真实临时文件**（harness 据入口 `File.*` effect 注入真实 `CliHost`，非内存桶 mock）。
+  并改造为打**真实临时文件**（harness 据入口 `File.*` effect 注入真实 host，非内存桶 mock）。
   benchmark `Problem.file_seed` 字段 + runner mock `file_read` / `file_write` 注入一并删除。测试组织
   详见 `e2e_test.md`（G5-01）/ `benchmark_test.md`（§一.4 禁 mock）/ `unit_test.md`。`File` 库本体
   代码不变。
+- 2026-06-04 — native File host 项目根 sandbox 落地：`register_native_hosts(&mut host, project_root) -> Result`
+  成为唯一真实 host 注册入口；`File.Read`/`File.Write` 只接受相对路径，拒绝绝对路径与 `..`，并用真实路径确认
+  读写目标仍在 sandbox 根内。CLI 解释器后端、WASM 后端与 e2e harness 统一走该入口。

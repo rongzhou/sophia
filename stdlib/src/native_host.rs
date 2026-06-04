@@ -10,6 +10,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -18,6 +19,12 @@ use sophia_runtime::{HostRegistry, Value, WasmHostFn};
 
 /// `Http.Get` 真实 host 的固定超时（秒）。挂死的连接快速失败而非无限等待。
 const HTTP_TIMEOUT_SECS: u64 = 10;
+
+#[derive(Clone, Copy)]
+enum FileAccess {
+    Read,
+    Write,
+}
 
 /// 从实参取一个 `Text`（库 op 的 path / url / content 参数）。
 fn text_arg(args: &[Value], idx: usize, op: &str, role: &str) -> Result<String, String> {
@@ -28,18 +35,103 @@ fn text_arg(args: &[Value], idx: usize, op: &str, role: &str) -> Result<String, 
     }
 }
 
+fn relative_sandbox_path(input: &str, op: &str) -> Result<PathBuf, String> {
+    if input.is_empty() {
+        return Err(format!("{op} 路径不能为空"));
+    }
+    let mut rel = PathBuf::new();
+    for component in Path::new(input).components() {
+        match component {
+            Component::Normal(part) => rel.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                return Err(format!("{op}(\"{input}\") 越过项目根：拒绝 `..` 路径段"));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("{op}(\"{input}\") 越过项目根：拒绝绝对路径"));
+            }
+        }
+    }
+    if rel.as_os_str().is_empty() {
+        return Err(format!("{op} 路径不能为空"));
+    }
+    Ok(rel)
+}
+
+fn ensure_inside_root(root: &Path, path: &Path, op: &str, input: &str) -> Result<(), String> {
+    if path.starts_with(root) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{op}(\"{input}\") 越过项目根：解析后路径 `{}` 不在 `{}` 内",
+            path.display(),
+            root.display()
+        ))
+    }
+}
+
+fn resolve_file_path(
+    root: &Path,
+    input: &str,
+    op: &str,
+    access: FileAccess,
+) -> Result<PathBuf, String> {
+    let rel = relative_sandbox_path(input, op)?;
+    let candidate = root.join(rel);
+    match access {
+        FileAccess::Read => {
+            let real = std::fs::canonicalize(&candidate)
+                .map_err(|e| format!("{op}(\"{input}\") 解析真实路径失败：{e}"))?;
+            ensure_inside_root(root, &real, op, input)?;
+            Ok(real)
+        }
+        FileAccess::Write => {
+            match candidate.try_exists() {
+                Ok(true) => {
+                    let real = std::fs::canonicalize(&candidate)
+                        .map_err(|e| format!("{op}(\"{input}\") 解析真实路径失败：{e}"))?;
+                    ensure_inside_root(root, &real, op, input)?;
+                }
+                Ok(false) => {
+                    let parent = candidate
+                        .parent()
+                        .ok_or_else(|| format!("{op}(\"{input}\") 缺少父目录"))?;
+                    let real_parent = std::fs::canonicalize(parent)
+                        .map_err(|e| format!("{op}(\"{input}\") 解析父目录失败：{e}"))?;
+                    ensure_inside_root(root, &real_parent, op, input)?;
+                }
+                Err(e) => {
+                    return Err(format!("{op}(\"{input}\") 检查路径失败：{e}"));
+                }
+            }
+            Ok(candidate)
+        }
+    }
+}
+
 /// 把标准库 op 的**真实** host 注册进给定注册表（CLI 真实执行用）。
 ///
 /// `Http.Get` → 真实 `reqwest::blocking` GET；`File.Read`/`File.Write` → 真实 `std::fs`。
+/// 文件 host 只接受相对路径，并把真实路径限制在 `project_root` 内。
 /// 真实失败一律诚实 `Err`。`Console`（`print`）不在此（语言内置，由 `HostRegistry::console_write`
 /// 直接捕获）。
-pub fn register_native_hosts(host: &mut HostRegistry) {
+pub fn register_native_hosts(
+    host: &mut HostRegistry,
+    project_root: impl AsRef<Path>,
+) -> Result<(), String> {
+    let file_root = Rc::new(std::fs::canonicalize(project_root.as_ref()).map_err(|e| {
+        format!(
+            "标准库 native host 初始化失败：项目根 `{}` 解析失败：{e}",
+            project_root.as_ref().display()
+        )
+    })?);
+
     // Http.Get：真实网络（blocking）。client 经 Rc 在闭包间共享、复用连接池。
     let client = Rc::new(
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(HTTP_TIMEOUT_SECS))
             .build()
-            .expect("构建 HTTP client"),
+            .map_err(|e| format!("构建 HTTP client 失败：{e}"))?,
     );
     host.register_fn("Http", "Get", move |args| {
         let url = text_arg(args, 0, "Http.Get", "url")?;
@@ -58,21 +150,26 @@ pub fn register_native_hosts(host: &mut HostRegistry) {
     });
 
     // File.Read：真实读取（不存在 / 无权限 / 非 UTF-8 一律诚实 Err，不伪造内容）。
-    host.register_fn("File", "Read", |args| {
+    let read_root = file_root.clone();
+    host.register_fn("File", "Read", move |args| {
         let path = text_arg(args, 0, "File.Read", "path")?;
-        std::fs::read_to_string(&path)
+        let fs_path = resolve_file_path(&read_root, &path, "File.Read", FileAccess::Read)?;
+        std::fs::read_to_string(&fs_path)
             .map(Value::Text)
             .map_err(|e| format!("File.Read(\"{path}\") 失败：{e}"))
     });
 
     // File.Write：真实写入（覆盖）。
-    host.register_fn("File", "Write", |args| {
+    let write_root = file_root.clone();
+    host.register_fn("File", "Write", move |args| {
         let path = text_arg(args, 0, "File.Write", "path")?;
         let content = text_arg(args, 1, "File.Write", "content")?;
-        std::fs::write(&path, content)
+        let fs_path = resolve_file_path(&write_root, &path, "File.Write", FileAccess::Write)?;
+        std::fs::write(&fs_path, content)
             .map(|()| Value::Unit)
             .map_err(|e| format!("File.Write(\"{path}\") 失败：{e}"))
     });
+    Ok(())
 }
 
 /// 为注册表里全部**三方 WASM 库**注册 host（经 [`WasmHostFn`] 加载各库 `host.wasm`）。
@@ -174,6 +271,14 @@ mod tests {
     use super::*;
     use sophia_library::LibraryContent;
 
+    fn temp_root(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("sophia_stdlib_native_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
+
     #[test]
     fn mock_file_roundtrip_and_seed() {
         let (mut host, buckets) = mock_host();
@@ -215,6 +320,63 @@ mod tests {
             .call("Http", "Get", &[Value::Text("http://api/x".into())])
             .unwrap();
         assert_eq!(r, Value::Text("payload".into()));
+    }
+
+    #[test]
+    fn native_file_host_reads_and_writes_under_root() {
+        let root = temp_root("roundtrip");
+        let mut host = HostRegistry::new();
+        register_native_hosts(&mut host, &root).expect("register native host");
+
+        host.call(
+            "File",
+            "Write",
+            &[Value::Text("note.txt".into()), Value::Text("hello".into())],
+        )
+        .expect("write inside root");
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.txt")).expect("read host output"),
+            "hello"
+        );
+        let value = host
+            .call("File", "Read", &[Value::Text("note.txt".into())])
+            .expect("read inside root");
+        assert_eq!(value, Value::Text("hello".into()));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn native_file_host_rejects_absolute_path() {
+        let root = temp_root("absolute");
+        let mut host = HostRegistry::new();
+        register_native_hosts(&mut host, &root).expect("register native host");
+
+        let absolute = root.join("note.txt").to_string_lossy().into_owned();
+        let err = host
+            .call("File", "Read", &[Value::Text(absolute)])
+            .expect_err("absolute path must be rejected");
+        assert!(err.contains("拒绝绝对路径"), "unexpected err: {err}");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn native_file_host_rejects_parent_traversal() {
+        let root = temp_root("parent");
+        let mut host = HostRegistry::new();
+        register_native_hosts(&mut host, &root).expect("register native host");
+
+        let err = host
+            .call(
+                "File",
+                "Write",
+                &[Value::Text("../x".into()), Value::Text("x".into())],
+            )
+            .expect_err("parent traversal must be rejected");
+        assert!(err.contains("拒绝 `..`"), "unexpected err: {err}");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// 标准库注册表无 host.wasm → 注册三方 WASM host 为 no-op（不报错、不注册任何 op）。
