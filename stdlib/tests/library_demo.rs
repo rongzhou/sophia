@@ -236,15 +236,146 @@ fn discovers_both_demo_libraries() {
     // 标准库仍在。
     assert!(reg.op("Http", "Get").is_some());
     assert!(reg.op("File", "Read").is_some());
-    // 三方库:hash_wasm 的 effect-op + hash_sophia 的 Sophia 源码。
+    // 三方库:hash_wasm 的 effect-op + hash_sophia/json 的 Sophia 源码。
     let mix = reg.op("WasmHash", "Mix").expect("WasmHash.Mix");
     assert!(!mix.effectful, "Mix 是纯计算 op（effectful=false）");
     assert_eq!(mix.host_fn, "wasm_hash_mix");
     assert!(reg.is_library_family("WasmHash"));
     let srcs = reg.sophia_sources();
-    assert_eq!(srcs.len(), 1, "hash_sophia 一个源码节点");
-    assert_eq!(srcs[0].lib, "hash_sophia");
-    assert_eq!(srcs[0].domain, "hash_sophia", "库名即 domain（隔离）");
+    assert!(
+        srcs.iter()
+            .any(|s| s.lib == "hash_sophia" && s.domain == "hash_sophia"),
+        "hash_sophia 源码库应被发现"
+    );
+    assert!(
+        srcs.iter().any(|s| s.lib == "json" && s.domain == "json"),
+        "json 源码库应被发现"
+    );
+}
+
+fn json_user_program() -> Vec<(String, Ast)> {
+    let check = r#"action CheckJson {
+  input { text: Raw<Text> }
+  output { result: one of { JsonValid, JsonInvalid } }
+  body { return ValidateJson(text) }
+}"#;
+    vec![(
+        "app/actions/CheckJson.sophia".to_string(),
+        parse_ast(check).expect("parse CheckJson"),
+    )]
+}
+
+fn analyze_with_library_sources<'a>(
+    reg: &sophia_hir::LibraryRegistry,
+    lib_srcs: &'a LibrarySources,
+    user: &'a [(String, Ast)],
+) -> (sophia_semantic::SemanticModel, Vec<&'a Ast>) {
+    let mut all_inputs: Vec<IndexInput> = user
+        .iter()
+        .map(|(p, a)| IndexInput {
+            domain: "app",
+            path: p,
+            ast: a,
+        })
+        .collect();
+    let lib_inputs = lib_srcs.program_inputs();
+    for pi in &lib_inputs {
+        all_inputs.push(IndexInput {
+            domain: pi.domain,
+            path: pi.path,
+            ast: pi.ast,
+        });
+    }
+    let index = AsgIndex::build(all_inputs, reg).expect("index");
+    let mut refs: Vec<&Ast> = user.iter().map(|(_, a)| a).collect();
+    refs.extend(lib_srcs.asts());
+    let analysis = analyze_program(&refs, &index);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "程序应通过语义检查:{:?}",
+        analysis.diagnostics
+    );
+    (analysis.model, refs)
+}
+
+fn json_outcome_name(outcome: Outcome) -> (String, i64, Option<String>) {
+    match outcome {
+        Outcome::Returned(Value::Entity { name, fields }) => {
+            let position = match fields.get("position") {
+                Some(Value::Int(i)) => *i,
+                other => panic!("Json 结果缺 Int position 字段:{other:?}"),
+            };
+            let reason = match fields.get("reason") {
+                Some(Value::Text(t)) => Some(t.clone()),
+                None => None,
+                other => panic!("JsonInvalid reason 应为 Text:{other:?}"),
+            };
+            (name, position, reason)
+        }
+        other => panic!("期望 JsonValid/JsonInvalid entity 返回，得到 {other:?}"),
+    }
+}
+
+#[test]
+fn json_validator_discovers_checks_and_runs_hidden_cases() {
+    let (root, _) = prepared_fixture_root();
+    let reg = full_registry_from(&[root]).expect("注册表");
+    let lib_srcs = LibrarySources::from_registry(&reg).expect("解析库源码");
+    let user = json_user_program();
+    let (model, refs) = analyze_with_library_sources(&reg, &lib_srcs, &user);
+
+    let valid = [
+        "{}",
+        "[]",
+        "{\"ok\":true}",
+        "{\"items\":[1,2,3]}",
+        "{\"nested\":{\"a\":null}}",
+        "\"hello\"",
+        "-42",
+        "true",
+        "null",
+        "  [ {\"x\": -12}, false, null, \"a\\\\b\" ] \n",
+    ];
+    let invalid = [
+        "{",
+        "[1,]",
+        "{\"a\":1,}",
+        "\"unterminated",
+        "@",
+        "{} x",
+        "{\"bad\":\"\\u1234\"}",
+        "1.2",
+    ];
+
+    for case in valid {
+        let mut host = HostRegistry::new();
+        let (outcome, _) = sophia_runtime::run_action(
+            &model,
+            &refs,
+            "CheckJson",
+            vec![Value::Text(case.into())],
+            &mut host,
+        )
+        .expect("运行 valid JSON case");
+        let (name, _, reason) = json_outcome_name(outcome);
+        assert_eq!(name, "JsonValid", "应接受合法 JSON:{case}");
+        assert!(reason.is_none(), "JsonValid 不应有 reason:{case}");
+    }
+
+    for case in invalid {
+        let mut host = HostRegistry::new();
+        let (outcome, _) = sophia_runtime::run_action(
+            &model,
+            &refs,
+            "CheckJson",
+            vec![Value::Text(case.into())],
+            &mut host,
+        )
+        .expect("运行 invalid JSON case");
+        let (name, _, reason) = json_outcome_name(outcome);
+        assert_eq!(name, "JsonInvalid", "应拒绝非法 JSON:{case}");
+        assert!(reason.is_some(), "JsonInvalid 应带 reason:{case}");
+    }
 }
 
 #[test]

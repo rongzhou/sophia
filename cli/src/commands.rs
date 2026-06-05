@@ -175,6 +175,12 @@ fn collect_used_ops_stmt(
             collect_used_ops_expr(*count, ast, registry, out);
             collect_used_ops_block(body, ast, registry, out);
         }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            collect_used_ops_expr(*condition, ast, registry, out);
+            collect_used_ops_block(body, ast, registry, out);
+        }
     }
 }
 

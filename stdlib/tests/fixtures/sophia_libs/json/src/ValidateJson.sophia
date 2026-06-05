@@ -1,0 +1,20 @@
+action ValidateJson {
+  input { text: Raw<Text> }
+  output { result: one of { JsonValid, JsonInvalid } }
+  effects { Pure }
+  body {
+    let start = JsonSkipWhitespace(text, 0)
+    let parsed = JsonParseValue(text, start)
+    match parsed {
+      JsonParseOk ok => {
+        let end = JsonSkipWhitespace(text, ok.position)
+        if end == text.length {
+          return JsonValid { position = end }
+        } else {
+          return JsonInvalid { reason = "trailing garbage", position = end }
+        }
+      }
+      JsonInvalid bad => return bad
+    }
+  }
+}

@@ -84,8 +84,8 @@ cargo run -p sophia-cli --example benchmark -- --llm-mode ollama --mode sophia
 `SOPHIA_LLM_API_KEY`。OpenAI
 兼容模式无 `SOPHIA_LLM_API_KEY` 干净跳过；Ollama 模式默认本地 `http://localhost:11434`、
 默认模型 `qwen3.6:latest`，无需 API key。`--llm-timeout-secs` / `SOPHIA_LLM_TIMEOUT_SECS`
-表示连接 / 响应读取空闲超时；OpenAI 兼容与 Ollama 都使用 streaming，不限制整段生成总耗时。
-Ollama 默认不重试，避免本地生成被重复触发。缺 `python3` 时 baseline mode 跳过（只跑 sophia，
+表示连接 / 响应读取空闲超时；OpenAI 兼容与 Ollama 都使用 streaming。后端另有默认单次调用墙钟上限，
+用于防止模型持续 stream 但不结束。Ollama 默认不重试，避免本地生成被重复触发。缺 `python3` 时 baseline mode 跳过（只跑 sophia，
 `python3` 仅运行期外部工具、不进 Cargo 依赖树）。
 
 执行 LLM 生成的任意 Python 受**硬超时**（单 case 5s）+ **受限临时工作目录** + **用后清理** 保护。

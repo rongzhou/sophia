@@ -4,7 +4,8 @@
 
 > 本文档与 `language_design.md` 对称：`language_design` 定**语言本身**的设计，本文档定**库**的
 > 设计——库是什么、边界在哪、怎么组织、如何统一标准库与三方库、LLM 如何发现与使用。具体某个库的
-> 语言契约（如 `Http`）单独成文（见 §七 库清单），实现细节见 `stdlib_implementation.md`。
+> 语言契约（如 `Http`）单独成文（见 §七 库清单），实现细节见 `stdlib_implementation.md`，
+> 本地生成 / 调试三方库的操作手册见 `custom_lib_usage.md`。
 >
 > **状态：活文档。** 库随演示需求增量。当前：库插件模型已落地（清单驱动 + `LibraryRegistry` +
 > 路线 B host 注册表）；标准库 `Http` / `File`（已落地，见 `http_lib.md` / `file_lib.md`）。

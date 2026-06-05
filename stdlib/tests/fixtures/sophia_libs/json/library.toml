@@ -1,0 +1,24 @@
+[library]
+name = "json"
+summary = "JSON validator（纯 Sophia MVP）"
+abi_version = 1
+
+[surface]
+sophia_sources = [
+  "src/JsonValid.sophia",
+  "src/JsonInvalid.sophia",
+  "src/JsonParseOk.sophia",
+  "src/ValidateJson.sophia",
+  "src/JsonSkipWhitespace.sophia",
+  "src/JsonIsWhitespace.sophia",
+  "src/JsonIsDigit.sophia",
+  "src/JsonIsEscape.sophia",
+  "src/JsonParseValue.sophia",
+  "src/JsonParseObject.sophia",
+  "src/JsonParseArray.sophia",
+  "src/JsonParseString.sophia",
+  "src/JsonParseInt.sophia",
+]
+
+[prompt]
+asset = "json.md"

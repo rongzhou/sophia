@@ -1,0 +1,33 @@
+action JsonParseInt {
+  input { text: Raw<Text>; position: Int }
+  output { result: one of { JsonParseOk, JsonInvalid } }
+  effects { Pure }
+  body {
+    let mutable cursor = position
+    if cursor < text.length {
+      if text.char_at(cursor) == "-" {
+        set cursor = cursor + 1
+      }
+    }
+    if cursor >= text.length {
+      return JsonInvalid { reason = "expected digit", position = cursor }
+    }
+    let first = text.char_at(cursor)
+    if not JsonIsDigit(first) {
+      return JsonInvalid { reason = "expected digit", position = cursor }
+    }
+    if first == "0" {
+      return JsonParseOk { position = cursor + 1 }
+    }
+    set cursor = cursor + 1
+    while cursor < text.length {
+      let ch = text.char_at(cursor)
+      if JsonIsDigit(ch) {
+        set cursor = cursor + 1
+      } else {
+        return JsonParseOk { position = cursor }
+      }
+    }
+    return JsonParseOk { position = cursor }
+  }
+}

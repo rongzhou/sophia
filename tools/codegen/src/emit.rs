@@ -69,9 +69,12 @@ mod helper {
     pub const TEXT_CONCAT: u32 = 22;
     pub const GET_TEXT_PTR: u32 = 23;
     pub const GET_TEXT_LEN: u32 = 24;
+    pub const TEXT_CHAR_AT: u32 = 25;
+    pub const TEXT_SLICE: u32 = 26;
+    pub const TEXT_STARTS_WITH: u32 = 27;
 }
 /// prelude 函数个数。
-const PRELUDE_COUNT: u32 = 25;
+const PRELUDE_COUNT: u32 = 28;
 
 fn helper_index(import_count: u32, relative: u32) -> u32 {
     import_count + relative
@@ -499,6 +502,12 @@ fn intern_stmt_strings(stmt: &Stmt, ast: &Ast, interner: &mut StrInterner) {
             intern_expr_strings(*count, ast, interner);
             intern_block_strings(body, ast, interner);
         }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            intern_expr_strings(*condition, ast, interner);
+            intern_block_strings(body, ast, interner);
+        }
     }
 }
 
@@ -600,6 +609,12 @@ fn collect_effect_calls_stmt(
         }
         Stmt::Repeat { count, body, .. } => {
             collect_effect_calls_expr(*count, ast, registry, out);
+            collect_effect_calls_block(body, ast, registry, out);
+        }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            collect_effect_calls_expr(*condition, ast, registry, out);
             collect_effect_calls_block(body, ast, registry, out);
         }
     }
@@ -723,6 +738,18 @@ fn push_prelude_types(types: &mut TypeSection) {
     // get_text_ptr(h) -> i32 / get_text_len(h) -> i32
     types.ty().function([ValType::I32], [ValType::I32]);
     types.ty().function([ValType::I32], [ValType::I32]);
+    // text_char_at(text, index_handle) -> Text handle
+    types
+        .ty()
+        .function([ValType::I32, ValType::I32], [ValType::I32]);
+    // text_slice(text, start_handle, length_handle) -> Text handle
+    types
+        .ty()
+        .function([ValType::I32, ValType::I32, ValType::I32], [ValType::I32]);
+    // text_starts_with(text, prefix) -> Bool handle
+    types
+        .ty()
+        .function([ValType::I32, ValType::I32], [ValType::I32]);
 }
 
 fn emit_prelude(code: &mut CodeSection, bump_base: i32, import_count: u32) {
@@ -759,6 +786,9 @@ fn emit_prelude(code: &mut CodeSection, bump_base: i32, import_count: u32) {
     code.function(&f_text_concat(import_count));
     code.function(&f_text_field(abi::OFF_TEXT_PTR));
     code.function(&f_text_field(abi::OFF_TEXT_LEN));
+    code.function(&f_text_char_at(import_count));
+    code.function(&f_text_slice(import_count));
+    code.function(&f_text_starts_with(import_count));
 }
 
 /// `alloc(size) -> ptr`：bump 分配，bump 指针向上对齐 8。param0=size:i32。
@@ -1331,6 +1361,278 @@ fn f_text_concat(import_count: u32) -> Function {
     f
 }
 
+/// `text_char_at(text, index_handle) -> Text handle`：Unicode scalar index；越界返回空 Text。
+/// local2=ptr, local3=len, local4=i, local5=start, local6=byte, local7=target, local8=scalar。
+fn f_text_char_at(import_count: u32) -> Function {
+    let mut f = Function::new([(5, ValType::I32), (2, ValType::I64)]);
+    // target = get_int(index_handle); if target < 0 return ""
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::GET_INT,
+    )));
+    f.instruction(&Instruction::LocalSet(7));
+    f.instruction(&Instruction::LocalGet(7));
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::I64LtS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_empty_text(&mut f, import_count);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_PTR, I32_MEM)));
+    f.instruction(&Instruction::LocalSet(2));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::LocalSet(3));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::LocalSet(4)); // i
+    f.instruction(&Instruction::I32Const(-1));
+    f.instruction(&Instruction::LocalSet(5)); // start
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::LocalSet(8)); // scalar
+
+    f.instruction(&Instruction::Block(BlockType::Empty));
+    f.instruction(&Instruction::Loop(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::LocalGet(3));
+    f.instruction(&Instruction::I32GeU);
+    f.instruction(&Instruction::BrIf(1));
+    // byte = mem[ptr+i] & 0xC0
+    f.instruction(&Instruction::LocalGet(2));
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::I32Load8U(mem(0, 0)));
+    f.instruction(&Instruction::I32Const(0xC0));
+    f.instruction(&Instruction::I32And);
+    f.instruction(&Instruction::LocalSet(6));
+    f.instruction(&Instruction::LocalGet(6));
+    f.instruction(&Instruction::I32Const(0x80));
+    f.instruction(&Instruction::I32Ne);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    // if scalar == target { start = i }
+    f.instruction(&Instruction::LocalGet(8));
+    f.instruction(&Instruction::LocalGet(7));
+    f.instruction(&Instruction::I64Eq);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::LocalSet(5));
+    f.instruction(&Instruction::End);
+    // if scalar == target + 1 { return text[start..i] }
+    f.instruction(&Instruction::LocalGet(8));
+    f.instruction(&Instruction::LocalGet(7));
+    f.instruction(&Instruction::I64Const(1));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::I64Eq);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_text_range(&mut f, import_count, 2, 5, 4);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    // scalar++
+    f.instruction(&Instruction::LocalGet(8));
+    f.instruction(&Instruction::I64Const(1));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::LocalSet(8));
+    f.instruction(&Instruction::End);
+    // i++
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalSet(4));
+    f.instruction(&Instruction::Br(0));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::End);
+
+    // if start < 0 return ""; else return text[start..len]
+    f.instruction(&Instruction::LocalGet(5));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::I32LtS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_empty_text(&mut f, import_count);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    push_text_range(&mut f, import_count, 2, 5, 3);
+    f.instruction(&Instruction::End);
+    f
+}
+
+/// `text_slice(text, start_handle, length_handle) -> Text handle`：Unicode scalar range，边界夹取。
+/// local3=ptr, local4=len, local5=i, local6=start_byte, local7=end_byte, local8=byte,
+/// local9=target_start, local10=target_end, local11=scalar。
+fn f_text_slice(import_count: u32) -> Function {
+    let mut f = Function::new([(6, ValType::I32), (3, ValType::I64)]);
+    // target_start = max(get_int(start), 0)
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::GET_INT,
+    )));
+    f.instruction(&Instruction::LocalSet(9));
+    f.instruction(&Instruction::LocalGet(9));
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::I64LtS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::LocalSet(9));
+    f.instruction(&Instruction::End);
+    // length <= 0 -> ""
+    f.instruction(&Instruction::LocalGet(2));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::GET_INT,
+    )));
+    f.instruction(&Instruction::LocalSet(10));
+    f.instruction(&Instruction::LocalGet(10));
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::I64LeS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_empty_text(&mut f, import_count);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    // target_end = target_start + length
+    f.instruction(&Instruction::LocalGet(9));
+    f.instruction(&Instruction::LocalGet(10));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::LocalSet(10));
+
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_PTR, I32_MEM)));
+    f.instruction(&Instruction::LocalSet(3));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::LocalSet(4));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::LocalSet(5));
+    f.instruction(&Instruction::I32Const(-1));
+    f.instruction(&Instruction::LocalSet(6));
+    f.instruction(&Instruction::I64Const(0));
+    f.instruction(&Instruction::LocalSet(11));
+
+    f.instruction(&Instruction::Block(BlockType::Empty));
+    f.instruction(&Instruction::Loop(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(5));
+    f.instruction(&Instruction::LocalGet(4));
+    f.instruction(&Instruction::I32GeU);
+    f.instruction(&Instruction::BrIf(1));
+    f.instruction(&Instruction::LocalGet(3));
+    f.instruction(&Instruction::LocalGet(5));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::I32Load8U(mem(0, 0)));
+    f.instruction(&Instruction::I32Const(0xC0));
+    f.instruction(&Instruction::I32And);
+    f.instruction(&Instruction::LocalSet(8));
+    f.instruction(&Instruction::LocalGet(8));
+    f.instruction(&Instruction::I32Const(0x80));
+    f.instruction(&Instruction::I32Ne);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    // if scalar == target_start { start_byte = i }
+    f.instruction(&Instruction::LocalGet(11));
+    f.instruction(&Instruction::LocalGet(9));
+    f.instruction(&Instruction::I64Eq);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    f.instruction(&Instruction::LocalGet(5));
+    f.instruction(&Instruction::LocalSet(6));
+    f.instruction(&Instruction::End);
+    // if scalar == target_end { return text[start_byte..i] }
+    f.instruction(&Instruction::LocalGet(11));
+    f.instruction(&Instruction::LocalGet(10));
+    f.instruction(&Instruction::I64Eq);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_text_range(&mut f, import_count, 3, 6, 5);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::LocalGet(11));
+    f.instruction(&Instruction::I64Const(1));
+    f.instruction(&Instruction::I64Add);
+    f.instruction(&Instruction::LocalSet(11));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::LocalGet(5));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalSet(5));
+    f.instruction(&Instruction::Br(0));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::End);
+
+    f.instruction(&Instruction::LocalGet(6));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::I32LtS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    push_empty_text(&mut f, import_count);
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    push_text_range(&mut f, import_count, 3, 6, 4);
+    f.instruction(&Instruction::End);
+    f
+}
+
+/// `text_starts_with(text, prefix) -> Bool handle`。
+fn f_text_starts_with(import_count: u32) -> Function {
+    let mut f = Function::new([]);
+    // prefix.len > text.len -> false
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::I32GtU);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_BOOL,
+    )));
+    f.instruction(&Instruction::Return);
+    f.instruction(&Instruction::End);
+    // str_eq(text.ptr, prefix.len, prefix.ptr, prefix.len)
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_PTR, I32_MEM)));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_PTR, I32_MEM)));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Load(mem(abi::OFF_TEXT_LEN, I32_MEM)));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::STR_EQ,
+    )));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_BOOL,
+    )));
+    f.instruction(&Instruction::End);
+    f
+}
+
+fn push_empty_text(f: &mut Function, import_count: u32) {
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::I32Const(0));
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_TEXT,
+    )));
+}
+
+fn push_text_range(
+    f: &mut Function,
+    import_count: u32,
+    ptr_local: u32,
+    start_local: u32,
+    end_local: u32,
+) {
+    f.instruction(&Instruction::LocalGet(ptr_local));
+    f.instruction(&Instruction::LocalGet(start_local));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalGet(end_local));
+    f.instruction(&Instruction::LocalGet(start_local));
+    f.instruction(&Instruction::I32Sub);
+    f.instruction(&Instruction::Call(helper_index(
+        import_count,
+        helper::MAKE_TEXT,
+    )));
+}
+
 // ============ callable body emit ============
 
 /// 收集 callable body 内全部 `let` 绑定名（无 shadowing 由 HIR 保证，故名字唯一）。
@@ -1370,7 +1672,7 @@ fn collect_lets_stmt(stmt: &Stmt, out: &mut Vec<String>) {
                 collect_lets(&arm.body, out);
             }
         }
-        Stmt::Repeat { body, .. } => collect_lets(body, out),
+        Stmt::Repeat { body, .. } | Stmt::While { body, .. } => collect_lets(body, out),
         _ => {}
     }
 }
@@ -1414,6 +1716,13 @@ fn max_effect_args_stmt(stmt: &Stmt, ast: &Ast, host_imports: &HostImports) -> u
         ),
         Stmt::Repeat { count, body, .. } => max_effect_args_expr(*count, ast, host_imports)
             .max(max_effect_arg_count(body, ast, host_imports)),
+        Stmt::While {
+            condition, body, ..
+        } => max_effect_args_expr(*condition, ast, host_imports).max(max_effect_arg_count(
+            body,
+            ast,
+            host_imports,
+        )),
     }
 }
 
@@ -1666,6 +1975,24 @@ impl FnEmitter<'_> {
                 self.instrs.push(Instruction::I64Const(1));
                 self.instrs.push(Instruction::I64Sub);
                 self.instrs.push(Instruction::LocalSet(counter));
+                self.instrs.push(Instruction::Br(0));
+                self.instrs.push(Instruction::End); // loop
+                self.instrs.push(Instruction::End); // block
+                Ok(())
+            }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                // while condition { body }：每轮重新求 condition。body 内 return/raise 经 WASM
+                // `return` 直接退出函数（Outcome ABI），与解释器一致。
+                self.instrs.push(Instruction::Block(BlockType::Empty));
+                self.instrs.push(Instruction::Loop(BlockType::Empty));
+                self.emit_expr(*condition)?;
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::GET_BOOL)));
+                self.instrs.push(Instruction::I32Eqz);
+                self.instrs.push(Instruction::BrIf(1));
+                self.emit_block(body)?;
                 self.instrs.push(Instruction::Br(0));
                 self.instrs.push(Instruction::End); // loop
                 self.instrs.push(Instruction::End); // block
@@ -2023,6 +2350,13 @@ impl FnEmitter<'_> {
         method: &str,
         args: &[ExprId],
     ) -> CodegenResult<()> {
+        use sophia_semantic::Ty;
+        if matches!(
+            self.types.get(base).map(|t| t.strip_intent()),
+            Some(Ty::Text)
+        ) {
+            return self.emit_text_method_call(base, method, args);
+        }
         let Expr::Ident(root) = self.ast.expr(base) else {
             return Err(unsupported(
                 "方法调用（非库特殊根，list.append 待后续增量）",
@@ -2040,6 +2374,58 @@ impl FnEmitter<'_> {
             )));
         };
         self.emit_effect_op(&import.contract, import.index, args)
+    }
+
+    fn emit_text_method_call(
+        &mut self,
+        base: ExprId,
+        method: &str,
+        args: &[ExprId],
+    ) -> CodegenResult<()> {
+        match method {
+            "char_at" => {
+                self.require_arg_count("Text.char_at", args, 1)?;
+                self.emit_expr(base)?;
+                self.emit_expr(args[0])?;
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::TEXT_CHAR_AT)));
+                Ok(())
+            }
+            "slice" => {
+                self.require_arg_count("Text.slice", args, 2)?;
+                self.emit_expr(base)?;
+                self.emit_expr(args[0])?;
+                self.emit_expr(args[1])?;
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::TEXT_SLICE)));
+                Ok(())
+            }
+            "starts_with" => {
+                self.require_arg_count("Text.starts_with", args, 1)?;
+                self.emit_expr(base)?;
+                self.emit_expr(args[0])?;
+                self.instrs
+                    .push(Instruction::Call(self.h(helper::TEXT_STARTS_WITH)));
+                Ok(())
+            }
+            _ => Err(unsupported(&format!("Text 方法 `{method}`"))),
+        }
+    }
+
+    fn require_arg_count(
+        &self,
+        callee: &str,
+        args: &[ExprId],
+        expected: usize,
+    ) -> CodegenResult<()> {
+        if args.len() == expected {
+            Ok(())
+        } else {
+            Err(CodegenError::InvalidInput(format!(
+                "{callee} 需 {expected} 实参，实际 {}",
+                args.len()
+            )))
+        }
     }
 
     fn emit_effect_op(

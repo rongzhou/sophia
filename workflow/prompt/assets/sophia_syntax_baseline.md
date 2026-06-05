@@ -11,6 +11,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 ## 顶层结构
 
 - 一个文件恰好一个顶层 node（action / entity / state / error / capability / transition）。
+  如果实现需要多个 action / entity / state / error / capability / transition，必须输出多个 `.sophia`
+  文件；不要把多个顶层 node 放进同一个文件。
 - action 的形状：
     action <名字> {
       input { <参数名>: <类型>; <参数名>: <类型> }
@@ -19,6 +21,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
     }
 - `input { ... }` / `output { ... }` / `effects { ... }` / `errors { ... }` / `allow { ... }`
   这类声明块里若有多个条目，条目之间必须用分号 `;` 分隔；换行本身不是声明分隔符。
+- `entity fields { ... }` 与 `state value ... { ... }` 内部不使用声明分号作为尾随终结符：
+  entity 字段写 `<字段名> { type: <类型> }`；state 取值写 `value <值名> { meaning: "<说明>" }`。
 - state 的形状（每个 value 后必须跟花括号块，块内至少有一个 meaning 字段）：
     state <名字> {
       value <值名> { meaning: "<说明>" }
@@ -49,6 +53,8 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
   返回成功值就直接 `return <值>`，返回失败就直接 `return <Variant { 字段 = ... }>`。
 - 失败形态由题面 / 验收决定：
     - "返回结局"、"可恢复结局"或输出类型为 `one of { ... }`：用 `return Variant { ... }`。
+    - 题面要求 report / describe / diagnose / validate invalid input，并要求给出位置、原因、状态或错误说明时，
+      invalid input 是普通可观察结果；用 `one of { SuccessEntity, FailureEntity }` 返回，不要 `raise`。
     - "中断式领域失败"、"抛出/raise 失败"或输出为普通成功类型：用 `raise Variant { ... }`，
       action 的 `output` 仍写成功返回类型，不要改成 `one of { Success, Variant }`。
 - 取值用 `match`，按成员**类型 / variant 名**分派（见下「body 子语言」的 match 模式）。
@@ -58,20 +64,29 @@ state，就必须叫 `WidgetKind`，不能改叫 `Kind` 或 `Widget`）。这些
 
 - 语句子集：let x = expr  /  let mutable x = expr  /  set x = expr  /  return expr  /
   raise Variant { f = expr }  /  if cond { ... } else { ... }  /
-  match subj { 模式 => ... }  /  repeat N times { ... }  /  print expr。
+  match subj { 模式 => ... }  /  repeat N times { ... }  /  while cond { ... }  /  print expr。
+- 局部变量不写类型标注：写 `let x = expr` 或 `let mutable x = expr`，不要写
+  `let x: T = expr`、`let x : T = expr`、`let mutable x: T = expr`。
 - **语句之间用换行分隔，语句末尾不写分号 `;`**（分号不是语句终结符）。
 - 表达式子集：整数算术 + - *、一元取负 `-x`、比较 == != < <= > >=、and / or / not、Text + Text、
+  Text 原语 `text.char_at(index)` / `text.slice(start, length)` / `text.starts_with(prefix)`、
   list + [item]、list.append(item)、字段访问 a.b、entity 构造 E { f = expr }、to_text(Int)、
   `Null` 字面、**调用其它 action：`<ActionName>(实参, ...)`**（实参按被调用 action 的 input 顺序）。
+- 排序比较 `<` / `<=` / `>` / `>=` 只接受 `Int` 操作数；不要用它们比较 `Text`。Text 判断用
+  `==` / `!=`、`starts_with`、`char_at` 或 `slice` 组合表达。
 - `if` / `match` 是语句，不是表达式；不要写 `return if ...` 或 `let x = if ...`。
   需要条件返回时写成 `if cond { return a } else { return b }`。
 - 有限 Bool / state / `one of` 分派优先直接写 `match`；不要为固定映射构造列表、索引或循环。
+- `while cond { ... }` 每轮重新求值，`cond` 必须是 Bool；没有 `break` / `continue`，需要提前结束时用可变状态更新条件，或用 `return` / `raise` 结束 action。
 - 没有空列表字面量 `[]`；只在已有列表值上使用 `list + [item]` 或 `list.append(item)`。
 - **没有除法 `/` 与取模 `%`**（不在起步子集）；需要"取较大/较小/绝对值"等用比较 + 算术表达
   （如绝对值：`if d < 0 { return -d } else { return d }`）。
-- 内置伪字段：`<text>.length`（Text 的字符数，结果 Int）。`to_text(Int)` 仅把 Int 转 Text
-  （不接受其它类型）。判断一个 `one of { T, Null }` 是否有值：在谓词（require / ensures / where）里用
-  `<表达式> != Null`；在 body 里用 `match` 的 `Null` 分支。
+- 内置伪字段：`<text>.length`（Text 的 Unicode scalar 数，结果 Int）。Text 原语：
+  `<text>.char_at(index)` 返回单个 Unicode scalar 的 `Text`，负数或越界返回空 `Text`；
+  `<text>.slice(start, length)` 按 Unicode scalar 截取，负起点按 0，非正长度或越界起点返回空 `Text`，
+  结束边界夹取；`<text>.starts_with(prefix)` 返回 Bool，空前缀返回 `true`。`to_text(Int)` 仅把 Int 转
+  Text（不接受其它类型）。判断一个 `one of { T, Null }` 是否有值：在谓词（require / ensures / where）
+  里用 `<表达式> != Null`；在 body 里用 `match` 的 `Null` 分支。
 - body 中只能引用 input 声明的参数或本地 let 绑定的变量；引用未声明的名字是错误。
 - **match 模式**（必须穷尽，**禁止** `_` 通配分支）：
     - 类型模式 `<类型名> <绑定名> => ...`：匹配 `one of` 的标量 / entity / state 成员，把值绑定到该名字

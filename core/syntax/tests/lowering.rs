@@ -288,6 +288,37 @@ fn control_flow_lowered() {
 }
 
 #[test]
+fn while_stmt_lowered() {
+    let src = r#"action Count {
+  input { limit: Int }
+  output { total: Int }
+  body {
+    let mutable i = 0
+    while i < limit {
+      set i = i + 1
+    }
+    return i
+  }
+}"#;
+    let ast = parse_ast(src).expect("parse");
+    let Item::Action(action) = &ast.items[0] else {
+        panic!("期望 action");
+    };
+    let body = action.body.as_ref().unwrap();
+
+    let Stmt::While {
+        condition,
+        body: while_body,
+        ..
+    } = &body.stmts[1]
+    else {
+        panic!("期望 while");
+    };
+    assert!(matches!(ast.expr(*condition), Expr::Binary { .. }));
+    assert!(matches!(while_body.stmts[0], Stmt::Set { .. }));
+}
+
+#[test]
 fn intent_conversion_flag_lowered() {
     let ast = parse_ast(CONTROL).expect("parse");
     let sanitize = ast

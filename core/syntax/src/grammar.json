@@ -2110,6 +2110,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "while_stmt"
+        },
+        {
+          "type": "SYMBOL",
           "name": "print_stmt"
         },
         {
@@ -2515,6 +2519,31 @@
         {
           "type": "STRING",
           "value": "times"
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "block"
+          }
+        }
+      ]
+    },
+    "while_stmt": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "while"
+        },
+        {
+          "type": "FIELD",
+          "name": "condition",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_no_struct_expr"
+          }
         },
         {
           "type": "FIELD",

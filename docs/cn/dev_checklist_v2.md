@@ -35,49 +35,49 @@ host provider 机制。`json_lib_design.md` 已作为未落地设计草案存在
 
 ### D0 — 设计冻结与范围收束
 
-- [ ] **D0.1 JSON MVP 子集冻结**：明确 validator 起步支持 object / array / string / int / bool / null /
+- [x] **D0.1 JSON MVP 子集冻结**：明确 validator 起步支持 object / array / string / int / bool / null /
       whitespace；暂缓 float / exponent / `\uXXXX` / JSON Schema。
-- [ ] **D0.2 Text 语义冻结**：明确索引采用 Unicode scalar 还是 byte offset；明确越界语义；明确
+- [x] **D0.2 Text 语义冻结**：明确索引采用 Unicode scalar 还是 byte offset；明确越界语义；明确
       `slice(start, length)` 的边界行为。
-- [ ] **D0.3 while 语义冻结**：明确语法、scope、condition 必须为 `Bool`、无 `break` / `continue` 的 MVP、
+- [x] **D0.3 while 语义冻结**：明确语法、scope、condition 必须为 `Bool`、无 `break` / `continue` 的 MVP、
       不证明终止、runtime/WASM 同步循环形态。
-- [ ] **D0.4 JSON 返回模型冻结**：`ValidateJson` 返回 `one of { JsonValid, JsonInvalid }`；parser 阶段前
+- [x] **D0.4 JSON 返回模型冻结**：`ValidateJson` 返回 `one of { JsonValid, JsonInvalid }`；parser 阶段前
       评估递归 `JsonValue` 模型。
-- [ ] **D0.5 库资产草案**：写出 `json.md` prompt asset 草案，包括能力、公开 action、示例调用、错误模型。
+- [x] **D0.5 库资产草案**：写出 `json.md` prompt asset 草案，包括能力、公开 action、示例调用、错误模型。
 
 ### F1 — Text 最小解析能力
 
-- [ ] **F1.1 syntax / AST**：支持 `text.char_at(index)`、`text.slice(start, length)`；若设计确认，
+- [x] **F1.1 syntax / AST**：支持 `text.char_at(index)`、`text.slice(start, length)`；若设计确认，
       同步支持 `text.starts_with(prefix)`。
-- [ ] **F1.2 HIR / semantic**：校验 receiver 为 `Text`、参数为 `Int` / `Text`、返回类型为 `Text` / `Bool`；
+- [x] **F1.2 HIR / semantic**：校验 receiver 为 `Text`、参数为 `Int` / `Text`、返回类型为 `Text` / `Bool`；
       诊断覆盖错误 receiver、错误参数个数、错误参数类型。
-- [ ] **F1.3 interpreter**：实现确定性运行时语义；越界行为与 D0.2 保持一致。
-- [ ] **F1.4 WASM codegen**：实现与解释器等价的字符串操作 ABI / helper。
-- [ ] **F1.5 差测试与文档**：覆盖普通字符、空文本、越界、Unicode/byte 边界（按 D0.2 决策）、slice 组合；
+- [x] **F1.3 interpreter**：实现确定性运行时语义；越界行为与 D0.2 保持一致。
+- [x] **F1.4 WASM codegen**：实现与解释器等价的字符串操作 ABI / helper。
+- [x] **F1.5 差测试与文档**：覆盖普通字符、空文本、越界、Unicode/byte 边界（按 D0.2 决策）、slice 组合；
       同步 `language_design.md` / 语法基线 / prompt asset。
 
 ### F2 — while 控制流
 
-- [ ] **F2.1 grammar / AST lowering**：新增 `while condition { ... }` 语句，重生成 tree-sitter parser，
+- [x] **F2.1 grammar / AST lowering**：新增 `while condition { ... }` 语句，重生成 tree-sitter parser，
       更新 CST / AST snapshot。
-- [ ] **F2.2 HIR scope**：while body 复用 block scope；禁止 shadowing 规则保持一致；condition 中名称解析正常。
-- [ ] **F2.3 semantic**：condition 必须为 `Bool`；body 的 type / effect / contract 分析并入 callable；
+- [x] **F2.2 HIR scope**：while body 复用 block scope；禁止 shadowing 规则保持一致；condition 中名称解析正常。
+- [x] **F2.3 semantic**：condition 必须为 `Bool`；body 的 type / effect / contract 分析并入 callable；
       flow 分析支持 `return` / `raise`，但不证明循环终止。
-- [ ] **F2.4 interpreter**：实现同步循环；保留运行时错误诚实传播。
-- [ ] **F2.5 WASM codegen**：emit loop / branch 结构，并与解释器逐 case 等价。
-- [ ] **F2.6 差测试与文档**：覆盖 0 次、多次、状态提前结束、嵌套 while、while 内 return/raise；
+- [x] **F2.4 interpreter**：实现同步循环；保留运行时错误诚实传播。
+- [x] **F2.5 WASM codegen**：emit loop / branch 结构，并与解释器逐 case 等价。
+- [x] **F2.6 差测试与文档**：覆盖 0 次、多次、状态提前结束、嵌套 while、while 内 return/raise；
       同步 `language_design.md` / 语法基线 / prompt asset。
 
 ### L1 — JSON validator 三方库
 
-- [ ] **L1.1 fixture 布局**：新增 `stdlib/tests/fixtures/sophia_libs/json/`，包含 `library.toml`、`json.md`、
+- [x] **L1.1 fixture 布局**：新增 `stdlib/tests/fixtures/sophia_libs/json/`，包含 `library.toml`、`json.md`、
       `src/*.sophia`。
-- [ ] **L1.2 公开 API**：实现 `ValidateJson`，输入 `Raw<Text>`，返回 `one of { JsonValid, JsonInvalid }`。
-- [ ] **L1.3 内部 parser 状态**：用 `Text` + `while` 实现 cursor、空白跳过、value/object/array/string/int
+- [x] **L1.2 公开 API**：实现 `ValidateJson`，输入 `Raw<Text>`，返回 `one of { JsonValid, JsonInvalid }`。
+- [x] **L1.3 内部 parser 状态**：用 `Text` + `while` 实现 cursor、空白跳过、value/object/array/string/int
       validator。
-- [ ] **L1.4 hidden cases**：覆盖 `{}`、`[]`、`{"ok":true}`、嵌套对象/数组、缺括号、多余逗号、未闭合字符串、
+- [x] **L1.4 hidden cases**：覆盖 `{}`、`[]`、`{"ok":true}`、嵌套对象/数组、缺括号、多余逗号、未闭合字符串、
       非法 token、尾随垃圾。
-- [ ] **L1.5 工具链验证**：三方库 discovery、`sophia check`、interpreter run、WASM run、strip-assist
+- [x] **L1.5 工具链验证**：三方库 discovery、`sophia check`、interpreter run、WASM run、strip-assist
       artifact 等价均通过。
 - [ ] **L1.6 LLM 生成评估**：通过 Development Graph 记录 `.pseudo → .sophia → hidden cases` 的成功/失败路径。
 
@@ -129,5 +129,37 @@ host provider 机制。`json_lib_design.md` 已作为未落地设计草案存在
 
 ## 四、变更记录
 
+- 2026-06-05 — L1.1-L1.5 JSON validator 三方库落地。新增 `stdlib/tests/fixtures/sophia_libs/json/`
+  纯 Sophia 源码库，公开 `ValidateJson(text: Raw<Text>) -> one of { JsonValid, JsonInvalid }`，内部用
+  `Text.char_at` / `Text.slice` / `while` 实现 cursor validator，覆盖 object / array / string / int /
+  bool / null / whitespace MVP；非法 JSON 作为 `JsonInvalid` 普通返回值。新增 stdlib discovery/interpreter
+  hidden cases、codegen interpreter/WASM 差测试、CLI `check` / interpreter `run` / `build` / WASM `run`
+  端到端测试。L1.6 LLM 生成评估仍待 Development Graph 路线执行。
+- 2026-06-05 — F2 while 控制流收口。新增 `while condition { ... }` 的 grammar / AST lowering / HIR scope /
+  semantic / interpreter / WASM codegen 全链路；condition 强制 `Bool`，body 复用 block scope，MVP 保持无
+  `break` / `continue`、不做终止性证明。新增 syntax、semantic、runtime 与 interpreter/WASM 差测试，覆盖
+  0 次、多次、状态变量提前结束、嵌套 while、while 内 `return` / `raise`；同步 `language_design.md`、
+  语法基线 prompt asset 与 snapshot。验证：`cargo fmt --all -- --check`、`cargo test --workspace`、
+  `cargo clippy --workspace --all-targets -- -D warnings`、`git diff --check` 通过。
+- 2026-06-05 — F1.5 收口。同步 `docs/cn/language_design.md` 的 body 子语言表、`workflow/prompt/assets/
+  sophia_syntax_baseline.md` 与对应 snapshot，明确 Text 原语语法和 D0.2 Unicode scalar / 越界语义。验证：
+  `cargo test -p sophia-prompt syntax_baseline_preamble_is_stable`、`cargo test -p sophia-syntax
+  documented_examples_parse_without_errors` 通过。
+- 2026-06-05 — F1.4 WASM codegen 落地。`tools/codegen` prelude 新增 `Text.char_at` / `Text.slice` /
+  `Text.starts_with` helper，按 D0.2 的 Unicode scalar index、越界空 `Text`、slice 边界夹取语义 emit；
+  method-call emit 以静态类型分派 Text 方法，不走库 host import。新增 interpreter/WASM 差测试覆盖 Unicode、
+  空文本、负数/越界、slice 组合和空前缀。验证：`cargo test -p sophia-codegen`、
+  `cargo clippy -p sophia-codegen --all-targets -- -D warnings`、`cargo fmt --all -- --check` 通过。
+- 2026-06-04 — F1.1-F1.3 首片落地。现有 method-call syntax / AST 已可表达 `text.char_at(index)`、
+  `text.slice(start, length)`、`text.starts_with(prefix)`；semantic 层新增 Text receiver / arity / 参数类型 /
+  返回类型校验；解释器按 D0.2 实现 Unicode scalar index、越界空文本、slice 夹取和空前缀匹配。目标测试：
+  `cargo test -p sophia-semantic text_parser_methods`、`cargo test -p sophia-runtime text_` 通过。下一步是 F1.4
+  WASM codegen helper 与差测试。
+- 2026-06-04 — D0 设计冻结完成。JSON validator MVP 固定为 object / array / string / int / bool / null /
+  whitespace 子集；Text 索引与 `.length` 保持一致，采用 Unicode scalar index，负数或越界 `char_at` 返回空
+  `Text`，`slice(start, length)` 对边界做确定性夹取，负起点按 0、负长度按空片段处理；`while condition { ... }`
+  使用 block scope、condition 必须为 `Bool`、MVP 无 `break` / `continue`、不做终止性证明；`ValidateJson`
+  返回 `one of { JsonValid, JsonInvalid }`，parser 的递归 `JsonValue` 留到 L2 评估；新增 JSON 库 prompt asset
+  草案。
 - 2026-06-04 — 建立 v2 进度跟踪文档。v2 定位为围绕 JSON 三方库的端到端阶段：先补 `Text` 与 `while`
   前置语言扩展，再实现纯 Sophia JSON validator/parser，最后接入 `Http` + JSON agent-like 示例。

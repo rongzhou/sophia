@@ -278,6 +278,12 @@ fn collect_stmt_callees(stmt: &Stmt, ast: &Ast, out: &mut Vec<String>) {
             collect_expr_callees(*count, ast, out);
             collect_callees(body, ast, out);
         }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            collect_expr_callees(*condition, ast, out);
+            collect_callees(body, ast, out);
+        }
     }
 }
 

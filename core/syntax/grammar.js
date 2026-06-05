@@ -313,6 +313,7 @@ module.exports = grammar({
       $.if_stmt,
       $.match_stmt,
       $.repeat_stmt,
+      $.while_stmt,
       $.print_stmt,
       $.expression_stmt,
     ),
@@ -377,6 +378,12 @@ module.exports = grammar({
       'repeat',
       field('count', $._no_struct_expr),
       'times',
+      field('body', $.block),
+    ),
+
+    while_stmt: $ => seq(
+      'while',
+      field('condition', $._no_struct_expr),
       field('body', $.block),
     ),
 

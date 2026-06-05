@@ -34,6 +34,7 @@ use thiserror::Error;
 use crate::implement_loop::{run_implement_loop, CodeChecker, ImplementLoopConfig};
 use crate::loop_steps::{design_solution, revise_design, LibrarySelectionPolicy, LoopStepOutcome};
 use crate::prompts::{GoalProgress, StepPrompts};
+use crate::pseudocode_check::record_pseudocode_check;
 use crate::step::{run_llm_step, step_schema, LlmStepError, LlmStepOutcome};
 use crate::ImplementLoopOutcome;
 
@@ -341,6 +342,18 @@ where
     {
         LoopStepOutcome::Succeeded(art) => {
             *pseudo_versions += 1;
+            let (diag, ok) = record_pseudocode_check(
+                store,
+                art.node,
+                "pseudo_check:design_solution",
+                &art.text,
+            )?;
+            if !ok {
+                return Ok(Dispatch::Done(Outcome::BudgetExhausted {
+                    reason: format!("伪代码格式检查失败，诊断 {diag}"),
+                    decisions,
+                }));
+            }
             Ok(Dispatch::DesignedPseudocode {
                 node: art.node,
                 text: art.text,
@@ -462,6 +475,14 @@ where
     {
         LoopStepOutcome::Succeeded(art) => {
             *pseudo_versions += 1;
+            let (diag, ok) =
+                record_pseudocode_check(store, art.node, "pseudo_check:revise_design", &art.text)?;
+            if !ok {
+                return Ok(Dispatch::Done(Outcome::BudgetExhausted {
+                    reason: format!("伪代码格式检查失败，诊断 {diag}"),
+                    decisions,
+                }));
+            }
             Ok(Dispatch::DesignedPseudocode {
                 node: art.node,
                 text: art.text,

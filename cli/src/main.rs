@@ -207,6 +207,34 @@ enum GraphCmd {
         backend: BackendArgs,
     },
 
+    /// 由 LLM DecisionNode 驱动目标推进；可让位/执行 decompose，而非固定流程。
+    Drive {
+        /// 目标域节点 ID（须为 Objective | Milestone）。
+        node: String,
+        /// 最大 decision 轮数。
+        #[arg(long, default_value = "6")]
+        max_decisions: u32,
+        /// 最大修复次数（传给 implement-loop）。
+        #[arg(long, default_value = "2")]
+        max_repairs: u32,
+        /// 单目标最大伪代码版本数。
+        #[arg(long, default_value = "3")]
+        max_pseudocode_versions: u32,
+        /// decompose 嵌套深度上限。
+        #[arg(long, default_value = "3")]
+        max_depth: u32,
+        /// 目标树遍历的目标总数上限。
+        #[arg(long, default_value = "16")]
+        max_goals: u32,
+        /// 自动接受 LLM 产生的拆解（调用方代表人类授权）；不设置则拆解会被拒绝。
+        #[arg(long)]
+        auto_accept_decompositions: bool,
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+        #[command(flatten)]
+        backend: BackendArgs,
+    },
+
     /// 选中一个通过 gate 的候选 CodeNode（建 SelectionNode）。
     Select {
         /// 候选 Code 节点 ID。
@@ -242,6 +270,9 @@ struct BackendArgs {
     /// API key（OpenAI 兼容用；也可经 `SOPHIA_LLM_API_KEY` 环境变量提供）。
     #[arg(long)]
     api_key: Option<String>,
+    /// 单次 LLM 调用墙钟上限秒数；0 表示关闭。也可用 `SOPHIA_LLM_CALL_TIMEOUT_SECS`。
+    #[arg(long)]
+    call_timeout_secs: Option<u64>,
 }
 
 fn main() -> ExitCode {
@@ -289,6 +320,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 &backend.mode,
                 backend.base_url.as_deref(),
                 backend.api_key.as_deref(),
+                backend.call_timeout_secs,
             ),
             Some(GraphCmd::ImplementLoop {
                 node,
@@ -305,6 +337,32 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 &backend.mode,
                 backend.base_url.as_deref(),
                 backend.api_key.as_deref(),
+                backend.call_timeout_secs,
+            ),
+            Some(GraphCmd::Drive {
+                node,
+                max_decisions,
+                max_repairs,
+                max_pseudocode_versions,
+                max_depth,
+                max_goals,
+                auto_accept_decompositions,
+                root,
+                backend,
+            }) => graph_cmd::drive(
+                &root,
+                &node,
+                max_decisions,
+                max_repairs,
+                max_pseudocode_versions,
+                max_depth,
+                max_goals,
+                auto_accept_decompositions,
+                &backend.model,
+                &backend.mode,
+                backend.base_url.as_deref(),
+                backend.api_key.as_deref(),
+                backend.call_timeout_secs,
             ),
             Some(GraphCmd::Select {
                 node,

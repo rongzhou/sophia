@@ -9,7 +9,7 @@ use common::{library_policy, seed_objective, MockClient, StaticPrompts};
 use serde_json::json;
 use sophia_engine::{run_goal_loop, ImplementLoopConfig, Outcome, SchedulerBudget, SchedulerError};
 use sophia_graph_db::{
-    DecisionAction, DiagnosticKind, DiagnosticPayload, EdgeKind, GraphStore, NodeRole,
+    DecisionAction, DiagnosticKind, DiagnosticPayload, EdgeKind, GraphStore, NodePayload, NodeRole,
 };
 use sophia_llm::LlmError;
 
@@ -32,6 +32,28 @@ fn decide(action: &str) -> String {
 }
 
 fn design_out() -> String {
+    json!({
+        "purpose": "complete",
+        "pseudocode": "\
+<!-- sophia-pseudo: v1 -->
+# Purpose
+complete
+# Inputs
+none
+# Outputs
+done
+# Algorithm
+do the work
+# Constraints
+none
+# Forbidden
+none
+"
+    })
+    .to_string()
+}
+
+fn invalid_design_out() -> String {
     json!({ "purpose": "complete", "pseudocode": "# Purpose\n..." }).to_string()
 }
 
@@ -104,6 +126,38 @@ async fn design_then_implement_yields_candidate() {
         other => panic!("应产出候选，实际 {other:?}"),
     }
     store.validate_i6().unwrap();
+}
+
+#[tokio::test]
+async fn invalid_pseudocode_envelope_is_diagnosed() {
+    let mut store = GraphStore::open_in_memory().unwrap();
+    let obj = seed_objective(&mut store);
+
+    let client = MockClient::new(vec![
+        Ok(decide("design_solution")),
+        Ok(invalid_design_out()),
+    ]);
+
+    let outcome = run_goal_loop(
+        &mut store,
+        &client,
+        &StaticPrompts,
+        &SchedulerBudget::default(),
+        &library_policy(),
+        obj,
+        |_f: &[(String, String)]| ok_check(),
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(outcome, Outcome::BudgetExhausted { .. }));
+    assert!(store.nodes().any(|n| {
+        n.meta.role == NodeRole::Diagnostic
+            && matches!(
+                &n.payload,
+                NodePayload::Diagnostic(p) if p.kind == DiagnosticKind::PseudoCheck && !p.ok
+            )
+    }));
 }
 
 #[tokio::test]

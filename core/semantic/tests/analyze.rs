@@ -90,6 +90,119 @@ fn has(diags: &[K], kind: K) -> bool {
 }
 
 #[test]
+fn text_parser_methods_typecheck() {
+    let src = (
+        "D",
+        "domains/D/actions/TextOps.sophia",
+        r#"action TextOps {
+  input { text: Text; prefix: Text }
+  output { ok: Bool }
+  effects { Pure }
+  body {
+    let ch = text.char_at(1)
+    let piece = text.slice(0, 2)
+    return (ch + piece).starts_with(prefix)
+  }
+}"#,
+    );
+    let parsed = parse_all(&[src]);
+    let diags = analyze(&parsed);
+    assert!(
+        diags.is_empty(),
+        "Text parser methods should typecheck: {diags:?}"
+    );
+}
+
+#[test]
+fn text_parser_methods_reject_bad_arguments() {
+    let src = (
+        "D",
+        "domains/D/actions/BadTextOps.sophia",
+        r#"action BadTextOps {
+  input { text: Text }
+  output { out: Text }
+  effects { Pure }
+  body {
+    let a = text.char_at("x")
+    let b = text.slice(0)
+    let c = text.starts_with(1)
+    return a + b
+  }
+}"#,
+    );
+    let parsed = parse_all(&[src]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "bad Text method args should be rejected: {diags:?}"
+    );
+}
+
+#[test]
+fn text_parser_methods_reject_bad_receiver() {
+    let src = (
+        "D",
+        "domains/D/actions/BadTextReceiver.sophia",
+        r#"action BadTextReceiver {
+  input { n: Int }
+  output { out: Text }
+  effects { Pure }
+  body { return n.char_at(0) }
+}"#,
+    );
+    let parsed = parse_all(&[src]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "Text parser methods should reject non-Text receiver: {diags:?}"
+    );
+}
+
+#[test]
+fn ordering_comparison_requires_int_operands() {
+    let src = (
+        "D",
+        "domains/D/actions/BadTextCompare.sophia",
+        r#"action BadTextCompare {
+  input { text: Text }
+  output { ok: Bool }
+  body { return text.slice(0, 1) >= "0" }
+}"#,
+    );
+    let parsed = parse_all(&[src]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "ordering comparisons should reject Text operands before runtime: {diags:?}"
+    );
+}
+
+#[test]
+fn while_condition_must_be_bool() {
+    let src = (
+        "D",
+        "domains/D/actions/BadWhile.sophia",
+        r#"action BadWhile {
+  input { n: Int }
+  output { out: Int }
+  effects { Pure }
+  body {
+    while n {
+      return n
+    }
+    return 0
+  }
+}"#,
+    );
+    let parsed = parse_all(&[src]);
+    let diags = analyze(&parsed);
+    assert!(
+        has(&diags, K::TypeMismatch),
+        "while 条件必须拒绝非 Bool：{diags:?}"
+    );
+}
+
+#[test]
 fn ensures_output_record_access_is_clean() {
     // ensures 用 `output.<param>.<field>`（设计第五节示例形式），不应误报 NoSuchField。
     let state = (

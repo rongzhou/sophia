@@ -1,0 +1,41 @@
+action JsonParseString {
+  input { text: Raw<Text>; position: Int }
+  output { result: one of { JsonParseOk, JsonInvalid } }
+  effects { Pure }
+  body {
+    if position >= text.length {
+      return JsonInvalid { reason = "expected string", position = position }
+    }
+    if text.char_at(position) != "\"" {
+      return JsonInvalid { reason = "expected string", position = position }
+    }
+    let mutable cursor = position + 1
+    while cursor < text.length {
+      let ch = text.char_at(cursor)
+      if ch == "\"" {
+        return JsonParseOk { position = cursor + 1 }
+      } else {
+        if ch == "\\" {
+          let escaped = cursor + 1
+          if escaped >= text.length {
+            return JsonInvalid { reason = "unclosed escape", position = cursor }
+          } else {
+            let esc = text.char_at(escaped)
+            if JsonIsEscape(esc) {
+              set cursor = escaped + 1
+            } else {
+              return JsonInvalid { reason = "illegal escape", position = escaped }
+            }
+          }
+        } else {
+          if ch == "\n" or ch == "\r" or ch == "\t" {
+            return JsonInvalid { reason = "control character in string", position = cursor }
+          } else {
+            set cursor = cursor + 1
+          }
+        }
+      }
+    }
+    return JsonInvalid { reason = "unclosed string", position = cursor }
+  }
+}

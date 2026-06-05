@@ -23,6 +23,26 @@ fn write_file(root: &std::path::Path, rel: &str, content: &str) {
     std::fs::write(path, content).unwrap();
 }
 
+fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for entry in std::fs::read_dir(src).unwrap() {
+        let entry = entry.unwrap();
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).unwrap();
+        }
+    }
+}
+
+fn copy_json_library_fixture(root: &std::path::Path) {
+    let src =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../stdlib/tests/fixtures/sophia_libs/json");
+    copy_dir(&src, &root.join("sophia_libs/json"));
+}
+
 #[test]
 fn init_creates_skeleton() {
     let dir = temp_project("init");
@@ -759,6 +779,89 @@ asset = "math_sophia.md"
     assert!(wasm.exists(), "应产出 program.wasm");
     let bytes = std::fs::read(&wasm).unwrap();
     assert_eq!(&bytes[0..4], b"\0asm", "应是合法 WASM 魔数");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn json_library_check_run_and_wasm_backend() {
+    let dir = temp_project("json_lib");
+    sophia().args(["init"]).arg(&dir).status().unwrap();
+    copy_json_library_fixture(&dir);
+    write_file(
+        &dir,
+        "domains/App/actions/CheckJson.sophia",
+        r#"action CheckJson {
+  input { text: Raw<Text> }
+  output { result: one of { JsonValid, JsonInvalid } }
+  body { return ValidateJson(text) }
+}"#,
+    );
+
+    let check = sophia().arg("check").arg(&dir).output().unwrap();
+    assert!(
+        check.status.success(),
+        "check 应并入 json 三方库源码，stderr={}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let valid = sophia()
+        .args(["run", "CheckJson", "--root"])
+        .arg(&dir)
+        .args(["--arg", "text:{\"ok\":true}"])
+        .output()
+        .unwrap();
+    assert!(
+        valid.status.success(),
+        "interpreter run 应通过，stderr={}",
+        String::from_utf8_lossy(&valid.stderr)
+    );
+    let valid_stdout = String::from_utf8_lossy(&valid.stdout);
+    assert!(
+        valid_stdout.contains("JsonValid"),
+        "合法 JSON 应返回 JsonValid：{valid_stdout}"
+    );
+
+    let invalid = sophia()
+        .args(["run", "CheckJson", "--root"])
+        .arg(&dir)
+        .args(["--arg", "text:{\"ok\":true} trailing"])
+        .output()
+        .unwrap();
+    assert!(
+        invalid.status.success(),
+        "非法 JSON 是普通返回值，不应使 run 失败，stderr={}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+    let invalid_stdout = String::from_utf8_lossy(&invalid.stdout);
+    assert!(
+        invalid_stdout.contains("JsonInvalid"),
+        "尾随垃圾应返回 JsonInvalid：{invalid_stdout}"
+    );
+
+    let build = sophia().arg("build").arg(&dir).output().unwrap();
+    assert!(
+        build.status.success(),
+        "build 应支持 json 三方库源码，stderr={}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    let wasm = sophia()
+        .args(["run", "CheckJson", "--root"])
+        .arg(&dir)
+        .args(["--arg", "text:[1,2,3]", "--backend", "wasm"])
+        .output()
+        .unwrap();
+    assert!(
+        wasm.status.success(),
+        "wasm run 应支持 json validator，stderr={}",
+        String::from_utf8_lossy(&wasm.stderr)
+    );
+    let wasm_stdout = String::from_utf8_lossy(&wasm.stdout);
+    assert!(
+        wasm_stdout.contains("JsonValid"),
+        "WASM 合法 JSON 应返回 JsonValid：{wasm_stdout}"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

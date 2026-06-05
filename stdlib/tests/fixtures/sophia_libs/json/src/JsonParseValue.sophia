@@ -1,0 +1,42 @@
+action JsonParseValue {
+  input { text: Raw<Text>; position: Int }
+  output { result: one of { JsonParseOk, JsonInvalid } }
+  effects { Pure }
+  body {
+    let cursor = JsonSkipWhitespace(text, position)
+    if cursor >= text.length {
+      return JsonInvalid { reason = "expected value", position = cursor }
+    } else {
+      let ch = text.char_at(cursor)
+      if ch == "{" {
+        return JsonParseObject(text, cursor)
+      } else {
+        if ch == "[" {
+          return JsonParseArray(text, cursor)
+        } else {
+          if ch == "\"" {
+            return JsonParseString(text, cursor)
+          } else {
+            if ch == "-" or JsonIsDigit(ch) {
+              return JsonParseInt(text, cursor)
+            } else {
+              if text.slice(cursor, 4) == "true" {
+                return JsonParseOk { position = cursor + 4 }
+              } else {
+                if text.slice(cursor, 5) == "false" {
+                  return JsonParseOk { position = cursor + 5 }
+                } else {
+                  if text.slice(cursor, 4) == "null" {
+                    return JsonParseOk { position = cursor + 4 }
+                  } else {
+                    return JsonInvalid { reason = "unexpected token", position = cursor }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

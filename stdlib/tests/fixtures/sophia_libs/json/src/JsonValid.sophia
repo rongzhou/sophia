@@ -1,0 +1,5 @@
+entity JsonValid {
+  fields {
+    position { type: Int }
+  }
+}

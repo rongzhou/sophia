@@ -4,7 +4,11 @@
   "required": ["purpose", "pseudocode"],
   "properties": {
     "purpose": { "type": "string", "minLength": 1 },
-    "pseudocode": { "type": "string", "minLength": 1 },
+    "pseudocode": {
+      "type": "string",
+      "minLength": 1,
+      "description": "完整 .pseudo 正文。必须包含独立行：<!-- sophia-pseudo: v1 -->、# Purpose、# Inputs、# Outputs、# Algorithm、# Constraints、# Forbidden。"
+    },
     "libraries": {
       "type": "array",
       "items": { "type": "string" },

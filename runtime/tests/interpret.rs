@@ -181,6 +181,57 @@ fn arithmetic_and_return() {
 }
 
 #[test]
+fn text_parser_primitives_follow_scalar_index_semantics() {
+    let prog = Program::new(&[r#"action Probe {
+  input { text: Text }
+  output { out: Text }
+  effects { Pure }
+  body {
+    return text.char_at(1) + "|" + text.char_at(-1) + "|" + text.char_at(99) + "|" + text.slice(1, 2) + "|" + text.slice(-2, 2) + "|" + text.slice(2, 99)
+  }
+}"#]);
+    let model = prog.analyze();
+    let (outcome, _) = run_action(
+        &model,
+        &prog.refs(),
+        "Probe",
+        vec![Value::Text("aé日b".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        Outcome::Returned(Value::Text("é|||é日|aé|日b".into()))
+    );
+}
+
+#[test]
+fn text_starts_with_returns_bool() {
+    let prog = Program::new(&[r#"action HasPrefix {
+  input { text: Text; prefix: Text }
+  output { ok: Bool }
+  effects { Pure }
+  body { return text.starts_with(prefix) }
+}"#]);
+    let model = prog.analyze();
+    let (yes, _) = run_action(
+        &model,
+        &prog.refs(),
+        "HasPrefix",
+        vec![Value::Text("json".into()), Value::Text("js".into())],
+    )
+    .unwrap();
+    let (empty, _) = run_action(
+        &model,
+        &prog.refs(),
+        "HasPrefix",
+        vec![Value::Text("json".into()), Value::Text("".into())],
+    )
+    .unwrap();
+    assert_eq!(yes, Outcome::Returned(Value::Bool(true)));
+    assert_eq!(empty, Outcome::Returned(Value::Bool(true)));
+}
+
+#[test]
 fn unary_negation() {
     // 一元算术取负 `-expr`（起步子集算术原语）：对负的差取负即绝对值的一支。
     let prog = Program::new(&[r#"action NegAbs {
@@ -238,6 +289,102 @@ fn repeat_accumulates() {
     let model = prog.analyze();
     let (outcome, _) = run_action(&model, &prog.refs(), "Sum", vec![Value::Int(5)]).unwrap();
     assert_eq!(outcome, Outcome::Returned(Value::Int(15)));
+}
+
+#[test]
+fn while_loop_runs_zero_and_many_times() {
+    let prog = Program::new(&[r#"action SumTo {
+  input { n: Int }
+  output { total: Int }
+  body {
+    let mutable i = 0
+    let mutable acc = 0
+    while i < n {
+      set i = i + 1
+      set acc = acc + i
+    }
+    return acc
+  }
+}"#]);
+    let model = prog.analyze();
+    let refs = prog.refs();
+    let (zero, _) = run_action(&model, &refs, "SumTo", vec![Value::Int(0)]).unwrap();
+    let (many, _) = run_action(&model, &refs, "SumTo", vec![Value::Int(5)]).unwrap();
+    assert_eq!(zero, Outcome::Returned(Value::Int(0)));
+    assert_eq!(many, Outcome::Returned(Value::Int(15)));
+}
+
+#[test]
+fn while_loop_supports_state_condition_and_nested_body() {
+    let prog = Program::new(&[r#"action Nested {
+  input { outer: Int; inner: Int }
+  output { total: Int }
+  body {
+    let mutable total = 0
+    let mutable i = 0
+    let mutable keep = true
+    while keep {
+      let mutable j = 0
+      while j < inner {
+        set total = total + 1
+        set j = j + 1
+      }
+      set i = i + 1
+      if i >= outer { set keep = false } else { set keep = true }
+    }
+    return total
+  }
+}"#]);
+    let model = prog.analyze();
+    let refs = prog.refs();
+    let (outcome, _) =
+        run_action(&model, &refs, "Nested", vec![Value::Int(3), Value::Int(2)]).unwrap();
+    assert_eq!(outcome, Outcome::Returned(Value::Int(6)));
+}
+
+#[test]
+fn while_loop_propagates_return_and_raise() {
+    let prog = Program::new(&[
+        "error E { variant Stop { value: Int } }",
+        r#"action StopOrReturn {
+  input { limit: Int; cap: Int }
+  output { y: Int }
+  errors { Stop }
+  body {
+    let mutable i = 0
+    while i < limit {
+      set i = i + 1
+      if i > cap { raise Stop { value = i } }
+      if i == cap { return i }
+    }
+    return i
+  }
+}"#,
+    ]);
+    let model = prog.analyze();
+    let refs = prog.refs();
+    let (returned, _) = run_action(
+        &model,
+        &refs,
+        "StopOrReturn",
+        vec![Value::Int(5), Value::Int(3)],
+    )
+    .unwrap();
+    assert_eq!(returned, Outcome::Returned(Value::Int(3)));
+    let (raised, _) = run_action(
+        &model,
+        &refs,
+        "StopOrReturn",
+        vec![Value::Int(2), Value::Int(0)],
+    )
+    .unwrap();
+    match raised {
+        Outcome::Raised(e) => {
+            assert_eq!(e.variant, "Stop");
+            assert_eq!(e.fields.get("value"), Some(&Value::Int(1)));
+        }
+        other => panic!("期望 raise，得到 {other:?}"),
+    }
 }
 
 #[test]

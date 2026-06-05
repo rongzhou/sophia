@@ -21,10 +21,16 @@ BEGIN DATA constraints_json
 END DATA constraints_json
 
 题面、验收和约束中给出的公开名称必须逐字保留；失败形态按语法基线区分 `raise` 与 `one of` 返回结局。
+若题面要求验证输入并 report / describe / diagnose 失败位置、原因、状态或错误说明，失败是普通返回结果，
+不要用 `raise` 表达 invalid input。
 
 ## 输出要求
 只输出严格符合 `implement_result` schema 的 JSON：
 `files` 是候选 `.sophia` 文件集合，每项包含 `path` 与 `content`；
 可选 `changes` 是实现要点列表。
 每个顶层 node 一个文件，遵循 domain-first 布局。
+优先输出能在本轮通过确定性检查的最小完整候选；不要输出解释性正文、Markdown、测试日志或超出 schema 的字段。
+如果设计较大，只实现当前伪代码明确要求的公开节点和直接依赖的 helper；避免一次性展开无关扩展。
+只使用 system 语法基线明确列出的语句与表达式形态；不要发明 if 表达式、尾随 `end`、局部变量类型标注、
+省略 `set` 的赋值语句，或其它未列出的语法。
 不得引入未声明的 effect / capability / error。

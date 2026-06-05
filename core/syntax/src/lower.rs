@@ -894,6 +894,19 @@ fn lower_stmt(node: Node, source: &str, ast: &mut Ast) -> Option<Stmt> {
                 span: span(node),
             })
         }
+        "while_stmt" => {
+            let condition = node
+                .child_by_field_name("condition")
+                .and_then(|c| lower_expr(c, source, ast))?;
+            let body = node
+                .child_by_field_name("body")
+                .map(|b| lower_block(b, source, ast))?;
+            Some(Stmt::While {
+                condition,
+                body,
+                span: span(node),
+            })
+        }
         "expression_stmt" => {
             let inner = first_named_child(node)?;
             let value = lower_expr(inner, source, ast)?;

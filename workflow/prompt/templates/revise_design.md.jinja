@@ -30,6 +30,11 @@ BEGIN DATA stdlib_catalog_json
 END DATA stdlib_catalog_json
 
 ## 输出要求
-输出修订后的、包含六个固定 heading 的 `.pseudo`（首行 `<!-- sophia-pseudo: v1 -->`）。
+结构化输出中的 `pseudocode` 字符串必须使用稳定 `.pseudo` envelope，且必须字面包含这些独立行：
+`<!-- sophia-pseudo: v1 -->`、`# Purpose`、`# Inputs`、`# Outputs`、`# Algorithm`、`# Constraints`、`# Forbidden`。
 聚焦修正概念问题，不要退化为局部修补。
+只能用业务语言描述算法、输入含义、输出含义、关键业务规则和禁止事项；
+不得出现任何后续实现形式的语法片段、声明块、类型签名或文件名。
+不得发明目标、约束、验收条件或上下文中没有给出的公开输入、公开输出、状态字段、格式特性或外部能力；
+若某项能力没有明确要求或当前语言 / 库上下文不支持，应放入 `# Constraints` 或 `# Forbidden`，不要把它写成待实现步骤。
 若修订后方案要用到上面列出的标准库，在 `libraries` 字段列出所选库名（不用则空数组）。

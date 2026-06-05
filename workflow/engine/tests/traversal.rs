@@ -47,7 +47,11 @@ fn decompose_out(n: usize) -> String {
 }
 
 fn design_out() -> String {
-    json!({ "purpose": "complete", "pseudocode": "# Purpose\n..." }).to_string()
+    json!({
+        "purpose": "complete",
+        "pseudocode": "<!-- sophia-pseudo: v1 -->\n# Purpose\nDescribe the intended behavior.\n# Inputs\nList the inputs.\n# Outputs\nList the outputs.\n# Algorithm\nDescribe the steps without source code.\n# Constraints\nState relevant limits.\n# Forbidden\nState what must not be used."
+    })
+    .to_string()
 }
 
 fn impl_out() -> String {

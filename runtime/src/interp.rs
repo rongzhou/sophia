@@ -327,6 +327,17 @@ impl<'a> Interpreter<'a> {
                 }
                 Ok(Signal::Next)
             }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                while self.eval(*condition, env)?.as_bool().unwrap_or(false) {
+                    match self.exec_block(body, env)? {
+                        Signal::Next => {}
+                        term => return Ok(term),
+                    }
+                }
+                Ok(Signal::Next)
+            }
         }
     }
 
@@ -451,7 +462,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// 方法调用（起步子集：`list.append(item)`）。
+    /// 方法调用（Text parser 原语 + `list.append(item)`）。
     fn eval_method(
         &self,
         base: Value,
@@ -459,6 +470,18 @@ impl<'a> Interpreter<'a> {
         args: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
         match (base, method) {
+            (Value::Text(text), "char_at") => {
+                let idx = one_int_arg(method, &args)?;
+                Ok(Value::Text(text_char_at(&text, idx)))
+            }
+            (Value::Text(text), "slice") => {
+                let (start, len) = two_int_args(method, &args)?;
+                Ok(Value::Text(text_slice(&text, start, len)))
+            }
+            (Value::Text(text), "starts_with") => {
+                let prefix = one_text_arg(method, &args)?;
+                Ok(Value::Bool(text.starts_with(prefix)))
+            }
             (Value::List(mut items), "append") => {
                 if let Some(item) = args.into_iter().next() {
                     items.push(item);
@@ -656,6 +679,59 @@ fn int2(l: &Value, r: &Value, op: &str) -> Result<(i64, i64), RuntimeError> {
         (Some(a), Some(b)) => Ok((a, b)),
         _ => Err(RuntimeError::Validation(format!("`{op}` 需要 Int 操作数"))),
     }
+}
+
+fn one_int_arg(method: &str, args: &[Value]) -> Result<i64, RuntimeError> {
+    match args {
+        [Value::Int(i)] => Ok(*i),
+        [_] => Err(RuntimeError::Validation(format!("`{method}` 参数需要 Int"))),
+        _ => Err(RuntimeError::Validation(format!(
+            "`{method}` 期望 1 个参数，实际 {} 个",
+            args.len()
+        ))),
+    }
+}
+
+fn two_int_args(method: &str, args: &[Value]) -> Result<(i64, i64), RuntimeError> {
+    match args {
+        [Value::Int(a), Value::Int(b)] => Ok((*a, *b)),
+        [_, _] => Err(RuntimeError::Validation(format!("`{method}` 参数需要 Int"))),
+        _ => Err(RuntimeError::Validation(format!(
+            "`{method}` 期望 2 个参数，实际 {} 个",
+            args.len()
+        ))),
+    }
+}
+
+fn one_text_arg<'a>(method: &str, args: &'a [Value]) -> Result<&'a str, RuntimeError> {
+    match args {
+        [Value::Text(s)] => Ok(s),
+        [_] => Err(RuntimeError::Validation(format!(
+            "`{method}` 参数需要 Text"
+        ))),
+        _ => Err(RuntimeError::Validation(format!(
+            "`{method}` 期望 1 个参数，实际 {} 个",
+            args.len()
+        ))),
+    }
+}
+
+fn text_char_at(text: &str, index: i64) -> String {
+    if index < 0 {
+        return String::new();
+    }
+    text.chars()
+        .nth(index as usize)
+        .map(|ch| ch.to_string())
+        .unwrap_or_default()
+}
+
+fn text_slice(text: &str, start: i64, length: i64) -> String {
+    if length <= 0 {
+        return String::new();
+    }
+    let start = start.max(0) as usize;
+    text.chars().skip(start).take(length as usize).collect()
 }
 
 /// 值相等（结构相等）。

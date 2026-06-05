@@ -16,6 +16,7 @@ mod code_check;
 mod implement_loop;
 mod loop_steps;
 mod prompts;
+mod pseudocode_check;
 mod scheduler;
 mod select_materialize;
 mod step;
@@ -30,6 +31,7 @@ pub use loop_steps::{
     DecompositionArtifact, LibrarySelectionPolicy, LoopError, LoopStepOutcome, PseudocodeArtifact,
 };
 pub use prompts::{GoalProgress, StepPrompts};
+pub use pseudocode_check::{pseudocode_check, record_pseudocode_check};
 pub use scheduler::{run_goal_loop, Outcome, SchedulerBudget, SchedulerError};
 pub use select_materialize::{
     run_materialization, run_ranked_selection, run_selection, run_selection_materialize,

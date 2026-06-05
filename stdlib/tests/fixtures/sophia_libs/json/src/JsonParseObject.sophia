@@ -1,0 +1,52 @@
+action JsonParseObject {
+  input { text: Raw<Text>; position: Int }
+  output { result: one of { JsonParseOk, JsonInvalid } }
+  effects { Pure }
+  body {
+    let mutable cursor = JsonSkipWhitespace(text, position + 1)
+    if cursor < text.length {
+      if text.char_at(cursor) == "}" {
+        return JsonParseOk { position = cursor + 1 }
+      }
+    }
+    while cursor < text.length {
+      let key = JsonParseString(text, cursor)
+      match key {
+        JsonParseOk key_ok => {
+          set cursor = JsonSkipWhitespace(text, key_ok.position)
+          if cursor >= text.length {
+            return JsonInvalid { reason = "expected colon", position = cursor }
+          } else {
+            if text.char_at(cursor) != ":" {
+              return JsonInvalid { reason = "expected colon", position = cursor }
+            }
+          }
+          set cursor = JsonSkipWhitespace(text, cursor + 1)
+          let value = JsonParseValue(text, cursor)
+          match value {
+            JsonParseOk value_ok => {
+              set cursor = JsonSkipWhitespace(text, value_ok.position)
+              if cursor >= text.length {
+                return JsonInvalid { reason = "expected object separator", position = cursor }
+              } else {
+                let sep = text.char_at(cursor)
+                if sep == "}" {
+                  return JsonParseOk { position = cursor + 1 }
+                } else {
+                  if sep == "," {
+                    set cursor = JsonSkipWhitespace(text, cursor + 1)
+                  } else {
+                    return JsonInvalid { reason = "expected object separator", position = cursor }
+                  }
+                }
+              }
+            }
+            JsonInvalid value_bad => return value_bad
+          }
+        }
+        JsonInvalid key_bad => return key_bad
+      }
+    }
+    return JsonInvalid { reason = "unclosed object", position = cursor }
+  }
+}

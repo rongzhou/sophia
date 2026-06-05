@@ -1,0 +1,8 @@
+action JsonIsEscape {
+  input { ch: Text }
+  output { ok: Bool }
+  effects { Pure }
+  body {
+    return ch == "\"" or ch == "\\" or ch == "/" or ch == "b" or ch == "f" or ch == "n" or ch == "r" or ch == "t"
+  }
+}

@@ -392,6 +392,15 @@ impl<'a> TypeChecker<'a> {
                 self.check_block(body, scope, effects, decl);
                 Flow::Fallthrough
             }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                let t = self.infer(*condition, scope, effects);
+                self.expect_bool(*condition, &t, "while 条件");
+                // 不证明终止，且 body 可能 0 次执行，故视为可继续。
+                self.check_block(body, scope, effects, decl);
+                Flow::Fallthrough
+            }
         }
     }
 
@@ -468,7 +477,10 @@ impl<'a> TypeChecker<'a> {
                 self.field_ty(&bt, &field.text, *span)
             }
             Expr::MethodCall {
-                base, method, args, ..
+                base,
+                method,
+                args,
+                span,
             } => {
                 // body 级库 I/O 调用：`Lib.Op(args)`（特殊根 method_call，base 形如 `Ident("File")`
                 // / `Ident("Http")` / 三方库 family）。经库注册表（`index.library_op`）表驱动特判：
@@ -477,10 +489,7 @@ impl<'a> TypeChecker<'a> {
                     return ty;
                 }
                 let bt = self.infer(*base, scope, effects);
-                for &a in args {
-                    self.infer(a, scope, effects);
-                }
-                self.method_ty(&bt, &method.text)
+                self.method_ty(&bt, &method.text, args, *span, scope, effects)
             }
             Expr::Call { callee, args, span } => {
                 self.infer_call(callee, args, *span, scope, effects)
@@ -589,7 +598,12 @@ impl<'a> TypeChecker<'a> {
                 self.expect_bool(right, &rt, "布尔运算右操作数");
                 Ty::Bool
             }
-            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => Ty::Bool,
+            BinOp::Eq | BinOp::Ne => Ty::Bool,
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                self.expect_int(left, &lt, "比较左操作数");
+                self.expect_int(right, &rt, "比较右操作数");
+                Ty::Bool
+            }
             BinOp::Add => {
                 // Int+Int -> Int；Text+Text -> Text（保留 intent）；List + [item] -> List。
                 self.infer_add(&lt, &rt, span)
@@ -670,13 +684,74 @@ impl<'a> TypeChecker<'a> {
         Ty::Unknown
     }
 
-    /// 方法调用结果类型（起步子集仅 `list.append(item) -> List`）。
+    /// 方法调用结果类型。
     ///
     /// body 级标准库 I/O 操作（`File.Read` / `Http.Get`）由 [`Self::infer_effect_op`] 单独处理；
     /// 其它方法返回 `Unknown` 渐进恢复。
-    fn method_ty(&mut self, base: &Ty, method: &str) -> Ty {
+    fn method_ty(
+        &mut self,
+        base: &Ty,
+        method: &str,
+        args: &[ExprId],
+        span: sophia_syntax::Span,
+        scope: &mut TypeScope,
+        effects: &mut EffectSet,
+    ) -> Ty {
         match base.strip_intent() {
-            Ty::List(elem) if method == "append" => Ty::List(elem.clone()),
+            Ty::Text if method == "char_at" => {
+                self.check_call_arity("Text.char_at", 1, args.len(), span);
+                for &a in args {
+                    let t = self.infer(a, scope, effects);
+                    self.expect_int(a, &t, "char_at 参数");
+                }
+                Ty::Text
+            }
+            Ty::Text if method == "slice" => {
+                self.check_call_arity("Text.slice", 2, args.len(), span);
+                for &a in args {
+                    let t = self.infer(a, scope, effects);
+                    self.expect_int(a, &t, "slice 参数");
+                }
+                Ty::Text
+            }
+            Ty::Text if method == "starts_with" => {
+                self.check_call_arity("Text.starts_with", 1, args.len(), span);
+                for &a in args {
+                    let t = self.infer(a, scope, effects);
+                    self.check_assignable(a, &t, &Ty::Text, "starts_with 参数");
+                }
+                Ty::Bool
+            }
+            Ty::List(elem) if method == "append" => {
+                for &a in args {
+                    self.infer(a, scope, effects);
+                }
+                Ty::List(elem.clone())
+            }
+            Ty::Text => {
+                for &a in args {
+                    self.infer(a, scope, effects);
+                }
+                self.diags.push(SemanticDiagnostic::new(
+                    K::NoSuchField,
+                    span,
+                    format!("Text 不支持方法 `{method}`"),
+                ));
+                Ty::Error
+            }
+            other if is_text_parser_method(method) => {
+                for &a in args {
+                    self.infer(a, scope, effects);
+                }
+                if !other.is_gradual() {
+                    self.diags.push(SemanticDiagnostic::new(
+                        K::TypeMismatch,
+                        span,
+                        format!("Text.{method} receiver 需要 Text，实际 {base}"),
+                    ));
+                }
+                Ty::Error
+            }
             _ => Ty::Unknown,
         }
     }
@@ -1024,6 +1099,10 @@ fn type_name_matches(name: &str, m: &Ty) -> bool {
         Ty::Entity(n) | Ty::State(n) => name == n,
         _ => false,
     }
+}
+
+fn is_text_parser_method(method: &str) -> bool {
+    matches!(method, "char_at" | "slice" | "starts_with")
 }
 
 /// 拆出最外层 intent：返回 (inner 类型, intent 种类)。

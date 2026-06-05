@@ -1,0 +1,6 @@
+entity JsonInvalid {
+  fields {
+    reason { type: Text }
+    position { type: Int }
+  }
+}

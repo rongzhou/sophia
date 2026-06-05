@@ -3,7 +3,7 @@
 //! 见 docs/engineering_architecture.md 7.1–7.3。后端只实现自由文本 `complete`
 //! （单一路线）；结构化输出的重试 + schema 验证由 [`crate::complete_structured`]
 //! 在其上统一处理。两种模式共享同一请求形状（system + user 两条 message），并都用
-//! streaming 响应，避免把“整段生成耗时”误当成请求超时；仅 endpoint / 流格式不同。
+//! streaming 响应，读取空闲超时与单次调用墙钟上限分开处理；仅 endpoint / 流格式不同。
 //!
 //! 后端不可用（网络错误 / 非 2xx）一律返回 [`LlmError::BackendUnavailable`]，
 //! 由上层据此 emit `RawLlmNode`（7.3），绝不伪造成功。
@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::error::Error;
+use std::future::Future;
 
 /// 后端模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,8 +32,11 @@ pub struct BackendConfig {
     pub base_url: String,
     /// API key（OpenAI 兼容用；Ollama 通常留空）。
     pub api_key: Option<String>,
-    /// 响应读取空闲超时（秒）。生成类请求不应限制整段输出总耗时；只限制连接 / 读取长期无进展。
+    /// 响应读取空闲超时（秒）：只限制连接 / 响应流长期无进展。
     pub timeout_secs: u64,
+    /// 单次 LLM 调用墙钟上限（秒）。防止后端持续输出但永不结束时占住工作流。
+    /// `None` 表示不设墙钟上限；生产 CLI 默认设置。
+    pub call_timeout_secs: Option<u64>,
     /// OpenAI-compatible 后端是否发送 provider-native JSON Schema response_format。
     ///
     /// 关闭时仍走 prompt + 本地 schema 复验；开启后也保留本地复验作为统一边界。
@@ -47,6 +51,7 @@ impl BackendConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: Some(api_key.into()),
             timeout_secs: 120,
+            call_timeout_secs: Some(180),
             openai_response_format: false,
         }
     }
@@ -58,6 +63,7 @@ impl BackendConfig {
             base_url: "http://localhost:11434".to_string(),
             api_key: None,
             timeout_secs: 300,
+            call_timeout_secs: Some(180),
             openai_response_format: false,
         }
     }
@@ -71,6 +77,12 @@ impl BackendConfig {
     /// 为 OpenAI-compatible 后端启用 provider-native JSON Schema response_format。
     pub fn with_openai_response_format(mut self, enabled: bool) -> Self {
         self.openai_response_format = enabled;
+        self
+    }
+
+    /// 覆盖单次调用墙钟上限。`None` 用于显式关闭。
+    pub fn with_call_timeout_secs(mut self, secs: Option<u64>) -> Self {
+        self.call_timeout_secs = secs;
         self
     }
 }
@@ -139,7 +151,32 @@ impl HttpLlmClient {
         }
     }
 
+    fn ollama_request<'a>(
+        &self,
+        req: &'a CompletionRequest,
+        messages: &'a [ChatMessage],
+        schema: Option<&'a Value>,
+    ) -> OllamaRequest<'a> {
+        OllamaRequest {
+            model: &req.model,
+            messages,
+            stream: true,
+            format: schema,
+        }
+    }
+
     async fn complete_inner(
+        &self,
+        req: &CompletionRequest,
+        schema: Option<&Value>,
+    ) -> LlmResult<CompletionResponse> {
+        if let Some(secs) = self.config.call_timeout_secs {
+            return with_call_timeout(secs, self.complete_inner_unbounded(req, schema)).await;
+        }
+        self.complete_inner_unbounded(req, schema).await
+    }
+
+    async fn complete_inner_unbounded(
         &self,
         req: &CompletionRequest,
         schema: Option<&Value>,
@@ -159,11 +196,7 @@ impl HttpLlmClient {
                 builder.json(&body).send().await
             }
             BackendMode::Ollama => {
-                let body = OllamaRequest {
-                    model: &req.model,
-                    messages: &messages,
-                    stream: true,
-                };
+                let body = self.ollama_request(req, &messages, schema);
                 builder.json(&body).send().await
             }
         };
@@ -193,6 +226,19 @@ impl HttpLlmClient {
 
         Ok(CompletionResponse { content })
     }
+}
+
+async fn with_call_timeout<T, F>(secs: u64, fut: F) -> LlmResult<T>
+where
+    F: Future<Output = LlmResult<T>>,
+{
+    tokio::time::timeout(std::time::Duration::from_secs(secs), fut)
+        .await
+        .map_err(|_| {
+            LlmError::BackendUnavailable(format!(
+                "单次 LLM 调用超过 {secs}s 未结束；已中止本次生成"
+            ))
+        })?
 }
 
 #[async_trait]
@@ -537,6 +583,8 @@ struct OllamaRequest<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<&'a Value>,
 }
 
 #[derive(Deserialize)]
@@ -646,6 +694,32 @@ mod tests {
     }
 
     #[test]
+    fn ollama_schema_requests_use_native_format() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "files": { "type": "array" }
+            },
+            "required": ["files"]
+        });
+        let req = CompletionRequest::new("m", "implement");
+        let msgs = HttpLlmClient::messages(&req);
+        let client = HttpLlmClient::new(BackendConfig::ollama()).unwrap();
+
+        let body = serde_json::to_value(client.ollama_request(&req, &msgs, Some(&schema)))
+            .expect("serialize request");
+        assert_eq!(body["format"], schema);
+
+        let body = serde_json::to_value(client.ollama_request(&req, &msgs, None))
+            .expect("serialize request");
+        assert!(
+            body.get("format").is_none(),
+            "自由文本 complete 不应发送 Ollama format"
+        );
+    }
+
+    #[test]
     fn openai_response_parses() {
         let raw = r#"{"choices":[{"message":{"role":"assistant","content":"hello"}}]}"#;
         assert_eq!(parse_openai_stream_or_response(raw).unwrap(), "hello");
@@ -735,6 +809,22 @@ mod tests {
         assert_eq!(
             parse_line_stream_chunks(StreamProtocol::Ollama, &chunks).unwrap(),
             "你"
+        );
+    }
+
+    #[tokio::test]
+    async fn call_timeout_stops_non_finishing_future() {
+        let err = with_call_timeout(1, async {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            Ok::<_, LlmError>(CompletionResponse {
+                content: "late".into(),
+            })
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, LlmError::BackendUnavailable(msg) if msg.contains("单次 LLM 调用超过 1s")),
+            "应由单次调用墙钟上限中止：{err}"
         );
     }
 

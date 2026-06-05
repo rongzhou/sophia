@@ -497,6 +497,12 @@ pub enum Stmt {
         body: Block,
         span: Span,
     },
+    /// `while condition { ... }`。
+    While {
+        condition: ExprId,
+        body: Block,
+        span: Span,
+    },
     /// 表达式语句。
     Expr { value: ExprId, span: Span },
 }
@@ -512,6 +518,7 @@ impl Stmt {
             | Stmt::If { span, .. }
             | Stmt::Match { span, .. }
             | Stmt::Repeat { span, .. }
+            | Stmt::While { span, .. }
             | Stmt::Expr { span, .. } => *span,
         }
     }

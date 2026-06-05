@@ -1,0 +1,22 @@
+action JsonSkipWhitespace {
+  input { text: Raw<Text>; position: Int }
+  output { next: Int }
+  effects { Pure }
+  body {
+    let mutable cursor = position
+    let mutable scanning = true
+    while scanning {
+      if cursor < text.length {
+        let ch = text.char_at(cursor)
+        if JsonIsWhitespace(ch) {
+          set cursor = cursor + 1
+        } else {
+          set scanning = false
+        }
+      } else {
+        set scanning = false
+      }
+    }
+    return cursor
+  }
+}

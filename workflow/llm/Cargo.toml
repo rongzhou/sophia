@@ -13,6 +13,6 @@ serde_json.workspace = true
 jsonschema.workspace = true
 async-trait.workspace = true
 reqwest.workspace = true
+tokio = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }

@@ -1,0 +1,8 @@
+action JsonIsDigit {
+  input { ch: Text }
+  output { ok: Bool }
+  effects { Pure }
+  body {
+    return ch == "0" or ch == "1" or ch == "2" or ch == "3" or ch == "4" or ch == "5" or ch == "6" or ch == "7" or ch == "8" or ch == "9"
+  }
+}

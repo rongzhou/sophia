@@ -1,0 +1,8 @@
+action JsonIsWhitespace {
+  input { ch: Text }
+  output { ok: Bool }
+  effects { Pure }
+  body {
+    return ch == " " or ch == "\n" or ch == "\r" or ch == "\t"
+  }
+}

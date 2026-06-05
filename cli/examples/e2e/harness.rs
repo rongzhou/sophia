@@ -710,6 +710,7 @@ async fn design_then_implement<C: LlmClient>(
             code,
             files,
             attempts,
+            ..
         } => {
             println!("[implement] 通过（{attempts} 次尝试）→ {code}");
             if case.max_repairs == 0 && attempts > 1 {

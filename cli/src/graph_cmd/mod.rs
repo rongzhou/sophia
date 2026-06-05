@@ -12,8 +12,12 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use sophia_engine::{
-    code_check, design_solution, run_implement_loop, ImplementLoopConfig, ImplementLoopOutcome,
-    LibrarySelectionPolicy, LoopStepOutcome,
+    code_check, design_solution, record_pseudocode_check, run_implement_loop, CodeArtifact,
+    ImplementLoopConfig, ImplementLoopOutcome, LibrarySelectionPolicy, LoopStepOutcome,
+    SchedulerBudget, TreeBudget,
+};
+use sophia_engine::{
+    run_goal_tree, AutoAcceptReviewer, GoalResolution, GoalTreeConfig, ReviewDecision,
 };
 use sophia_graph_db::{
     derive_active_context, ActiveContext, DiagnosticItem, DiagnosticKind, DiagnosticPayload,
@@ -197,12 +201,13 @@ pub fn design(
     mode: &str,
     base_url: Option<&str>,
     api_key: Option<&str>,
+    call_timeout_secs: Option<u64>,
 ) -> Result<ExitCode> {
     let target = parse_node(node)?;
     let mut store = open_store(root)?;
     expect_target_domain(&store, target, "design")?;
 
-    let client = build_client(model, mode, base_url, api_key)?;
+    let client = build_client(model, mode, base_url, api_key, call_timeout_secs)?;
     let prompt = PromptRegistry::new();
     let registry = library_registry(root)?;
     let library_policy = LibrarySelectionPolicy::from_names(registry.lib_names());
@@ -230,6 +235,20 @@ pub fn design(
                     return Err(e);
                 }
             };
+            let (diag, pseudo_ok) = record_pseudocode_check(
+                &mut store,
+                art.node,
+                "pseudo_check:design_solution",
+                &art.text,
+            )
+            .context("创建 PseudoCheck DiagnosticNode 失败")?;
+            if !pseudo_ok {
+                eprintln!(
+                    "design 产生的伪代码未通过 pseudocode_check：{}（诊断 {diag}，正文已保留）",
+                    path.display()
+                );
+                return Ok(ExitCode::FAILURE);
+            }
             let libs_note = if art.libraries.is_empty() {
                 String::new()
             } else {
@@ -351,6 +370,7 @@ fn build_client(
     mode: &str,
     base_url: Option<&str>,
     api_key: Option<&str>,
+    call_timeout_secs: Option<u64>,
 ) -> Result<HttpLlmClient> {
     let _ = model; // model 随每次请求传入；后端构造只需 mode / endpoint / key。
     let key = api_key
@@ -374,7 +394,27 @@ fn build_client(
     if let Some(url) = base_url {
         config.base_url = url.to_string();
     }
+    if let Some(secs) = match call_timeout_secs {
+        Some(secs) => Some(secs),
+        None => env_call_timeout_secs()?,
+    } {
+        config.call_timeout_secs = if secs == 0 { None } else { Some(secs) };
+    }
     HttpLlmClient::new(config).context("构造 LLM 后端失败")
+}
+
+fn env_call_timeout_secs() -> Result<Option<u64>> {
+    let Ok(raw) = std::env::var("SOPHIA_LLM_CALL_TIMEOUT_SECS") else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let secs = trimmed
+        .parse::<u64>()
+        .with_context(|| "SOPHIA_LLM_CALL_TIMEOUT_SECS 必须是非负整数秒数")?;
+    Ok(Some(secs))
 }
 
 fn env_truthy(name: &str) -> bool {
@@ -413,6 +453,7 @@ pub fn implement_loop(
     mode: &str,
     base_url: Option<&str>,
     api_key: Option<&str>,
+    call_timeout_secs: Option<u64>,
 ) -> Result<ExitCode> {
     let target = parse_node(node)?;
     let pseudo_id = parse_node(pseudo)?;
@@ -422,7 +463,7 @@ pub fn implement_loop(
         anyhow::bail!("{pseudo_id} 不是 Pseudocode 节点");
     }
 
-    let client = build_client(model, mode, base_url, api_key)?;
+    let client = build_client(model, mode, base_url, api_key, call_timeout_secs)?;
     let prompt = PromptRegistry::new();
     let registry = library_registry(root)?;
     // 读取伪代码正文（图节点不存正文，4.4.3；implement 提供者需要它）。
@@ -444,7 +485,7 @@ pub fn implement_loop(
     validate_library_refs(&libraries, &registry)?;
 
     // prompt 提供者：implement / repair 请求在调用时刻据 active context 渲染（§8.4）。
-    let prompts = CliImplementPrompts {
+    let prompts = CliWorkflowPrompts {
         prompt: &prompt,
         registry: &registry,
         model: model.to_string(),
@@ -469,8 +510,10 @@ pub fn implement_loop(
         ImplementLoopOutcome::Passed {
             code,
             files,
+            artifacts,
             attempts,
         } => {
+            write_code_attempt_artifacts_lossy(root, &mut store, &artifacts)?;
             let written = match write_code_artifacts(root, code, &files) {
                 Ok(written) => written,
                 Err(e) => {
@@ -492,8 +535,10 @@ pub fn implement_loop(
         ImplementLoopOutcome::BudgetExhausted {
             last_code,
             last_diagnostic,
+            artifacts,
             attempts,
         } => {
+            write_code_attempt_artifacts_lossy(root, &mut store, &artifacts)?;
             eprintln!(
                 "implement-loop 预算耗尽（{attempts} 次尝试仍未通过 code_check）：\
                  最后候选 {last_code}，诊断 {last_diagnostic}。"
@@ -508,6 +553,117 @@ pub fn implement_loop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn drive(
+    root: &Path,
+    node: &str,
+    max_decisions: u32,
+    max_repairs: u32,
+    max_pseudocode_versions: u32,
+    max_depth: u32,
+    max_goals: u32,
+    auto_accept_decompositions: bool,
+    model: &str,
+    mode: &str,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+    call_timeout_secs: Option<u64>,
+) -> Result<ExitCode> {
+    let focus = parse_node(node)?;
+    let mut store = open_store(root)?;
+    match store.role_of(focus) {
+        Some(NodeRole::Objective | NodeRole::Milestone) => {}
+        Some(other) => anyhow::bail!("{focus} 是 {other:?}，drive 需 Objective | Milestone"),
+        None => anyhow::bail!("{focus} 不存在于 Development Graph"),
+    }
+
+    let client = build_client(model, mode, base_url, api_key, call_timeout_secs)?;
+    let prompt = PromptRegistry::new();
+    let registry = library_registry(root)?;
+    let library_policy = LibrarySelectionPolicy::from_names(registry.lib_names());
+    let prompts = CliWorkflowPrompts {
+        prompt: &prompt,
+        registry: &registry,
+        model: model.to_string(),
+    };
+    let config = GoalTreeConfig {
+        budget: TreeBudget {
+            max_depth,
+            max_goals,
+            scheduler: SchedulerBudget {
+                max_decisions,
+                max_pseudocode_versions,
+                max_total_llm_nodes: 40,
+                implement_loop: ImplementLoopConfig {
+                    max_repair_attempts: max_repairs,
+                    structured: StructuredConfig::default(),
+                },
+            },
+        },
+        library_policy,
+    };
+
+    if auto_accept_decompositions {
+        let mut reviewer = AutoAcceptReviewer;
+        let resolution = tokio_block_on(run_goal_tree(
+            &mut store,
+            &client,
+            &prompts,
+            &mut reviewer,
+            &config,
+            focus,
+            code_check,
+        ))
+        .context("goal tree drive 执行失败")?;
+        print_goal_resolution(root, &resolution)?;
+        Ok(if resolution.is_fully_resolved() {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        })
+    } else {
+        let mut reviewer = RejectingReviewer;
+        let resolution = tokio_block_on(run_goal_tree(
+            &mut store,
+            &client,
+            &prompts,
+            &mut reviewer,
+            &config,
+            focus,
+            code_check,
+        ))
+        .context("goal tree drive 执行失败")?;
+        print_goal_resolution(root, &resolution)?;
+        Ok(
+            if matches!(
+                resolution,
+                GoalResolution::Candidate { .. } | GoalResolution::Decomposed { .. }
+            ) && resolution.is_fully_resolved()
+            {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            },
+        )
+    }
+}
+
+struct RejectingReviewer;
+
+impl sophia_engine::DecompositionReviewer for RejectingReviewer {
+    fn review(
+        &mut self,
+        _store: &GraphStore,
+        _parent: NodeId,
+        _decomposition: NodeId,
+        _children: &[NodeId],
+    ) -> ReviewDecision {
+        ReviewDecision::Reject {
+            reason: "未设置 --auto-accept-decompositions，拆解需要显式人类授权".to_string(),
+        }
+    }
+}
+
 // 注入的确定性 code_check（候选文件 → CodeCheck 诊断）统一在 `sophia_engine::code_check`
 // （workflow 层——code_check 是工作流的确定性 gate，与 `run_implement_loop` 同层；此前
 // CLI / e2e / benchmark 三处重复，已收敛）。
@@ -517,13 +673,13 @@ pub fn implement_loop(
 /// 本命令只走 implement / repair（不含 decision / design——伪代码已由先前 `graph design`
 /// 产出并落盘）。两步请求都在调用时刻据 active context 渲染；语法基线由共享 prompt 资产注入
 /// （§8.3，决断性事实、无任务答案）。
-struct CliImplementPrompts<'a> {
+struct CliWorkflowPrompts<'a> {
     prompt: &'a PromptRegistry,
     registry: &'a LibraryRegistry,
     model: String,
 }
 
-impl CliImplementPrompts<'_> {
+impl CliWorkflowPrompts<'_> {
     /// implement / repair 共用的 system preamble：委派 `sophia_prompt::implement_system_prompt`
     /// （常驻语法基线 + 按需标准库资产 + 输出形状，三处 implement 步骤的单一文案来源）。
     ///
@@ -536,33 +692,89 @@ impl CliImplementPrompts<'_> {
     }
 }
 
-impl sophia_engine::StepPrompts for CliImplementPrompts<'_> {
+impl sophia_engine::StepPrompts for CliWorkflowPrompts<'_> {
     fn decision(
         &self,
-        _ctx: &ActiveContext,
-        _focus: NodeId,
-        _progress: sophia_engine::GoalProgress,
+        ctx: &ActiveContext,
+        focus: NodeId,
+        progress: sophia_engine::GoalProgress,
     ) -> CompletionRequest {
-        // 本命令不发起 decision；调度器场景才会用到（CLI 暂未接入总调度器）。
-        unreachable!("implement-loop 命令不发起 decision 步骤")
+        let candidate_actions = candidate_actions(progress);
+        let active_milestone = ctx
+            .active_milestone
+            .as_ref()
+            .map(|m| format!("{} {}", m.id, m.name));
+        let rendered = self
+            .prompt
+            .render(
+                "decision",
+                serde_json::json!({
+                    "focus_summary": focus_summary(ctx, focus),
+                    "bound_objective_count": ctx.bound_objectives.len(),
+                    "active_milestone": active_milestone,
+                    "outstanding_questions": ctx.outstanding_questions.len(),
+                    "ancestors": Vec::<String>::new(),
+                    "diagnostics": Vec::<serde_json::Value>::new(),
+                    "budget": {
+                        "remaining_depth": progress.remaining_decisions(),
+                        "repair_attempts": if progress.last_implement_failed { 1 } else { 0 },
+                    },
+                    "candidate_actions": candidate_actions,
+                }),
+            )
+            .expect("渲染 decision 模板失败");
+        CompletionRequest::new(&self.model, rendered)
     }
 
-    fn design(&self, _ctx: &ActiveContext, _focus: NodeId) -> CompletionRequest {
-        unreachable!("implement-loop 命令不发起 design 步骤")
+    fn design(&self, ctx: &ActiveContext, _focus: NodeId) -> CompletionRequest {
+        render_design_request(self.prompt, ctx, &self.model, self.registry)
     }
 
-    fn decompose(&self, _ctx: &ActiveContext, _focus: NodeId) -> CompletionRequest {
-        unreachable!("implement-loop 命令不发起 decompose 步骤")
+    fn decompose(&self, ctx: &ActiveContext, focus: NodeId) -> CompletionRequest {
+        let constraints: Vec<String> = ctx
+            .bound_constraints
+            .iter()
+            .map(|c| c.statement.clone())
+            .collect();
+        let rendered = self
+            .prompt
+            .render(
+                "decompose",
+                serde_json::json!({
+                    "objective": focus_summary(ctx, focus),
+                    "constraints": constraints,
+                }),
+            )
+            .expect("渲染 decompose 模板失败");
+        CompletionRequest::new(&self.model, rendered)
     }
 
     fn revise(
         &self,
-        _ctx: &ActiveContext,
-        _focus: NodeId,
-        _pseudocode: &str,
-        _diagnostics: &[DiagnosticItem],
+        ctx: &ActiveContext,
+        focus: NodeId,
+        pseudocode: &str,
+        diagnostics: &[DiagnosticItem],
     ) -> CompletionRequest {
-        unreachable!("implement-loop 命令不发起 revise 步骤")
+        let constraints: Vec<String> = ctx
+            .bound_constraints
+            .iter()
+            .map(|c| c.statement.clone())
+            .collect();
+        let rendered = self
+            .prompt
+            .render(
+                "revise_design",
+                serde_json::json!({
+                    "pseudocode": pseudocode,
+                    "diagnostics": diagnostics,
+                    "objective": focus_summary(ctx, focus),
+                    "constraints": constraints,
+                    "stdlib_catalog": self.registry.catalog(),
+                }),
+            )
+            .expect("渲染 revise_design 模板失败");
+        CompletionRequest::new(&self.model, rendered)
     }
 
     fn implement(
@@ -642,6 +854,131 @@ pub(super) fn write_code_artifacts(
         written.push(rel.clone());
     }
     Ok(written)
+}
+
+fn write_code_attempt_artifacts_lossy(
+    root: &Path,
+    store: &mut GraphStore,
+    artifacts: &[CodeArtifact],
+) -> Result<()> {
+    for artifact in artifacts {
+        if let Err(e) = write_code_artifacts(root, artifact.node, &artifact.files) {
+            record_artifact_write_failure(store, artifact.node, "code attempt artifact", &e)?;
+            eprintln!(
+                "候选 {} 的 artifact 写入失败，已记录 ArtifactWrite 诊断：{e}",
+                artifact.node
+            );
+        }
+    }
+    Ok(())
+}
+
+fn candidate_actions(progress: sophia_engine::GoalProgress) -> Vec<&'static str> {
+    if !progress.has_pseudocode {
+        vec![
+            "design_solution",
+            "decompose",
+            "needs_clarification",
+            "backtrack",
+        ]
+    } else if progress.last_implement_failed {
+        vec![
+            "revise_design",
+            "implement_design",
+            "decompose",
+            "needs_clarification",
+            "backtrack",
+        ]
+    } else {
+        vec![
+            "implement_design",
+            "revise_design",
+            "decompose",
+            "needs_clarification",
+            "backtrack",
+        ]
+    }
+}
+
+fn focus_summary(ctx: &ActiveContext, focus: NodeId) -> String {
+    ctx.bound_objectives
+        .iter()
+        .find(|o| o.id == focus)
+        .map(|o| format!("{}：{}", o.title, o.description))
+        .or_else(|| {
+            ctx.active_milestone
+                .as_ref()
+                .filter(|m| m.id == focus)
+                .map(|m| format!("{}：{}", m.name, m.summary))
+        })
+        .or_else(|| {
+            ctx.bound_objectives
+                .first()
+                .map(|o| format!("{}：{}", o.title, o.description))
+        })
+        .unwrap_or_else(|| format!("{focus}"))
+}
+
+fn print_goal_resolution(root: &Path, resolution: &GoalResolution) -> Result<()> {
+    println!("goal drive 结果：");
+    print_goal_resolution_at(root, resolution, 0)
+}
+
+fn print_goal_resolution_at(root: &Path, resolution: &GoalResolution, depth: usize) -> Result<()> {
+    let indent = "  ".repeat(depth);
+    match resolution {
+        GoalResolution::Candidate { focus, code, files } => {
+            println!(
+                "{indent}- {focus} 产出候选 {code}（{} 个文件）",
+                files.len()
+            );
+            let written = write_code_artifacts(root, *code, files)?;
+            for p in written {
+                println!("{indent}    {p}");
+            }
+        }
+        GoalResolution::Decomposed {
+            focus,
+            decomposition,
+            children,
+        } => {
+            println!(
+                "{indent}- {focus} 拆解为 {decomposition}，{} 个子结果",
+                children.len()
+            );
+            for child in children {
+                print_goal_resolution_at(root, child, depth + 1)?;
+            }
+        }
+        GoalResolution::DecompositionRejected {
+            focus,
+            decomposition,
+            reason,
+        } => {
+            println!("{indent}- {focus} 的拆解 {decomposition} 未获授权：{reason}");
+        }
+        GoalResolution::Backtracked { focus } => {
+            println!("{indent}- {focus} backtrack");
+        }
+        GoalResolution::Yielded {
+            focus,
+            decision,
+            action,
+        } => {
+            println!("{indent}- {focus} 让位：decision {decision} 选择 {action:?}");
+        }
+        GoalResolution::BudgetExhausted { focus, reason } => {
+            println!("{indent}- {focus} 预算耗尽：{reason}");
+        }
+        GoalResolution::Failed {
+            focus,
+            raw_llm,
+            error,
+        } => {
+            println!("{indent}- {focus} LLM 失败：{raw_llm} {error}");
+        }
+    }
+    Ok(())
 }
 
 fn record_artifact_write_failure(
@@ -796,6 +1133,47 @@ mod tests {
     }
 
     #[test]
+    fn lossy_attempt_artifact_write_records_and_continues() {
+        let root = temp_root("artifact_lossy");
+        let mut store = open_store(&root).unwrap();
+        let code = store
+            .as_llm()
+            .code(
+                "bad path code",
+                CodePayload {
+                    files: vec!["Bad.sophia".to_string()],
+                },
+            )
+            .unwrap();
+        let artifacts = vec![CodeArtifact {
+            node: code,
+            files: vec![(
+                "Bad.sophia".to_string(),
+                "action Bad { input { n: Int } output { r: Int } body { return n } }".to_string(),
+            )],
+        }];
+
+        write_code_attempt_artifacts_lossy(&root, &mut store, &artifacts).unwrap();
+
+        let diagnostic = store
+            .nodes()
+            .find(|node| {
+                matches!(
+                    &node.payload,
+                    NodePayload::Diagnostic(p)
+                        if p.kind == DiagnosticKind::ArtifactWrite
+                            && !p.ok
+                            && p.diagnostics.iter().any(|d| d.code == "ARTIFACT-WRITE")
+                )
+            })
+            .map(|node| node.meta.id)
+            .expect("应记录 ArtifactWrite 诊断");
+        assert!(store.has_edge(diagnostic, code, EdgeKind::Checks));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn unknown_pseudo_library_is_rejected() {
         let registry = sophia_stdlib::standard_registry();
         let libs = vec!["missing-lib".to_string()];
@@ -811,7 +1189,7 @@ mod tests {
     fn implement_prompt_uses_injected_project_registry() {
         let registry = extra_library_registry();
         let prompt = PromptRegistry::new();
-        let prompts = CliImplementPrompts {
+        let prompts = CliWorkflowPrompts {
             prompt: &prompt,
             registry: &registry,
             model: "mock".to_string(),

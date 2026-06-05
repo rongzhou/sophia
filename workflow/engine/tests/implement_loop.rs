@@ -64,11 +64,13 @@ async fn passes_on_first_check() {
         ImplementLoopOutcome::Passed {
             code,
             files,
+            artifacts,
             attempts,
         } => {
             assert_eq!(attempts, 1);
             assert_eq!(store.role_of(code), Some(NodeRole::Code));
             assert_eq!(files.len(), 1);
+            assert_eq!(artifacts.len(), 1);
             // 应有一个 code_check DiagnosticNode 连 checks→ code。
             assert!(store
                 .edges()
@@ -116,8 +118,14 @@ async fn repairs_then_passes() {
     .unwrap();
 
     match outcome {
-        ImplementLoopOutcome::Passed { attempts, code, .. } => {
+        ImplementLoopOutcome::Passed {
+            attempts,
+            code,
+            artifacts,
+            ..
+        } => {
             assert_eq!(attempts, 2);
+            assert_eq!(artifacts.len(), 2);
             // 新 code 应有 repairs→ 旧 code 边。
             assert!(store
                 .edges()
@@ -157,8 +165,16 @@ async fn budget_exhausted_when_never_passes() {
     .unwrap();
 
     match outcome {
-        ImplementLoopOutcome::BudgetExhausted { attempts, .. } => {
+        ImplementLoopOutcome::BudgetExhausted {
+            attempts,
+            artifacts,
+            ..
+        } => {
             assert_eq!(attempts, 3); // 1 implement + 2 repair
+            assert_eq!(artifacts.len(), 3);
+            assert_eq!(artifacts[0].files[0].1, "v1");
+            assert_eq!(artifacts[1].files[0].1, "v2");
+            assert_eq!(artifacts[2].files[0].1, "v3");
         }
         other => panic!("应预算耗尽，实际 {other:?}"),
     }

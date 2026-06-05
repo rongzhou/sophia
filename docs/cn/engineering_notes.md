@@ -1096,6 +1096,116 @@
   - 验证：`cargo test -p sophia-cli --test pipeline` 通过。
   - 状态：Accepted
 
+- 2026-06-04 — v2 D0 设计冻结（JSON MVP / Text / while / validator 返回模型）
+  - 决策：冻结 v2 首批实现前提。JSON validator MVP 支持 object / array / string / int / bool / null /
+    whitespace，暂缓 float / exponent / `\uXXXX` / JSON Schema；`Text.char_at` / `Text.slice` / `Text.starts_with`
+    作为纯值操作进入 F1，其中索引采用与 `.length` 一致的 Unicode scalar index，`char_at` 负数或越界返回空
+    `Text`，`slice` 对 start/length 做确定性夹取；`while condition { ... }` 进入 F2，condition 必须为
+    `Bool`，body 复用 block scope，MVP 不含 `break` / `continue`，checker 不证明终止；`ValidateJson`
+    返回 `one of { JsonValid, JsonInvalid }`，非法 JSON 是普通返回值而非 runtime failure。新增 `json.md`
+    prompt asset 草案。
+  - 理由：v2 的主线是让 Sophia 用纯 Sophia 三方库处理真实外部文本。`.length` 已经按 Unicode scalar
+    计数，Text 新操作沿用同一单位可避免 parser 边界漂移；越界返回空 `Text` 降低游标探测样板，同时不放宽
+    类型 / effect / host 失败的诚实边界；validator 返回 union 能把“输入非法”与“程序失败”区分开。
+  - 影响：`docs/cn/json_lib_design.md` 写入冻结语义与 prompt asset 草案；`docs/cn/dev_checklist_v2.md`
+    标记 D0.1-D0.5 完成并记录下一步进入 F1/F2。
+  - 状态：Accepted
+
+- 2026-06-04 — F1 Text 原语首片落地（semantic / interpreter）
+  - 决策：利用既有 method-call syntax / AST 表达 `text.char_at(index)`、`text.slice(start, length)`、
+    `text.starts_with(prefix)`，不新增语法节点；semantic 层按 Text receiver 表驱动校验 receiver、arity 与参数
+    类型，并推导 `char_at` / `slice` 为 `Text`、`starts_with` 为 `Bool`；解释器实现 D0.2 冻结语义。WASM
+    helper 与差测试保持为 F1.4 独立下一步，不伪造已完成。
+  - 理由：现有 AST 已能稳定表达 receiver method call，新增专用语法会扩大表面积而无语义收益；先让 checker
+    与解释器成为可测 oracle，再改 WASM prelude 函数表，可以把错误定位收窄。
+  - 影响：`core/semantic/src/type_layer.rs`、`runtime/src/interp.rs`、`core/semantic/tests/analyze.rs`、
+    `runtime/tests/interpret.rs`；`dev_checklist_v2.md` 标记 F1.1-F1.3 完成，F1.4/F1.5 仍待办。
+  - 验证：`cargo test -p sophia-semantic text_parser_methods`、`cargo test -p sophia-runtime text_`。
+  - 状态：Accepted
+
+- 2026-06-05 — F1.4 Text 原语 WASM codegen 落地
+  - 决策：在现有 WASM prelude 单一路径内新增 `text_char_at`、`text_slice`、`text_starts_with` helper，并由
+    `emit_method_call` 根据静态 `TypeTable` 将 Text receiver 方法直接分派到这些 helper；库 op 仍走 registry
+    host import 分派，不为 Text 原语引入 host op 或备用路径。`char_at` / `slice` 返回新的 Text handle，指向原
+    Text 的 UTF-8 字节区间；空结果统一为 `make_text(0, 0)`。
+  - 理由：Text 原语是确定性纯值操作，应与 `Text.length` / Text 拼接一样属于 core WASM prelude，而不是库
+    host。按 UTF-8 非延续字节定位 Unicode scalar 边界，可与解释器 `chars()` 语义保持一致；返回区间 handle
+    避免不必要复制，并符合现有字符串字面量指针 + 长度模型。
+  - 影响：`tools/codegen/src/emit.rs` prelude 函数表与 method-call emit；`tools/codegen/tests/diff.rs` 新增
+    `diff_text_parser_primitives` / `diff_text_starts_with`，覆盖 Unicode、空文本、越界、负数、slice 组合和空前缀。
+  - 验证：`cargo test -p sophia-codegen`、`cargo clippy -p sophia-codegen --all-targets -- -D warnings`、
+    `cargo fmt --all -- --check`。
+  - 状态：Accepted
+
+- 2026-06-05 — F1.5 Text 原语文档与 prompt baseline 同步
+  - 决策：把 `text.char_at(index)`、`text.slice(start, length)`、`text.starts_with(prefix)` 及其 Unicode scalar
+    / 越界语义同步到 `language_design` 的 body 子语言说明和 `sophia_syntax_baseline` prompt asset，并更新对应
+    snapshot。F1.5 完成后，v2 F1 的 Text 最小解析能力全链路完成。
+  - 理由：Text 原语是后续 JSON 库和 LLM 生成 parser 的前置能力；只在 checker/runtime/codegen 支持而不进入
+    prompt baseline，会让 implement 阶段继续生成旧的 `repeat + length` 规避样板或误用不存在的字符串 API。
+  - 影响：`docs/cn/language_design.md`、`workflow/prompt/assets/sophia_syntax_baseline.md`、
+    `workflow/prompt/tests/snapshots/render__sophia_syntax_baseline.snap`、`docs/cn/dev_checklist_v2.md`。
+  - 验证：`cargo test -p sophia-prompt syntax_baseline_preamble_is_stable`、`cargo test -p sophia-syntax
+    documented_examples_parse_without_errors`。
+  - 状态：Accepted
+
+- 2026-06-05 — F2 while 控制流全链路落地
+  - 决策：新增唯一语法形态 `while condition { ... }`，AST/HIR/semantic/runtime/WASM codegen 全链路直接支持；
+    condition 必须为 `Bool`，body 复用现有 block scope 与禁止 shadowing 规则，解释器沿用 `Signal` 传播
+    `return` / `raise`，WASM 以 `block` + `loop` + `br_if` 表达同一语义。MVP 不引入 `break` / `continue`，
+    也不做终止性证明。
+  - 理由：JSON parser 需要基于游标状态的同步循环，`repeat N times` 无法自然表达“读到分隔符 / 结束符为止”。
+    直接把 while 接入现有语句、作用域、flow 与 WASM emit 路径，可以保持解释器为 oracle，避免专用 parser
+    helper 或 host fallback。
+  - 影响：`core/syntax` grammar / AST lowering 与生成 parser，`core/hir` resolve/closure，`core/semantic`
+    type/effect/contract traversal，`runtime` interpreter，`tools/codegen` statement emit 与差测试，`cli` used-op
+    扫描，`docs/cn/language_design.md` 与 prompt baseline。
+  - 验证：新增 syntax / semantic / runtime / codegen 差测试覆盖 0 次、多次、状态提前结束、嵌套 while、
+    while 内 `return` / `raise`；全量验证见本次 F2 收口检查。
+  - 状态：Accepted
+
+- 2026-06-05 — L1 JSON validator 作为纯 Sophia 三方库落地
+  - 决策：JSON MVP 不做 host op、不进入标准库内建清单，而是在 `stdlib/tests/fixtures/sophia_libs/json/`
+    以三方纯 Sophia 源码库实现。公开 API 为 `ValidateJson(text: Raw<Text>) -> one of { JsonValid,
+    JsonInvalid }`；内部 helper 使用 `Text.char_at` / `Text.slice` / `while` 推进 cursor，返回 `JsonParseOk`
+    或 `JsonInvalid` 传递位置。`JsonValid` / `JsonInvalid` 均为 entity，非法 JSON 是普通返回值而非
+    runtime failure。
+  - 理由：v2 的证明点是“库插件模型 + Sophia 自身表达 parser/validator”，host JSON 解析会绕开语言能力验证并
+    迫使 `TypeDesc` 过早表达复杂返回。纯 Sophia fixture 还能同时验证三方 discovery、库 domain 豁免、解释器、
+    WASM codegen 和 CLI build/run 的同一路径。
+  - 影响：新增 json fixture 的 `library.toml` / `json.md` / `src/*.sophia`；`stdlib/tests/library_demo.rs`
+    覆盖 discovery、semantic 和 interpreter hidden cases；`tools/codegen/tests/diff.rs` 覆盖 interpreter/WASM
+    等价；`cli/tests/pipeline.rs` 覆盖项目三方库下的 `check`、interpreter `run`、`build` 和 WASM `run`。
+  - 验证：`cargo test -p sophia-stdlib --test library_demo`、`cargo test -p sophia-codegen
+    diff_json_validator_fixture`、`cargo test -p sophia-cli json_library_check_run_and_wasm_backend`。
+  - 状态：Accepted
+
+- 2026-06-05 — 工作流 LLM 单次调用墙钟上限
+  - 决策：在 `workflow/llm` 的 HTTP 后端增加 `call_timeout_secs`，与连接 / 响应读取空闲超时分离；CLI
+    graph `design` / `implement-loop` / `drive` 暴露 `--call-timeout-secs`，并支持
+    `SOPHIA_LLM_CALL_TIMEOUT_SECS`。超时后返回 `BackendUnavailable`，由既有 RawLlmNode 失败路径落图，
+    不伪造 Decision / Pseudocode / Code。
+  - 理由：本地模型实现复杂目标时可能持续 stream token 但长期不发送结束标记；`read_timeout` 只限制空闲，
+    无法中止“有进展但不结束”的单次生成。scheduler / repair 预算只能在调用返回后生效，因此必须在 LLM
+    后端边界提供单次调用墙钟上限，避免人工等待成为流程的一部分。
+  - 影响：`workflow/llm/src/backend.rs`、`cli/src/main.rs`、`cli/src/graph_cmd/mod.rs`、
+    `docs/cn/custom_lib_usage.md`；e2e / benchmark 文档同步 timeout 语义。`0` 表示显式关闭墙钟上限。
+  - 验证：`cargo test -p sophia-llm backend::tests::call_timeout_stops_non_finishing_future`、
+    `cargo test -p sophia-cli graph_implement_loop_rejects_non_pseudocode_source`。
+  - 状态：Accepted
+
+- 2026-06-05 — Ollama 结构化输出接入 provider-native schema
+  - 决策：`workflow/llm` 的 Ollama chat 请求在 `complete_with_schema` 路径携带 `format: <schema>`；
+    普通 `complete` 不发送 `format`。后验仍走原有 JSON 提取 + `jsonschema` 校验，不新增第二套 schema。
+  - 理由：OpenAI-compatible 路径已有可选 schema response_format，但 Ollama 路径此前只依赖自由文本后处理；
+    真实 JSON validator implement 调试显示本地模型容易长篇输出或不收尾。把同一 schema 传给本地后端是
+    泛化约束，不包含任务答案，也不改变 DecisionNode 自主选择动作的原则。
+  - 影响：`workflow/llm/src/backend.rs`；`design_solution` / `revise_design` / `decompose` prompt 使用语言无关
+    表述，避免在伪代码阶段泄漏后续实现形式、文件扩展名或构造词；`implement_design` prompt 增补“最小完整候选 /
+    不输出 Markdown 或 schema 外字段”的通用输出纪律；`docs/cn/custom_lib_usage.md` 说明 Ollama structured 路径。
+  - 验证：`cargo test -p sophia-llm ollama_schema_requests_use_native_format`。
+  - 状态：Accepted
+
 ## 记录模板（供后续条目使用）
 
 - YYYY-MM-DD — <简短标题>

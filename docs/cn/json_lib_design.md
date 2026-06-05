@@ -1,8 +1,10 @@
 # JSON 库设计草案
 
-> 状态：v2 设计草案。本文记录“围绕实现 JSON 三方库而补齐前置语言扩展（`Text` / `while`），再从
+> 状态：v2 设计草案；D0 范围与首批语义已冻结（2026-06-04）。本文记录“围绕实现 JSON 三方库而补齐前置语言扩展（`Text` / `while`），再从
 > JSON validate / parse 跑到 agent example”的目标、现状约束与路线图。
-> 它不是已确认的语言规范；真正进入实现前，应把需要改动的语言能力拆成独立设计评审与工程任务。
+> D0 已冻结的内容可直接进入实现；后续 parser / 递归数据模型仍需单独设计评审。
+> L1 validator fixture 已落地（2026-06-05）：`stdlib/tests/fixtures/sophia_libs/json/` 以纯 Sophia 三方库实现
+> `ValidateJson`，并通过 discovery / check / interpreter / WASM 验证；L2 parser 仍待递归数据模型评估。
 >
 > 相关文档：`language_design.md`、`stdlib_design.md`、`stdlib_implementation.md`、`type_system.md`、
 > `wasm_codegen.md`、`engineering_architecture.md` §14.3、`dev_checklist_v2.md`。
@@ -135,13 +137,20 @@ operation，并保持解释器与 WASM codegen 对称。
 
 MVP 可以只做 `char_at` + `slice`。`starts_with` 可由库代码组合实现，但作为基础能力能显著降低 LLM 生成难度。
 
-需要明确的边界：
+已冻结边界（D0.2）：
 
-- 索引采用 Unicode scalar 还是 UTF-8 byte offset。现有 `.length` 是 Unicode scalar count；为一致性，
-  `char_at` / `slice` 应优先采用 Unicode scalar 索引。
-- 越界语义。建议越界返回 `""` 还是 runtime error 需要设计评审。parser 场景更适合返回空 Text，避免每次访问前重复分支；
-  但 Sophia 一贯偏向诚实错误，需权衡。
+- `char_at` / `slice` 的索引采用 Unicode scalar index，与现有 `.length` 保持一致，不使用 UTF-8 byte offset
+  作为语言语义。
+- `char_at(index)`：`index < 0` 或 `index >= text.length` 时返回空 `Text`；合法时返回单个 Unicode scalar
+  的 `Text`。
+- `slice(start, length)`：`length <= 0` 返回空 `Text`；`start < 0` 按 0 处理；`start >= text.length` 返回空
+  `Text`；结束位置按 `min(start + length, text.length)` 夹取。
+- `starts_with(prefix)` 进入 F1 实现范围，语义等同“`text` 的前缀是否等于 `prefix`”，空前缀返回 `true`。
 - WASM codegen 必须同步实现，不能只支持解释器。
+
+选择理由：`.length` 已经是 Unicode scalar count，沿用同一索引单位能避免 `length`、`char_at`、`slice`
+之间出现不可解释的边界差异。越界返回空 `Text` 是 parser 友好的确定性值语义；Sophia 仍保留类型错误、
+effect 错误、host 错误等硬错误边界，但基础文本探针不把“探测失败”提升为运行时失败。
 
 ### 5.2 while 控制流目标
 
@@ -170,7 +179,7 @@ while cursor < input.length {
 }
 ```
 
-设计边界：
+已冻结边界（D0.3）：
 
 - 条件表达式必须为 `Bool`；
 - body 与 `repeat` 共用块语义、scope 规则、`return` / `raise` 终止性分析；
@@ -202,12 +211,12 @@ action ValidateJson {
 - `entity JsonInvalid { reason: Text; position: Int }`
 - 若需要硬错误，可定义 `error JsonParseError`，但 validator 更适合返回 `one of`，避免把普通非法输入变成 runtime failure。
 
-MVP JSON 子集：
+已冻结 MVP JSON 子集（D0.1）：
 
 - object：`{}`
 - array：`[]`
-- string：双引号字符串，先支持常见 escape；
-- int：十进制整数；
+- string：双引号字符串；起步支持普通字符与常见 escape：`\"`、`\\`、`\/`、`\b`、`\f`、`\n`、`\r`、`\t`；
+- int：十进制整数，可带前导负号；暂不支持小数与 exponent；
 - bool：`true` / `false`；
 - null：`null`；
 - whitespace：空格、换行、回车、tab。
@@ -241,7 +250,53 @@ entity 字段中直接写递归 union，或需要拆成更显式的非递归 MVP
 
 因此 parser 阶段前必须先完成“递归数据模型可行性评估”。
 
-### 6.3 第三阶段：HTTP agent 示例
+### 6.3 库 prompt asset 草案（D0.5）
+
+该草案先作为设计文档中的冻结内容，L1 落地时复制到三方 fixture 的 `json.md`，并可按实际 API 文件名做小幅同步。
+
+````markdown
+# JSON Library
+
+The `json` library validates and later parses external JSON text. It is a pure Sophia library; do not call a Rust or host JSON parser for the v2 MVP.
+
+## Public Actions
+
+- `ValidateJson(text: Raw<Text>) -> one of { JsonValid, JsonInvalid }`
+  - Accepts object, array, string, int, bool, null, and whitespace.
+  - Rejects floats, exponents, `\uXXXX`, trailing garbage, unclosed containers, unclosed strings, illegal escapes, repeated separators, and unknown tokens.
+  - Returns `JsonInvalid` for malformed JSON instead of raising, because invalid input is an expected validator result.
+
+## Types
+
+- `JsonValid`
+  - Represents syntactically valid JSON in the v2 MVP subset.
+- `JsonInvalid`
+  - Fields:
+    - `reason: Text`
+    - `position: Int`
+
+## Implementation Guidance
+
+- Use `text.length`, `text.char_at(index)`, `text.slice(start, length)`, and `text.starts_with(prefix)`.
+- Use `while condition { ... }` for cursor loops.
+- Treat `Raw<Text>` as untrusted input. Validation may inspect it, but downstream code must not assume semantic trust unless it checks the `JsonValid` result.
+- Do not implement JSON Schema, float/exponent numbers, or unicode escape decoding in v2 MVP.
+
+## Example
+
+```sophia
+action CheckPayload {
+  input { body: Raw<Text> }
+  output { result: one of { JsonValid, JsonInvalid } }
+  effects { Pure }
+  body {
+    return ValidateJson(body)
+  }
+}
+```
+````
+
+### 6.4 第三阶段：HTTP agent 示例
 
 在 validator / parser 可用后，增加一个端到端示例：
 
@@ -307,13 +362,11 @@ validator 起步用例：
 ## 八、风险与开放问题
 
 1. **Text 索引语义**
-   - Unicode scalar 与 byte offset 如何取舍？
-   - 越界返回空 Text 还是 hard error？
+   - D0 已冻结：使用 Unicode scalar index；越界返回空 `Text`；`slice` 做确定性夹取。
 
 2. **while 语法细节**
-   - MVP 是否需要 `break` / `continue`？当前建议不需要。
-   - `while` 的终止性是否只作为运行时责任？当前建议 checker 不证明终止。
-   - 是否允许 condition 中调用有 effect 的 action？当前建议沿用表达式既有 effect 规则，不额外开洞。
+   - D0 已冻结：MVP 不含 `break` / `continue`；checker 不证明终止；condition 必须为 `Bool`，表达式 effect
+     规则沿用既有 checker，不额外开洞。
 
 3. **递归 JSON value**
    - 当前 type/check/runtime/codegen 是否接受递归 entity / union？
@@ -324,8 +377,7 @@ validator 起步用例：
    - 如果 parser 返回结构化值，是否需要表达“该结构来自已验证 JSON”？
 
 5. **错误模型**
-   - 非法 JSON 是返回 `JsonInvalid`，还是 raise `JsonParseError`？
-   - 推荐 validator 返回值表达非法输入，parser 可在无法恢复时 raise。
+   - D0 已冻结：validator 返回 `JsonInvalid` 表达非法输入；parser 可在后续设计中决定是否 raise。
 
 6. **是否进入标准库**
    - 初期应保持三方库，以实践插件机制。
@@ -337,11 +389,11 @@ validator 起步用例：
 
 ### R0：设计冻结
 
-- 明确 JSON MVP 子集；
-- 明确 Text 原语语义；
-- 明确 `while` 语法、scope、终止性与 codegen 形态；
-- 明确 validator 返回模型；
-- 写出库 prompt asset 草案。
+- 明确 JSON MVP 子集；**已完成（2026-06-04）**
+- 明确 Text 原语语义；**已完成（2026-06-04）**
+- 明确 `while` 语法、scope、终止性与 codegen 形态；**已完成（2026-06-04）**
+- 明确 validator 返回模型；**已完成（2026-06-04）**
+- 写出库 prompt asset 草案。**已完成（2026-06-04）**
 
 ### R1：Text 原语落地
 

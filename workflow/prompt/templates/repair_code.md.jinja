@@ -19,5 +19,9 @@ END DATA diagnostics_json
 `files` 是修复后的候选 `.sophia` 文件集合，每项包含 `path` 与 `content`；
 `changes` 是每处修改的简述。
 保持现有公开命名和算法意图；只根据诊断修正语法、类型、引用种类或 effect/capability 声明。
+每个顶层 node 必须单独一个 `.sophia` 文件；若诊断指出单文件包含多个顶层 node，输出拆分后的完整文件集合。
+声明块分号只用于 input/output/effects/errors/allow 等声明条目之间；不要在 entity 字段块或 state value 块后添加尾随分号。
+局部变量声明不要写类型标注；把 `let x : T = expr` / `let x: T = expr` 改为 `let x = expr`，
+把 `let mutable x : T = expr` 改为 `let mutable x = expr`。
 若错误容器名与失败成员名冲突，重命名容器，保留失败成员名。
 不要引入新的 effect / capability / error variant。

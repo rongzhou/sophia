@@ -458,6 +458,12 @@ fn collect_stmt_refs(stmt: &Stmt, ast: &Ast, out: &mut Vec<String>) {
             collect_expr_refs(*count, ast, out);
             collect_block_refs(body, ast, out);
         }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            collect_expr_refs(*condition, ast, out);
+            collect_block_refs(body, ast, out);
+        }
     }
 }
 

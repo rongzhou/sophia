@@ -443,6 +443,12 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(*count, scope);
                 self.resolve_block(body, scope);
             }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                self.resolve_expr(*condition, scope);
+                self.resolve_block(body, scope);
+            }
         }
     }
 

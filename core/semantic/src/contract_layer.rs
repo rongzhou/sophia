@@ -213,6 +213,12 @@ fn collect_stmt_errors(
             collect_expr_calls(*count, ast, called);
             collect_body_errors(body, ast, raised, called);
         }
+        Stmt::While {
+            condition, body, ..
+        } => {
+            collect_expr_calls(*condition, ast, called);
+            collect_body_errors(body, ast, raised, called);
+        }
     }
 }
 

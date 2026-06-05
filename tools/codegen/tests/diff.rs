@@ -10,7 +10,9 @@
 //! `NotYetImplemented`，不能在差测试里调和结果。
 
 use sophia_codegen::{emit_module, CodegenInput};
-use sophia_hir::{resolve_program, LibraryContent, LibraryRegistry, ProgramInput};
+use sophia_hir::{
+    resolve_program, IndexInput, LibraryContent, LibraryRegistry, LibrarySources, ProgramInput,
+};
 use sophia_runtime::{run_action, HostRegistry, Outcome, Value, WasmProgramRunner};
 use sophia_semantic::{analyze_program, SemanticModel};
 use sophia_stdlib::{
@@ -686,6 +688,54 @@ fn diff_text_concat_and_length() {
 }
 
 #[test]
+fn diff_text_parser_primitives() {
+    let act = "action Probe {\n\
+       input { text: Text }\n\
+       output { out: Text }\n\
+       body {\n\
+         return text.char_at(1) + \"|\" + text.char_at(-1) + \"|\" + text.char_at(99) + \"|\" + text.slice(1, 2) + \"|\" + text.slice(-2, 2) + \"|\" + text.slice(2, 99)\n\
+       }\n\
+     }";
+    let sources = &[("d/actions/Probe.sophia", act)];
+    assert_equiv_args(sources, "Probe", &[Arg::Text("aé日b")], true);
+    assert_equiv_args(sources, "Probe", &[Arg::Text("")], true);
+}
+
+#[test]
+fn diff_text_starts_with() {
+    let act = "action HasPrefix {\n\
+       input { text: Text; prefix: Text }\n\
+       output { ok: Bool }\n\
+       body { return text.starts_with(prefix) }\n\
+     }";
+    let sources = &[("d/actions/HasPrefix.sophia", act)];
+    assert_equiv_args(
+        sources,
+        "HasPrefix",
+        &[Arg::Text("json"), Arg::Text("js")],
+        true,
+    );
+    assert_equiv_args(
+        sources,
+        "HasPrefix",
+        &[Arg::Text("json"), Arg::Text("on")],
+        true,
+    );
+    assert_equiv_args(
+        sources,
+        "HasPrefix",
+        &[Arg::Text("json"), Arg::Text("")],
+        true,
+    );
+    assert_equiv_args(
+        sources,
+        "HasPrefix",
+        &[Arg::Text("日abc"), Arg::Text("日")],
+        true,
+    );
+}
+
+#[test]
 fn diff_text_return_and_equality() {
     // 返回 Text 值 + Text 相等比较。
     let echo = "action Echo {\n\
@@ -748,6 +798,198 @@ fn diff_repeat_with_early_return() {
     assert_equiv(sources, "CountUntil", &[5, 3], true); // 第一轮即 return 1
     assert_equiv(sources, "CountUntil", &[0, 3], true); // 不进循环 → return 0
     assert_equiv(sources, "CountUntil", &[4_294_967_296, 3], true); // 大 i64 计数仍进首轮
+}
+
+#[test]
+fn diff_while_loop_zero_and_many_times() {
+    let act = "action SumTo {\n\
+       input { n: Int }\n\
+       output { total: Int }\n\
+       body {\n\
+         let i = 0\n\
+         let acc = 0\n\
+         while i < n {\n\
+           set i = i + 1\n\
+           set acc = acc + i\n\
+         }\n\
+         return acc\n\
+       }\n\
+     }";
+    let sources = &[("d/actions/SumTo.sophia", act)];
+    assert_equiv(sources, "SumTo", &[0], true);
+    assert_equiv(sources, "SumTo", &[1], true);
+    assert_equiv(sources, "SumTo", &[5], true);
+}
+
+#[test]
+fn diff_while_loop_state_early_stop_and_nested_body() {
+    let act = "action Nested {\n\
+       input { outer: Int; inner: Int; stop_after: Int }\n\
+       output { total: Int }\n\
+       body {\n\
+         let total = 0\n\
+         let i = 0\n\
+         let keep = true\n\
+         while keep {\n\
+           let j = 0\n\
+           while j < inner {\n\
+             set total = total + 1\n\
+             set j = j + 1\n\
+           }\n\
+           set i = i + 1\n\
+           if i >= outer { set keep = false }\n\
+           if total >= stop_after { set keep = false }\n\
+         }\n\
+         return total\n\
+       }\n\
+     }";
+    let sources = &[("d/actions/Nested.sophia", act)];
+    assert_equiv(sources, "Nested", &[3, 2, 99], true); // 3*2
+    assert_equiv(sources, "Nested", &[5, 2, 3], true); // 状态变量提前结束在第二轮后
+}
+
+#[test]
+fn diff_while_loop_return_and_raise() {
+    let err = "error StopError { variant Stop { value: Int } }";
+    let act = "action StopOrReturn {\n\
+       input { limit: Int; cap: Int }\n\
+       output { y: Int }\n\
+       errors { Stop }\n\
+       body {\n\
+         let i = 0\n\
+         while i < limit {\n\
+           set i = i + 1\n\
+           if i > cap { raise Stop { value = i } }\n\
+           if i == cap { return i }\n\
+         }\n\
+         return i\n\
+       }\n\
+     }";
+    let sources = &[
+        ("d/errors/StopError.sophia", err),
+        ("d/actions/StopOrReturn.sophia", act),
+    ];
+    assert_equiv(sources, "StopOrReturn", &[5, 3], true);
+    assert_equiv(sources, "StopOrReturn", &[2, 0], true);
+    assert_equiv(sources, "StopOrReturn", &[0, 3], true);
+}
+
+#[derive(Debug, PartialEq)]
+struct JsonOutcome {
+    name: String,
+    position: i64,
+    reason: Option<String>,
+}
+
+fn json_fixture_registry() -> LibraryRegistry {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../stdlib/tests/fixtures/sophia_libs");
+    sophia_stdlib::full_registry_from(&[root]).expect("json fixture registry")
+}
+
+fn analyze_json_fixture() -> (Vec<Ast>, LibrarySources, SemanticModel, LibraryRegistry) {
+    let registry = json_fixture_registry();
+    let lib_srcs = LibrarySources::from_registry(&registry).expect("parse library sources");
+    let user_src = r#"action CheckJson {
+  input { text: Raw<Text> }
+  output { result: one of { JsonValid, JsonInvalid } }
+  body { return ValidateJson(text) }
+}"#;
+    let user = vec![parse_ast(user_src).expect("parse CheckJson")];
+
+    let mut inputs: Vec<IndexInput> = vec![IndexInput {
+        domain: "app",
+        path: "app/actions/CheckJson.sophia",
+        ast: &user[0],
+    }];
+    let lib_inputs = lib_srcs.program_inputs();
+    for pi in &lib_inputs {
+        inputs.push(IndexInput {
+            domain: pi.domain,
+            path: pi.path,
+            ast: pi.ast,
+        });
+    }
+    let index = sophia_hir::AsgIndex::build(inputs, &registry).expect("index");
+
+    let mut refs: Vec<&Ast> = user.iter().collect();
+    refs.extend(lib_srcs.asts());
+    let analysis = analyze_program(&refs, &index);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "json fixture should typecheck: {:?}",
+        analysis.diagnostics
+    );
+    (user, lib_srcs, analysis.model, registry)
+}
+
+fn json_outcome(outcome: Outcome) -> JsonOutcome {
+    match outcome {
+        Outcome::Returned(Value::Entity { name, fields }) => {
+            let position = match fields.get("position") {
+                Some(Value::Int(i)) => *i,
+                other => panic!("Json result missing Int position: {other:?}"),
+            };
+            let reason = match fields.get("reason") {
+                Some(Value::Text(t)) => Some(t.clone()),
+                None => None,
+                other => panic!("JsonInvalid reason should be Text: {other:?}"),
+            };
+            JsonOutcome {
+                name,
+                position,
+                reason,
+            }
+        }
+        other => panic!("expected JsonValid/JsonInvalid entity, got {other:?}"),
+    }
+}
+
+#[test]
+fn diff_json_validator_fixture() {
+    let (asts, lib_srcs, model, registry) = analyze_json_fixture();
+    let refs: Vec<&Ast> = asts.iter().collect();
+    let mut refs = refs;
+    refs.extend(lib_srcs.asts());
+    let bytes = emit_module(&CodegenInput::new(&model, &refs, &registry)).expect("emit json wasm");
+    let runner = WasmProgramRunner::new(&bytes, &registry).expect("json wasm runner");
+
+    let cases = [
+        "{}",
+        "[]",
+        "{\"ok\":true}",
+        "{\"items\":[1,2,3]}",
+        "{\"nested\":{\"a\":null}}",
+        "\"hello\"",
+        "-42",
+        "true",
+        "null",
+        "{",
+        "[1,]",
+        "{\"a\":1,}",
+        "\"unterminated",
+        "@",
+        "{} x",
+        "{\"bad\":\"\\u1234\"}",
+        "1.2",
+    ];
+
+    for case in cases {
+        let args = vec![Value::Text(case.into())];
+        let mut interp_host = HostRegistry::new();
+        let (interp_outcome, _) =
+            run_action(&model, &refs, "CheckJson", args.clone(), &mut interp_host)
+                .expect("json interpreter run");
+        let mut wasm_host = HostRegistry::new();
+        let wasm_outcome = runner
+            .run(&model, "CheckJson", &args, true, &mut wasm_host)
+            .expect("json wasm run");
+        assert_eq!(
+            json_outcome(interp_outcome),
+            json_outcome(wasm_outcome),
+            "JSON validator interpreter/WASM mismatch for case {case:?}"
+        );
+    }
 }
 
 #[test]

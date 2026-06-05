@@ -54,8 +54,8 @@ fn design_solution_template_renders_stable() {
     let ctx = json!({
         "objective": "实现 ProcessWidget",
         "constraints": ["不得访问 ExternalStore"],
-        "acceptance_criteria": ["处理后 state == WidgetReady"],
-        "context_files": ["domains/WidgetDomain/entities/WidgetRecord.sophia"],
+        "acceptance_criteria": ["处理后结果可被调用方识别"],
+        "context_files": ["已有业务说明：记录包含待处理内容和当前处理状态"],
         // 库目录由库注册表提供（sophia-stdlib），prompt crate 不持库内容；此处用固定串测模板渲染。
         "stdlib_catalog": "- `example_lib` — 中立示例库"
     });
@@ -72,6 +72,118 @@ fn decompose_template_renders_stable() {
     });
     let out = reg.render("decompose", &ctx).expect("render");
     insta::assert_snapshot!("decompose_render", out);
+}
+
+#[test]
+fn design_and_revise_prompts_name_pseudocode_envelope() {
+    let reg = PromptRegistry::new();
+    let design = reg
+        .render(
+            "design_solution",
+            json!({
+                "objective": "目标",
+                "constraints": Vec::<String>::new(),
+                "acceptance_criteria": Vec::<String>::new(),
+                "context_files": Vec::<String>::new(),
+                "stdlib_catalog": "",
+            }),
+        )
+        .expect("render design");
+    let revise = reg
+        .render(
+            "revise_design",
+            json!({
+                "pseudocode": "# Purpose\n...",
+                "diagnostics": [{ "code": "E", "problem": "concept" }],
+                "objective": "目标",
+                "constraints": Vec::<String>::new(),
+                "stdlib_catalog": "",
+            }),
+        )
+        .expect("render revise");
+
+    for out in [design, revise] {
+        assert!(out.contains("<!-- sophia-pseudo: v1 -->"));
+        assert!(out.contains("不得发明目标、约束、验收条件"));
+        assert!(out.contains("不要把它写成待实现步骤"));
+        for heading in [
+            "Purpose",
+            "Inputs",
+            "Outputs",
+            "Algorithm",
+            "Constraints",
+            "Forbidden",
+        ] {
+            assert!(out.contains(heading), "prompt missing heading {heading}");
+        }
+    }
+}
+
+#[test]
+fn pseudocode_phase_prompts_do_not_leak_implementation_language() {
+    let reg = PromptRegistry::new();
+    let mut cases = vec![(
+        "design_system_prompt",
+        sophia_prompt::design_system_prompt(),
+    )];
+    cases.extend([
+        (
+            "design_solution",
+            reg.render(
+                "design_solution",
+                json!({
+                    "objective": "目标",
+                    "constraints": Vec::<String>::new(),
+                    "acceptance_criteria": Vec::<String>::new(),
+                    "context_files": Vec::<String>::new(),
+                    "stdlib_catalog": "",
+                }),
+            )
+            .expect("render design"),
+        ),
+        (
+            "revise_design",
+            reg.render(
+                "revise_design",
+                json!({
+                    "pseudocode": "<!-- sophia-pseudo: v1 -->\n# Purpose\n# Inputs\n# Outputs\n# Algorithm\n# Constraints\n# Forbidden\n",
+                    "diagnostics": Vec::<serde_json::Value>::new(),
+                    "objective": "目标",
+                    "constraints": Vec::<String>::new(),
+                    "stdlib_catalog": "",
+                }),
+            )
+            .expect("render revise"),
+        ),
+        (
+            "decompose",
+            reg.render(
+                "decompose",
+                json!({
+                    "objective": "目标",
+                    "constraints": Vec::<String>::new(),
+                }),
+            )
+            .expect("render decompose"),
+        ),
+    ]);
+
+    for (name, out) in cases {
+        for forbidden in [
+            "Sophia",
+            "Sophia-Core",
+            ".sophia",
+            "action/entity",
+            "input/output/body",
+            "目标实现语言",
+            "后续实现语言",
+        ] {
+            assert!(
+                !out.contains(forbidden),
+                "{name} should not leak implementation syntax token {forbidden}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -192,6 +304,11 @@ fn implement_and_repair_templates_name_output_schema_shape() {
     assert!(implement.contains("path"));
     assert!(implement.contains("content"));
     assert!(implement.contains("changes"));
+    assert!(implement.contains("最小完整候选"));
+    assert!(implement.contains("不要输出解释性正文、Markdown"));
+    assert!(implement.contains("超出 schema 的字段"));
+    assert!(implement.contains("只使用 system 语法基线明确列出的语句与表达式形态"));
+    assert!(implement.contains("不要用 `raise` 表达 invalid input"));
 
     let repair = reg
         .render(
@@ -206,6 +323,7 @@ fn implement_and_repair_templates_name_output_schema_shape() {
     assert!(repair.contains("path"));
     assert!(repair.contains("content"));
     assert!(repair.contains("changes"));
+    assert!(repair.contains("局部变量声明不要写类型标注"));
 }
 
 #[test]

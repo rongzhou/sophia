@@ -24,6 +24,7 @@ use sophia_graph_db::{
 use sophia_llm::{LlmClient, LlmError, StructuredConfig};
 use thiserror::Error;
 
+use crate::loop_steps::CodeArtifact;
 use crate::loop_steps::{implement_design, repair_code, LoopStepOutcome};
 use crate::prompts::StepPrompts;
 use crate::step::LlmStepError;
@@ -72,6 +73,8 @@ pub enum ImplementLoopOutcome {
     Passed {
         code: NodeId,
         files: Vec<(String, String)>,
+        /// All generated candidate artifacts, including failed attempts before the passing one.
+        artifacts: Vec<CodeArtifact>,
         /// 含初次 implement 在内的总尝试次数（1 = 一次通过）。
         attempts: u32,
     },
@@ -79,6 +82,9 @@ pub enum ImplementLoopOutcome {
     BudgetExhausted {
         last_code: NodeId,
         last_diagnostic: NodeId,
+        /// All generated candidate artifacts, including the initial implementation and every
+        /// repair attempt, in generation order. Callers can persist these for audit/debugging.
+        artifacts: Vec<CodeArtifact>,
         attempts: u32,
     },
     /// LLM 调用失败：已 emit RawLlmNode（attempted→ 目标域）。
@@ -152,8 +158,11 @@ where
 
     let mut attempts: u32 = 1;
     let mut repairs_done: u32 = 0;
+    let mut artifacts = Vec::new();
 
     loop {
+        artifacts.push(artifact.clone());
+
         // 步骤 2：注入的 code_check + emit DiagnosticNode（checks→ Code）。
         let payload = check.check(&artifact.files);
         if payload.kind != DiagnosticKind::CodeCheck {
@@ -171,6 +180,7 @@ where
             return Ok(ImplementLoopOutcome::Passed {
                 code: artifact.node,
                 files: artifact.files,
+                artifacts,
                 attempts,
             });
         }
@@ -180,6 +190,7 @@ where
             return Ok(ImplementLoopOutcome::BudgetExhausted {
                 last_code: artifact.node,
                 last_diagnostic: diag_node,
+                artifacts,
                 attempts,
             });
         }

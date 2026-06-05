@@ -88,8 +88,9 @@ scripts/run_e2e.sh --cases G1-01 G2-02   # 只跑指定用例
 `--llm-timeout-secs`。OpenAI 兼容
 模式未设 `SOPHIA_LLM_API_KEY` 时 example **干净跳过并以成功退出码返回**（CI 安全）；Ollama 模式
 无需 API key。批量脚本在 OpenAI 模式缺 key 时报错（它的前提就是要真跑），Ollama 模式不检查 key。
-OpenAI 兼容与 Ollama 都走 streaming；超时语义是“连接 / 响应流长时间无进展”，不是限制整段生成
-总耗时。OpenAI 兼容远端默认有界重试；Ollama 默认不重试，避免本地生成超时后重复请求。
+OpenAI 兼容与 Ollama 都走 streaming；`SOPHIA_LLM_TIMEOUT_SECS` 的语义是“连接 / 响应流长时间无进展”。
+此外后端有默认单次调用墙钟上限，用于防止模型持续 stream 但不结束。OpenAI 兼容远端默认有界重试；
+Ollama 默认不重试，避免本地生成超时后重复请求。
 
 ---
 

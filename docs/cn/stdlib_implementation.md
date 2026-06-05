@@ -4,7 +4,8 @@
 
 > 本文档与 `language_implementation.md` 对称：定**库插件的实现机制与路线图**——清单解析与注册表、各层如何
 > 消费注册表、`HostRegistry` 注入机制、crate 分层、测试边界。设计动机与边界见 `stdlib_design.md`；
-> 具体库的语言契约见各库文档（如 `http_lib.md`）。
+> 具体库的语言契约见各库文档（如 `http_lib.md`）。三方库本地生成、发现与中间产物查看命令见
+> `custom_lib_usage.md`。
 >
 > **状态：权威实现文档。** 当前实现采用清单驱动库插件模型：`LibraryRegistry` 是库契约单一来源，
 > `HostRegistry` 是运行时 host 注入接缝，标准库内容由 `sophia-stdlib` 提供；后续路线按本文第五节扩展。
