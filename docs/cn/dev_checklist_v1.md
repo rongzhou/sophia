@@ -279,12 +279,15 @@ e2e 六组 + benchmark 难度阶梯 L1–L5 均跑通真实 LLM；全工作区 2
 
 
 
-### 路线图（v2+，不与 v1 争优先级）
+### 后续路线图（v2 / v3+，不与 v1 争优先级）
 
-> 见 `engineering_architecture.md` §14.3。
+> v2 已收束为 JSON 三方库端到端阶段，见 `engineering_architecture.md` §14.3 与 `dev_checklist_v2.md`。
+> 原先泛化的 backend / 演化能力方向顺延到 v3+，见 `engineering_architecture.md` §14.4。
 
-- [ ] 可选 backend：native（cranelift / LLVM lowering）；按需的具名语言 emit（TS / Python）。
-- [ ] **演化能力**：edit transition 成为图一等动作 + Evolution Boundary；Semantic Identity；
+- [ ] **v2 JSON 三方库端到端**：`Text` / `while` 前置语言扩展 → 纯 Sophia JSON validator/parser →
+      `Http` + JSON agent-like 示例。
+- [ ] **v3+ 可选 backend**：native（cranelift / LLVM lowering）；按需的具名语言 emit（TS / Python）。
+- [ ] **v3+ 演化能力**：edit transition 成为图一等动作 + Evolution Boundary；Semantic Identity；
       跨 domain / library protocol（`sophia.lock` / publish-consume / formal-only 视图）；
       更强 strip-assist（独立 IR / formal-only hash）。
 - [ ] MessagePack 序列化（graph snapshots / runtime state / semantic cache）。

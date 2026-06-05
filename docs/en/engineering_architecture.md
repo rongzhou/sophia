@@ -598,10 +598,43 @@ Two parallel workflows both serving “make Sophia truly usable,” not just pap
 
 v1 completion criteria: (i) WASM backend equivalence; (ii) D1/D2/D3 end-to-end in sophia mode (with D2 providing a real accept/reject matrix entry); (iii) artifact-layer strip-assist.
 
-### 14.3 v2+: optional backends and evolution capabilities
+### 14.3 v2: JSON third-party library end-to-end
 
-- Optional backends: native (cranelift/LLVM); named-language emits as needed only.
-- Evolution: edit transitions as first-class graph actions + Evolution Boundary; Semantic Identity + cross-domain/library protocol (`sophia.lock`, publish/consume, formal-only views); stronger strip-assist.
+v2 is the phase for “using Sophia itself to process real external data.” The phase no longer spreads horizontally into more backends, and it does not prioritize the multi-round evolution subsystem. Instead it narrows around one representative end-to-end demand: implement a JSON third-party library, from prerequisite language extensions through an agent-like example. Progress is tracked in `dev_checklist_v2.md`; the design draft is `json_lib_design.md`.
+
+The v2 main line is:
+
+1. Prerequisite language extensions: add the minimal `Text` operations and `while` control flow needed by a JSON parser / validator.
+   - `Text` extensions focus on deterministic value operations: `char_at`, `slice`, and possibly `starts_with` depending on design review.
+   - `while condition { ... }` is an explicit v2 syntax-extension target for cursor-style parsing loops, avoiding parser implementations that are mostly `repeat input.length times` plus internal branching boilerplate.
+   - New capabilities must go through syntax / HIR / semantic / interpreter / WASM codegen / differential tests; interpreter-only support is not acceptable.
+2. JSON third-party library implementation: JSON stays out of the language core and is not host-op-first; it validates the manifest-driven third-party-library plugin model.
+   - Implement `ValidateJson` first, covering a minimal JSON subset and invalid-input diagnostics.
+   - Then evaluate and implement `ParseJson` or limited structured access, depending on recursive data-model feasibility.
+   - Library sources, library prompt asset, hidden cases, and interpreter/WASM equivalence tests enter the engineering loop together.
+3. Agent-like example: run `Http.Get → Raw<Text> → ValidateJson/ParseJson → domain action` end to end, proving Sophia can process real API responses rather than only toy arithmetic / todo / file round-trip flows.
+
+v2 completion criteria:
+
+1. `Text` and `while` extensions land end to end and pass interpreter/WASM differential tests.
+2. The `json` third-party library can be discovered, checked, and executed by a project, with legal and illegal JSON hidden cases.
+3. At least one `Http` + JSON + domain-judgment agent-like example passes end to end, with records of whether the LLM can select and use the JSON library from catalog / prompt assets.
+4. JSON logic is expressed by default as a pure Sophia library; host ops remain a later performance / completeness option, not part of the v2 MVP.
+
+### 14.4 v3+: optional backends and evolution capabilities
+
+Backends, added only when demanded:
+
+- Native backend: cranelift / LLVM lowering, if deployment performance needs it.
+- Named-language emit: TypeScript / Python output, only if a concrete interop need appears.
+
+Evolution capabilities:
+
+- Edit transitions as first-class graph actions plus an Evolution Boundary.
+- Semantic Identity and cross-domain/library protocol (`sophia.lock`, publish/consume, formal-only views).
+- Stronger strip-assist equivalence: move from IR / artifact comparison toward an independent formal-only hash.
+
+These directions come after v2, which makes Sophia process real external data through libraries. They target real multi-domain, multi-round project evolution and build on the compilable foundation and library practice established in v1/v2. They do not compete with the JSON end-to-end main line.
 
 ---
 

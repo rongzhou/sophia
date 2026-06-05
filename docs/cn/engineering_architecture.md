@@ -777,7 +777,35 @@ v1 是"把玩具语言变成严肃语言"的阶段（见 `language_design.md` §
 > sophia mode 端到端跑通（benchmark L6+），其中 D2 给出一条真实 accept/reject 矩阵条目**；③ strip-assist
 > 等价在 artifact 层成立。WASM 与（有界的）语言扩充都达标，v1 方完成——二者缺一不可。
 
-### 14.3 v2 起：可选 backend 与演化能力
+### 14.3 v2：JSON 三方库端到端
+
+v2 是"让 Sophia 用自己的语言处理真实外部数据"的阶段。阶段目标不再继续横向铺 backend，也不优先进入
+多轮演化子系统，而是围绕一个有代表性的端到端需求收束：**实现 JSON 三方库，并从前置语言扩展一路跑到
+agent example**。进展跟踪见 `dev_checklist_v2.md`；设计草案见 `json_lib_design.md`。
+
+v2 的主线是：
+
+1. **前置语言扩展**：补齐 JSON parser / validator 所需的最小 `Text` 操作与 `while` 控制流。
+   - `Text` 扩展聚焦确定性值操作：`char_at`、`slice`，按设计评审决定是否加入 `starts_with`。
+   - `while condition { ... }` 作为 v2 的明确语法扩展目标，用于表达游标式解析循环，避免把 parser
+     写成大量 `repeat input.length times` + 内部分支的机械样板。
+   - 新能力必须贯穿 syntax / HIR / semantic / interpreter / WASM codegen / 差测试，不允许只在解释器可用。
+2. **JSON 三方库实现**：JSON 不进入语言核心，也不优先做 host op；以清单驱动三方库验证库插件模型。
+   - 先实现 `ValidateJson`，覆盖最小 JSON 子集和非法输入诊断；
+   - 再评估并实现 `ParseJson` 或有限结构化访问，依据递归数据模型可行性决定 MVP 形态；
+   - 库源码、库 prompt asset、hidden cases、interpreter/WASM 等价测试一起进入工程闭环。
+3. **agent example**：把 `Http.Get → Raw<Text> → ValidateJson/ParseJson → 领域 action` 跑通，证明 Sophia
+   能处理真实 API 响应，而不仅是 toy arithmetic / todo / 文件往返流程。
+
+v2 完成判据：
+
+1. `Text` 与 `while` 扩展全链路落地，并通过解释器 / WASM 差测试；
+2. `json` 三方库可被项目发现、检查、执行，并覆盖合法 / 非法 JSON hidden cases；
+3. 至少一个 `Http` + JSON + 领域判断的 agent-like 示例端到端通过，并记录 LLM 是否能根据库 catalog /
+   prompt asset 选择并使用 JSON 库；
+4. JSON 逻辑默认由纯 Sophia 库表达；host op 仅作为后续性能 / 完整性备选，不作为 v2 MVP。
+
+### 14.4 v3 起：可选 backend 与演化能力
 
 backend（按需添加）：
 
@@ -791,8 +819,8 @@ backend（按需添加）：
 - **Semantic Identity** 与跨 domain / library protocol（`sophia.lock`、publish/consume、formal-only 视图）；
 - **更强 strip-assist 等价**：从 IR / artifact 比对推进到独立的 formal-only hash。
 
-> 这些是 v1（让单 domain 语言真正可编译可用）之后的方向：让 Sophia 能维护多 domain、多轮演化的真实
-> 项目。它们依附于 v1 打下的可编译基础，不与 v1 的 WASM / 语言扩充争优先级。
+> 这些是 v2（让 Sophia 能用库处理真实外部数据）之后的方向：让 Sophia 能维护多 domain、多轮演化的真实
+> 项目。它们依附于 v1/v2 打下的可编译基础与库实践，不与 JSON 端到端主线争优先级。
 
 ---
 

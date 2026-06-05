@@ -16,12 +16,19 @@ const docsSidebar = [
   {
     type: "category",
     label: "Implementation",
-    items: ["language_implementation", "engineering_architecture", "type_system", "wasm_codegen"],
+    items: [
+      "language_implementation",
+      "engineering_architecture",
+      "dev_checklist_v1",
+      "dev_checklist_v2",
+      "type_system",
+      "wasm_codegen",
+    ],
   },
   {
     type: "category",
     label: "Libraries",
-    items: ["stdlib_design", "stdlib_implementation", "http_lib", "file_lib"],
+    items: ["json_lib_design", "stdlib_design", "stdlib_implementation", "http_lib", "file_lib"],
   },
   {
     type: "category",

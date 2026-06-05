@@ -129,12 +129,14 @@ Explicitly deferred to v2+ (no v1 demo trigger; see end of v1 Demo Requirements)
 - [ ] Execution Graph IR scheduling extensions: concurrency / await / retry / cancellation / checkpoint (starter subset only Control call edges; other edges are placeholders without surface sources). Carried from v0 §2.3
 - [ ] Integrate Tokio substrate: when real async effects (network/files) are introduced. Carried from v0 §2.3
 
-### Roadmap (v2+, not competing with v1 priorities)
+### Follow-up Roadmap (v2 / v3+, not competing with v1 priorities)
 
-See `engineering_architecture.md` §14.3.
+v2 has been narrowed to the JSON third-party-library end-to-end phase. See `engineering_architecture.md` §14.3 and `dev_checklist_v2.md`.
+The earlier broad backend / evolution directions move to v3+. See `engineering_architecture.md` §14.4.
 
-- [ ] Optional backends: native (cranelift / LLVM lowering); targeted named-language emits (TS / Python)
-- [ ] Evolution capabilities: make edit transition a first-class graph action + Evolution Boundary; Semantic Identity; cross-domain/library protocol (`sophia.lock` / publish-consume / formal-only views); stronger strip-assist (separate IR / formal-only hash)
+- [ ] v2 JSON third-party library end-to-end: prerequisite `Text` / `while` language extensions → pure Sophia JSON validator/parser → `Http` + JSON agent-like example
+- [ ] v3+ optional backends: native (cranelift / LLVM lowering); targeted named-language emits (TS / Python)
+- [ ] v3+ evolution capabilities: make edit transition a first-class graph action + Evolution Boundary; Semantic Identity; cross-domain/library protocol (`sophia.lock` / publish-consume / formal-only views); stronger strip-assist (separate IR / formal-only hash)
 - [ ] MessagePack serialization (graph snapshots / runtime state / semantic cache)
 - [ ] Formatter (AST/HIR → deterministic pretty printer)
 

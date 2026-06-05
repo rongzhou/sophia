@@ -15,12 +15,15 @@ const rootDocs = [
 
 const docPages = [
   "concepts",
+  "dev_checklist_v1",
+  "dev_checklist_v2",
   "language_design",
   "language_implementation",
   "engineering_architecture",
   "workflow_graph_spec",
   "type_system",
   "wasm_codegen",
+  "json_lib_design",
   "stdlib_design",
   "stdlib_implementation",
   "http_lib",
